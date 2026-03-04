@@ -3,7 +3,9 @@
  */
 
 #include "ble_comm.h"
+#include <NimBLECharacteristic.h>
 #include <NimBLEDevice.h>
+
 
 // ---------------------------------------------------------------------------
 // Internal state
@@ -41,8 +43,9 @@ class CaneServerCallbacks : public NimBLEServerCallbacks {
 
 class NavCommandCallback : public NimBLECharacteristicCallbacks {
   void onWrite(NimBLECharacteristic *pChar, NimBLEConnInfo &connInfo) override {
-    const uint8_t *data = pChar->getValue().data();
-    size_t len = pChar->getValue().length();
+    NimBLEAttValue val = pChar->getValue();
+    const uint8_t *data = val.data();
+    size_t len = val.size();
     if (len >= 1) {
       pendingNavCmd = static_cast<NavCommand>(data[0]);
       Serial.printf("[BLE] Nav command received: 0x%02X\n", data[0]);
@@ -83,14 +86,14 @@ void initBleCane() {
                                                NIMBLE_PROPERTY::READ);
   // Set initial status: battery 100%, version 1.0, all sensors OK
   uint8_t statusData[] = {100, 1, 0, 0xFF};
-  pStatusChar->setValue(statusData, sizeof(statusData));
+  pStatusChar->setValue((const uint8_t *)statusData, sizeof(statusData));
 
   pService->start();
 
   // Start advertising
   NimBLEAdvertising *pAdv = NimBLEDevice::getAdvertising();
   pAdv->addServiceUUID(ICAN_CANE_SERVICE_UUID);
-  pAdv->setScanResponse(true);
+  pAdv->enableScanResponse(true);
   pAdv->start();
 
   Serial.println("[BLE] iCan Cane service advertising.");
@@ -110,7 +113,7 @@ void notifyObstacle(ObstacleSide side, uint16_t distCm) {
   data[0] = static_cast<uint8_t>(side);
   data[1] = distCm & 0xFF;        // low byte
   data[2] = (distCm >> 8) & 0xFF; // high byte
-  pObstacleChar->setValue(data, sizeof(data));
+  pObstacleChar->setValue((const uint8_t *)data, sizeof(data));
   pObstacleChar->notify();
 }
 

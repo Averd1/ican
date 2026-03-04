@@ -8,9 +8,8 @@
 #ifndef BLE_COMM_H
 #define BLE_COMM_H
 
-#include "ble_protocol.h"
-#include <cstdint>
-
+#include "../../../shared/ble_protocol.h"
+#include <stdint.h>
 
 /**
  * Initialize BLE peripheral with the iCan Cane service.

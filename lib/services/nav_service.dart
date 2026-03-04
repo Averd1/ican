@@ -2,10 +2,7 @@ import 'package:flutter/foundation.dart';
 
 /// A single step in a navigation route.
 class NavStep {
-  final String instruction; // e.g., "Turn left on Main St"
-  final double distanceMeters;
-  final double durationSeconds;
-  final String maneuver; // e.g., "turn-left", "turn-right", "arrive"
+  // e.g., "turn-left", "turn-right", "arrive"
 
   const NavStep({
     required this.instruction,
@@ -13,6 +10,10 @@ class NavStep {
     required this.durationSeconds,
     required this.maneuver,
   });
+  final String instruction; // e.g., "Turn left on Main St"
+  final double distanceMeters;
+  final double durationSeconds;
+  final String maneuver;
 }
 
 /// Navigation Service — wraps Mapbox Directions API.
@@ -33,8 +34,7 @@ class NavService extends ChangeNotifier {
   bool _isNavigating = false;
   bool get isNavigating => _isNavigating;
 
-  NavStep? get currentStep =>
-      _currentStepIndex < _steps.length ? _steps[_currentStepIndex] : null;
+  NavStep? get currentStep => _currentStepIndex < _steps.length ? _steps[_currentStepIndex] : null;
 
   /// Fetch walking directions from current location to [destination].
   Future<bool> getDirections(String destination) async {

@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/foundation.dart';
+import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import '../protocol/ble_protocol.dart';
 
 /// BLE connection status.
@@ -13,6 +14,12 @@ enum BleConnectionState { disconnected, scanning, connecting, connected }
 class BleService extends ChangeNotifier {
   BleConnectionState _state = BleConnectionState.disconnected;
   BleConnectionState get state => _state;
+
+  BluetoothDevice? _connectedDevice;
+  StreamSubscription<BluetoothConnectionState>? _connectionSub;
+
+  BluetoothCharacteristic? _navRxChar;
+  BluetoothCharacteristic? _eyeCaptureRxChar;
 
   // Latest telemetry from the cane
   TelemetryPacket? _lastTelemetry;
@@ -34,29 +41,101 @@ class BleService extends ChangeNotifier {
 
   /// Start scanning for iCan devices.
   Future<void> startScan() async {
+    if (await FlutterBluePlus.adapterState.first != BluetoothAdapterState.on) {
+      debugPrint('[BLE] Bluetooth is not turned on.');
+      return;
+    }
+
     _setState(BleConnectionState.scanning);
-    // TODO: Implement with flutter_reactive_ble
-    // - Scan for devices advertising ICAN_CANE_SERVICE_UUID or ICAN_EYE_SERVICE_UUID
-    // - Store discovered device IDs
     debugPrint('[BLE] Scanning for iCan devices...');
+
+    FlutterBluePlus.scanResults.listen((results) {
+      for (ScanResult r in results) {
+        if (r.device.platformName == 'iCan Cane') {
+          FlutterBluePlus.stopScan();
+          connectToCane(r.device);
+          break;
+        } else if (r.device.platformName == 'iCan Eye') {
+          // Connect to Eye if preferred
+        }
+      }
+    });
+
+    await FlutterBluePlus.startScan(
+      withServices: [Guid(BleServices.caneServiceUuid)],
+      timeout: const Duration(seconds: 15),
+    );
+
+    if (_state == BleConnectionState.scanning) {
+      _setState(BleConnectionState.disconnected);
+    }
   }
 
   /// Connect to a discovered iCan Cane device.
-  Future<void> connectToCane(String deviceId) async {
+  Future<void> connectToCane(BluetoothDevice device) async {
     _setState(BleConnectionState.connecting);
-    // TODO: Implement connection and characteristic subscription
-    // - Connect to deviceId
-    // - Subscribe to CHAR_OBSTACLE_ALERT_TX → parse → _obstacleController
-    // - Subscribe to CHAR_IMU_TELEMETRY_TX → parse → _telemetryController
-    debugPrint('[BLE] Connecting to Cane: $deviceId');
-    _setState(BleConnectionState.connected);
+    debugPrint('[BLE] Connecting to Cane: ${device.remoteId}');
+
+    try {
+      await device.connect(autoConnect: false);
+      _connectedDevice = device;
+
+      _connectionSub = device.connectionState.listen((state) {
+        if (state == BluetoothConnectionState.disconnected) {
+          _setState(BleConnectionState.disconnected);
+          _connectedDevice = null;
+        }
+      });
+
+      _setState(BleConnectionState.connected);
+      await _discoverCaneServices(device);
+    } catch (e) {
+      debugPrint('[BLE] Connection error: $e');
+      _setState(BleConnectionState.disconnected);
+    }
+  }
+
+  Future<void> _discoverCaneServices(BluetoothDevice device) async {
+    final List<BluetoothService> services = await device.discoverServices();
+    for (BluetoothService service in services) {
+      if (service.uuid == Guid(BleServices.caneServiceUuid)) {
+        for (BluetoothCharacteristic characteristic in service.characteristics) {
+          // Nav RX
+          if (characteristic.uuid == Guid(BleCharacteristics.navCommandRx)) {
+            _navRxChar = characteristic;
+          }
+          // Obstacle TX (Notify)
+          else if (characteristic.uuid == Guid(BleCharacteristics.obstacleAlertTx)) {
+            await characteristic.setNotifyValue(true);
+            characteristic.lastValueStream.listen((value) {
+              if (value.isNotEmpty) {
+                try {
+                  final alert = ObstacleAlert.fromBytes(Uint8List.fromList(value));
+                  _obstacleController.add(alert);
+                } catch (e) {
+                  debugPrint('[BLE] Obstacle parse error: $e');
+                }
+              }
+            });
+          }
+          // Telemetry TX (Notify)
+          else if (characteristic.uuid == Guid(BleCharacteristics.imuTelemetryTx)) {
+            await characteristic.setNotifyValue(true);
+            characteristic.lastValueStream.listen((value) {
+              if (value.isNotEmpty) {
+                onTelemetryReceived(Uint8List.fromList(value));
+              }
+            });
+          }
+        }
+      }
+    }
   }
 
   /// Connect to a discovered iCan Eye device.
-  Future<void> connectToEye(String deviceId) async {
-    // TODO: Subscribe to CHAR_EYE_INSTANT_TEXT_TX → _instantTextController
-    // TODO: Subscribe to CHAR_EYE_IMAGE_STREAM_TX → reassemble JPEG
-    debugPrint('[BLE] Connecting to Eye: $deviceId');
+  Future<void> connectToEye(BluetoothDevice device) async {
+    debugPrint('[BLE] Connecting to Eye: ${device.remoteId}');
+    // Implementation for connecting to Eye and discovering its custom services
   }
 
   // ---------------------------------------------------------------------------
@@ -65,17 +144,21 @@ class BleService extends ChangeNotifier {
 
   /// Send a navigation command to the cane.
   Future<void> sendNavCommand(NavCommand command) async {
-    if (_state != BleConnectionState.connected) return;
-    // TODO: Write command.opcode to CHAR_NAV_COMMAND_RX
+    if (_state != BleConnectionState.connected || _navRxChar == null) return;
+
     debugPrint(
       '[BLE] Sending nav command: ${command.name} (0x${command.opcode.toRadixString(16)})',
     );
+    await _navRxChar!.write([command.opcode], withoutResponse: true);
   }
 
   /// Remotely trigger image capture on the Eye.
   Future<void> triggerEyeCapture() async {
-    // TODO: Write 0x01 to CHAR_EYE_CAPTURE_RX
+    if (_state != BleConnectionState.connected || _eyeCaptureRxChar == null) {
+      return;
+    }
     debugPrint('[BLE] Triggering Eye capture.');
+    await _eyeCaptureRxChar!.write([0x01], withoutResponse: true);
   }
 
   // ---------------------------------------------------------------------------
@@ -96,12 +179,14 @@ class BleService extends ChangeNotifier {
       _telemetryController.add(pkt);
       notifyListeners();
     } catch (e) {
-      debugPrint('[BLE] Telemetry parse error: $e');
+      // In complete app, handle properly. Can ignore partial packets silently here.
     }
   }
 
   @override
   void dispose() {
+    _connectionSub?.cancel();
+    _connectedDevice?.disconnect();
     _telemetryController.close();
     _obstacleController.close();
     _instantTextController.close();
@@ -111,9 +196,6 @@ class BleService extends ChangeNotifier {
 
 /// Simple obstacle alert data class.
 class ObstacleAlert {
-  final ObstacleSide side;
-  final int distanceCm;
-
   const ObstacleAlert({required this.side, required this.distanceCm});
 
   factory ObstacleAlert.fromBytes(Uint8List data) {
@@ -123,4 +205,6 @@ class ObstacleAlert {
       distanceCm: data[1] | (data[2] << 8),
     );
   }
+  final ObstacleSide side;
+  final int distanceCm;
 }

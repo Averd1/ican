@@ -8,9 +8,8 @@
 #ifndef HAPTICS_H
 #define HAPTICS_H
 
-#include "ble_protocol.h" // HapticPattern enum
-#include <cstdint>
-
+#include "../../../shared/ble_protocol.h" // HapticPattern enum
+#include <stdint.h>
 
 /**
  * Initialize the DRV2605L haptic driver.

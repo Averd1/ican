@@ -16,16 +16,14 @@
  * ============================================================================
  */
 
-#include "ble_protocol.h"
+#include "../../shared/ble_protocol.h"
 #include <Arduino.h>
 #include <Wire.h>
-
 
 // Local library headers (implemented in lib/ subdirectories)
 #include "ble_comm.h"
 #include "haptics.h"
 #include "sensors.h"
-
 
 // ---------------------------------------------------------------------------
 // Pin Definitions

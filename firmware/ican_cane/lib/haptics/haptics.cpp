@@ -4,6 +4,8 @@
 
 #include "haptics.h"
 #include <Adafruit_DRV2605.h>
+#include <Arduino.h>
+
 
 static Adafruit_DRV2605 drv;
 

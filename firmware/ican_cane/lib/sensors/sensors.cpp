@@ -7,7 +7,6 @@
 #include <Arduino.h>
 #include <Wire.h>
 
-
 // ---------------------------------------------------------------------------
 // Internal state
 // ---------------------------------------------------------------------------
@@ -119,10 +118,14 @@ ImuData readIMU() {
   yawAccum += data.gyroZ * 0.05f; // dt ≈ 50ms
   data.yaw = yawAccum;
 
-  // Fall detection: magnitude of accel vector near zero = free-fall
-  float accelMag = sqrtf(data.accelX * data.accelX + data.accelY * data.accelY +
-                         data.accelZ * data.accelZ);
-  data.fallDetected = (accelMag < FALL_THRESHOLD);
+  // Fall detection: magnitude squared of accel vector near zero = free-fall
+  // Optimization: use mag squared rather than sqrt() since we just compare to a
+  // threshold
+  float const FALL_THRESH_SQ = FALL_THRESHOLD * FALL_THRESHOLD;
+  float accelMagSq = (data.accelX * data.accelX) + (data.accelY * data.accelY) +
+                     (data.accelZ * data.accelZ);
+
+  data.fallDetected = (accelMagSq < FALL_THRESH_SQ);
 
   return data;
 }

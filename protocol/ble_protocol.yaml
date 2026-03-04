@@ -1,0 +1,160 @@
+# ============================================================================
+# iCan BLE Protocol Definition — Single Source of Truth
+# ============================================================================
+# Both firmware/shared/ble_protocol.h (C++) and lib/protocol/ble_protocol.dart
+# (Dart) are derived from this file. When adding a new UUID, opcode, or packet
+# field, update this file FIRST, then mirror the change in .h and .dart.
+# ============================================================================
+
+# ---------------------------------------------------------------------------
+# BLE Services
+# ---------------------------------------------------------------------------
+services:
+  cane:
+    name: "iCan Cane Service"
+    uuid: "10000001-1000-1000-1000-100000000000"
+    description: "Primary service for the iCan Cane (Arduino Nano ESP32)"
+
+  eye:
+    name: "iCan Eye Service"
+    uuid: "20000001-2000-2000-2000-200000000000"
+    description: "Primary service for the iCan Eye (XIAO ESP32-S3)"
+
+# ---------------------------------------------------------------------------
+# BLE Characteristics
+# ---------------------------------------------------------------------------
+characteristics:
+  # ---- Cane Characteristics ----
+  nav_command_rx:
+    service: cane
+    uuid: "10000002-1000-1000-1000-100000000000"
+    direction: "write"  # App → Cane
+    description: "App sends navigation commands (turn left/right/stop) to cane"
+
+  obstacle_alert_tx:
+    service: cane
+    uuid: "10000003-1000-1000-1000-100000000000"
+    direction: "notify"  # Cane → App
+    description: "Cane notifies app of detected obstacles (side + distance)"
+
+  imu_telemetry_tx:
+    service: cane
+    uuid: "10000004-1000-1000-1000-100000000000"
+    direction: "notify"  # Cane → App
+    description: "Cane streams telemetry: fall-detect flag, pulse BPM, battery %"
+
+  cane_status_tx:
+    service: cane
+    uuid: "10000005-1000-1000-1000-100000000000"
+    direction: "read"  # App reads on demand
+    description: "Battery level, firmware version, sensor health bitmask"
+
+  # ---- Eye Characteristics ----
+  eye_instant_text_tx:
+    service: eye
+    uuid: "20000002-2000-2000-2000-200000000000"
+    direction: "notify"  # Eye → App
+    description: "Pipeline 1: instant object label text from on-device TFLite"
+
+  eye_image_stream_tx:
+    service: eye
+    uuid: "20000003-2000-2000-2000-200000000000"
+    direction: "notify"  # Eye → App (L2CAP CoC preferred)
+    description: "Pipeline 2: chunked JPEG image stream for phone-side VLM"
+
+  eye_capture_rx:
+    service: eye
+    uuid: "20000004-2000-2000-2000-200000000000"
+    direction: "write"  # App → Eye
+    description: "App can remotely trigger image capture on the Eye"
+
+# ---------------------------------------------------------------------------
+# Navigation Command Opcodes (App → Cane via nav_command_rx)
+# ---------------------------------------------------------------------------
+nav_commands:
+  NAV_STOP:        0x00
+  NAV_TURN_LEFT:   0x01
+  NAV_TURN_RIGHT:  0x02
+  NAV_GO_STRAIGHT: 0x03
+  NAV_U_TURN:      0x04
+  NAV_ARRIVED:     0x05
+  NAV_RECALCULATE: 0x06
+
+# ---------------------------------------------------------------------------
+# Obstacle Alert Opcodes (Cane → App via obstacle_alert_tx)
+# ---------------------------------------------------------------------------
+obstacle_sides:
+  OBSTACLE_NONE:   0x00
+  OBSTACLE_LEFT:   0x01
+  OBSTACLE_RIGHT:  0x02
+  OBSTACLE_HEAD:   0x03  # LiDAR head-height detection
+  OBSTACLE_FRONT:  0x04  # Both ultrasonics triggered
+
+# ---------------------------------------------------------------------------
+# Haptic Patterns (internal to firmware, documented here for reference)
+# ---------------------------------------------------------------------------
+haptic_patterns:
+  PATTERN_OBSTACLE_LEFT:   1   # DRV2605L waveform ID — strong click left
+  PATTERN_OBSTACLE_RIGHT:  2   # Strong click right
+  PATTERN_OBSTACLE_HEAD:   3   # Sharp alert top
+  PATTERN_NAV_LEFT:        4   # Gentle pulse left
+  PATTERN_NAV_RIGHT:       5   # Gentle pulse right
+  PATTERN_NAV_STRAIGHT:    6   # Single tick
+  PATTERN_ARRIVED:         7   # Celebration buzz
+  PATTERN_FALL_ALERT:      8   # Rapid triple buzz
+
+# ---------------------------------------------------------------------------
+# Telemetry Packet Layout (imu_telemetry_tx, 6 bytes)
+# ---------------------------------------------------------------------------
+# Byte 0:    flags (bit 0 = fall_detected, bit 1 = pulse_valid)
+# Byte 1:    pulse_bpm (0-255)
+# Byte 2:    battery_percent (0-100)
+# Byte 3-4:  yaw_angle (int16_t, degrees * 10, little-endian)
+# Byte 5:    reserved
+telemetry_packet:
+  total_bytes: 6
+  fields:
+    - name: flags
+      offset: 0
+      size: 1
+      bits:
+        fall_detected: 0
+        pulse_valid: 1
+    - name: pulse_bpm
+      offset: 1
+      size: 1
+    - name: battery_percent
+      offset: 2
+      size: 1
+    - name: yaw_angle
+      offset: 3
+      size: 2
+      type: int16_le
+      unit: "degrees * 10"
+    - name: reserved
+      offset: 5
+      size: 1
+
+# ---------------------------------------------------------------------------
+# Image Stream Packet Layout (eye_image_stream_tx, variable)
+# ---------------------------------------------------------------------------
+# Byte 0-1:  sequence_number (uint16_t, little-endian)
+# Byte 2-3:  total_chunks (uint16_t, little-endian)
+# Byte 4:    checksum (XOR of payload bytes)
+# Byte 5+:   payload (up to 235 bytes of JPEG data)
+image_packet:
+  header_bytes: 5
+  max_payload_bytes: 235
+  max_packet_bytes: 240
+  fields:
+    - name: sequence_number
+      offset: 0
+      size: 2
+      type: uint16_le
+    - name: total_chunks
+      offset: 2
+      size: 2
+      type: uint16_le
+    - name: checksum
+      offset: 4
+      size: 1

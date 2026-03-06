@@ -1,0 +1,1 @@
+The Bill of Materials (BOM) for the iCan project is stored in the `BOM-for-iCan.csv` file. This file contains a list of all the components required for the project, including their part numbers, costs, and links to purchase them.

@@ -1,0 +1,1 @@
+This is a folder for data sheets of the hardware we are or prototyping with. Either from actual code implemented health checks OR from the manufacturer data sheets. 

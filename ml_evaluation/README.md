@@ -28,8 +28,4 @@ You can organize this testing environment as follows:
 - `scripts/`: Python scripts for evaluating model accuracy, inference time, and memory footprint.
 - `esp32_test/`: (Optional) Minimal C++ sketches to test microcontroller inference limitations, if you want to benchmark it directly against the phone.
 
-## Getting Started
-
-1. Collect sample images.
-2. Write a Python script to run inference on those images using different TFLite models.
-3. Measure the inference time and accuracy for each, then select the best one to bundle into the Flutter app's `assets/` folder constraint.
+Review implementation_plan1.md in this directory as the README.md for more details

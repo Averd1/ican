@@ -8,7 +8,7 @@
 #ifndef BLE_COMM_H
 #define BLE_COMM_H
 
-#include "../../../shared/ble_protocol.h"
+#include "ble_protocol.h"
 #include <stdint.h>
 
 /**

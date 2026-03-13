@@ -15,8 +15,9 @@ Requirements:
 
 Usage:
     python receive_photo_v2.py
-    python receive_photo_v2.py --profile 2        # start with QUALITY profile
-    python receive_photo_v2.py --profile 3 --once # single MAX capture then exit
+    python receive_photo_v2.py --profile 2              # start with QUALITY profile
+    python receive_photo_v2.py --profile 3 --once       # single MAX capture then exit
+    python receive_photo_v2.py --address 90:70:69:12:53:BD  # connect directly by MAC
 """
 
 import asyncio
@@ -220,6 +221,8 @@ async def main():
                         help="Quality profile (0=FAST, 1=BALANCED, 2=QUALITY, 3=MAX)")
     parser.add_argument("--once", action="store_true",
                         help="Take one photo and exit (no interactive menu)")
+    parser.add_argument("--address", type=str, default=None,
+                        help="Connect directly by MAC address e.g. 90:70:69:12:53:BD (bypasses name scan)")
     args = parser.parse_args()
 
     print("=" * 55)
@@ -231,16 +234,38 @@ async def main():
         marker = " ◀" if k == args.profile else ""
         print(f"    {k}: {v}{marker}")
 
-    print(f"\nScanning for XIAO_Camera...")
-    device = await BleakScanner.find_device_by_name("XIAO_Camera", timeout=15)
+    # --- Scan / connect ---
+    device = None
+
+    if args.address:
+        # Direct MAC connection — bypasses Windows BT name cache
+        print(f"\nConnecting directly to {args.address}...")
+        device = args.address  # BleakClient accepts a MAC string directly
+    else:
+        # Scan by name with retries (Windows sometimes needs 2-3 attempts
+        # after a device reflash before it shows up in the scan)
+        SCAN_ATTEMPTS = 3
+        SCAN_TIMEOUT  = 10  # seconds per attempt
+        for attempt in range(1, SCAN_ATTEMPTS + 1):
+            print(f"\nScanning for XIAO_Camera... (attempt {attempt}/{SCAN_ATTEMPTS})")
+            device = await BleakScanner.find_device_by_name("XIAO_Camera", timeout=SCAN_TIMEOUT)
+            if device:
+                break
+            if attempt < SCAN_ATTEMPTS:
+                print("  Not found yet, retrying in 2s...")
+                await asyncio.sleep(2)
 
     if not device:
-        print("[ERROR] Device not found.")
-        print("  • Is the ESP32 powered on and advertising?")
-        print("  • Is Bluetooth enabled on this computer?")
+        print("\n[ERROR] Device not found after all scan attempts.")
+        print("  Troubleshooting tips:")
+        print("  1. Check Serial Monitor — does it show '[BLE] Advertising as XIAO_Camera'?")
+        print("  2. Toggle Bluetooth OFF then ON in Windows settings")
+        print("  3. Connect directly by MAC:  python receive_photo_v2.py --address 90:70:69:12:53:BD")
+        print("  4. Try the v1 receiver:      python receive_photo.py")
         return
 
-    print(f"Found: {device.name} ({device.address})")
+    if hasattr(device, 'address'):
+        print(f"Found: {device.name} ({device.address})")
 
     async with BleakClient(device) as client:
         print(f"Connected! (MTU: {client.mtu_size})")

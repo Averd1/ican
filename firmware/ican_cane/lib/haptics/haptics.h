@@ -8,7 +8,7 @@
 #ifndef HAPTICS_H
 #define HAPTICS_H
 
-#include "../../../shared/ble_protocol.h" // HapticPattern enum
+#include "ble_protocol.h" // HapticPattern enum
 #include <stdint.h>
 
 /**

@@ -1,0 +1,12 @@
+{
+  "name": "ican_shared",
+  "version": "1.0.0",
+  "description": "Shared BLE protocol definitions for iCan Cane and Eye",
+  "keywords": ["ble", "protocol", "shared"],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/saberrg/ican.git"
+  },
+  "frameworks": ["arduino"],
+  "platforms": ["espressif32"]
+}

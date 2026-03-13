@@ -180,16 +180,15 @@ void startCamera() {
   config.frame_size = profiles[currentProfile].frameSize;
   config.jpeg_quality = profiles[currentProfile].jpegQuality;
 
-  // PSRAM is available on the XIAO ESP32-S3 Sense — use 2 frame buffers
-  // for better capture performance
+  // Always use 1 frame buffer + GRAB_WHEN_EMPTY.
+  // GRAB_LATEST with fb_count=2 causes FB-OVF when exposure is high
+  // because the camera fills buffers faster than we consume them.
+  config.fb_count = 1;
+  config.grab_mode = CAMERA_GRAB_WHEN_EMPTY;
   if (psramFound()) {
-    config.fb_count = 2;
-    config.grab_mode = CAMERA_GRAB_LATEST;
     Serial.printf("[CAM] PSRAM found: %d bytes free\n", ESP.getFreePsram());
   } else {
-    config.fb_count = 1;
-    config.grab_mode = CAMERA_GRAB_WHEN_EMPTY;
-    Serial.println("[CAM] No PSRAM — using single buffer");
+    Serial.println("[CAM] No PSRAM detected");
   }
 
   esp_err_t err = esp_camera_init(&config);
@@ -198,31 +197,32 @@ void startCamera() {
     return;
   }
 
-  // OV2640 sensor tweaks — push brightness hard
-  // The ceiling light fools auto-exposure into underexposing the scene
+  // OV2640 sensor tweaks — bright but stable (no FB-OVF)
+  // Note: aec_value removed — it forces long exposures that stall frame
+  // delivery
   sensor_t *s = esp_camera_sensor_get();
   if (s) {
-    s->set_brightness(s, 2);  // -2 to 2, MAX brightness
-    s->set_contrast(s, 1);    // -2 to 2, slight boost
-    s->set_saturation(s, 0);  // -2 to 2
-    s->set_whitebal(s, 1);    // auto white balance on
-    s->set_awb_gain(s, 1);    // AWB gain on
-    s->set_wb_mode(s, 0);     // 0=auto, 1=sunny, 2=cloudy, 3=office, 4=home
-    s->set_aec2(s, 1);        // auto exposure control (DSP) on
-    s->set_ae_level(s, 2);    // -2 to 2, MAX exposure compensation
-    s->set_aec_value(s, 800); // 0-1200, high exposure floor
+    s->set_brightness(s, 2); // -2 to 2, MAX brightness
+    s->set_contrast(s, 1);   // -2 to 2, slight boost
+    s->set_saturation(s, 0); // -2 to 2
+    s->set_whitebal(s, 1);   // auto white balance on
+    s->set_awb_gain(s, 1);   // AWB gain on
+    s->set_wb_mode(s, 0);    // 0=auto, 1=sunny, 2=cloudy, 3=office, 4=home
+    s->set_aec2(s, 1);       // auto exposure control (DSP) on
+    s->set_ae_level(s, 2);   // -2 to 2, MAX exposure compensation
     s->set_gainceiling(s, GAINCEILING_16X); // max gain for dark areas
   }
 
   Serial.printf("[CAM] Initialized — profile: %s\n",
                 profiles[currentProfile].name);
 
-  // Warm-up: take throwaway frames so auto-exposure stabilizes
-  for (int i = 0; i < 4; i++) {
+  // Warm-up: 6 frames with 300ms gap so auto-exposure can fully settle
+  // Longer delay prevents FB-OVF during init
+  for (int i = 0; i < 6; i++) {
     camera_fb_t *fb = esp_camera_fb_get();
     if (fb)
       esp_camera_fb_return(fb);
-    delay(150);
+    delay(300);
   }
   Serial.println("[CAM] Warm-up complete");
 }

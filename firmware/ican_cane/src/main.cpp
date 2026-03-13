@@ -16,7 +16,7 @@
  * ============================================================================
  */
 
-#include "../../shared/ble_protocol.h"
+#include "ble_protocol.h"
 #include <Arduino.h>
 #include <Wire.h>
 

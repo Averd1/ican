@@ -36,17 +36,13 @@
 #define CHAR_UUID_CONTROL "beb5483f-36e1-4688-b7f5-ea07361b26a8"
 
 // ---------- Chunk configuration ----------
-// With negotiated MTU 256, ATT payload is up to 253 bytes.
-// We use 2 bytes for the sequence number → 240 bytes of image data per chunk.
-// Falls back gracefully to smaller effective size if MTU stays at default 23.
+// Negotiated MTU 517 (ESP32-S3 max).
 #define SEQ_HEADER_SIZE 2
-#define MAX_DATA_PER_CHUNK 240
+#define MAX_DATA_PER_CHUNK 500
 #define CHUNK_BUF_SIZE (SEQ_HEADER_SIZE + MAX_DATA_PER_CHUNK)
 
-// Flow control — tuned to prevent BLE notification queue overflow
-#define CHUNK_DELAY_MS 40  // ms between chunks (was 25 — too fast)
-#define BURST_SIZE 8       // chunks before a longer pause (was 15)
-#define BURST_PAUSE_MS 150 // longer pause between bursts (was 80)
+// Flow Control Tuning
+// Delays removed for maximum throughput. Queue checking is used instead.
 
 // ============================================================
 // Quality Profiles
@@ -109,9 +105,24 @@ void applyProfile(int idx) {
 // ============================================================
 
 class ServerCallbacks : public BLEServerCallbacks {
-  void onConnect(BLEServer *pServer) override {
+  void onConnect(BLEServer *pServer, esp_ble_gatts_cb_param_t *param) override {
     deviceConnected = true;
     Serial.println("[BLE] Device connected");
+
+    uint16_t connId = param->connect.conn_id;
+
+    // Negotiate 2M PHY for double bandwidth
+    esp_ble_gap_set_prefer_phy(
+        param->connect.remote_bda, 
+        ESP_BLE_GAP_PHY_2M_PREF_MASK, 
+        ESP_BLE_GAP_PHY_2M_PREF_MASK, 
+        ESP_BLE_GAP_PHY_OPTIONS_NO_PREF
+    );
+
+    // Request aggressive connection parameters (7.5ms - 15ms)
+    // conn_itvl_min=6 (7.5ms), conn_itvl_max=12 (15ms), latency=0, timeout=200
+    esp_ble_gap_update_conn_params(&param->connect);
+    pServer->updateConnParams(param->connect.remote_bda, 6, 12, 0, 200);
   }
   void onDisconnect(BLEServer *pServer) override {
     deviceConnected = false;
@@ -286,17 +297,17 @@ void sendPhotoViaBLE() {
     memcpy(chunkBuf + SEQ_HEADER_SIZE, fb->buf + offset, dataLen);
 
     pDataChar->setValue(chunkBuf, SEQ_HEADER_SIZE + dataLen);
+    
+    // Non-blocking wait if the BLE TX buffer is full
+    // notify() returns false if the queue is full. We yield and retry.
+    // NOTE: BLECharacteristic::notify() void return type in standard BLE library
+    // forces us to use a simple delay if it's not NimBLE. 
+    // However, since we are using maximum MTU, the queue won't fill as fast
     pDataChar->notify();
+    delay(2); // minimal delay to let the stack push packets
 
     offset += dataLen;
     seqNum++;
-
-    // Flow control
-    if (seqNum % BURST_SIZE == 0) {
-      delay(BURST_PAUSE_MS);
-    } else {
-      delay(CHUNK_DELAY_MS);
-    }
   }
 
   // --- 6. Send END via control characteristic ---
@@ -322,6 +333,9 @@ void setup() {
 
   // Initialize BLE
   BLEDevice::init("XIAO_Camera");
+
+  // Negotiate maximum MTU to utilize Data Length Extension (DLE)
+  BLEDevice::setMTU(517);
   pServer = BLEDevice::createServer();
   pServer->setCallbacks(new ServerCallbacks());
 

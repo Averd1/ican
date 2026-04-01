@@ -44,6 +44,9 @@ PROFILE_NAMES = {
     3: "MAX      (1600x1200)",
 }
 
+# The Bleak client automatically negotiates the largest MTU supported by the 
+# OS and the device. Data chunk parsing is dynamic based on len(data).
+
 
 # ---------- Transfer state ----------
 class TransferState:
@@ -276,6 +279,10 @@ async def main():
         # Set initial profile
         print(f"\nSetting profile to {args.profile} ({PROFILE_NAMES[args.profile]})...")
         await set_profile(client, args.profile)
+
+        target_name = "iCan Eye"
+        target_address = None
+        target_device = None
 
         if args.once:
             # Single capture mode

@@ -93,3 +93,9 @@ secret.json
 **/ios/Flutter/flutter_assets/
 **/ios/Flutter/flutter_export_environment.sh
 **/ios/Pods/
+
+# Visual Studio
+.vs/
+
+# Test captures
+captures/

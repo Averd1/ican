@@ -1,6 +1,6 @@
 # iCan App
 
-This application is to be used for Android and iOS smart phones.
+This application is to be used for iOS smart phones.
 
 This app is a creation from a college course project on embedded systems. The iCan device is a project submission for the ECE 441 course at the Illinois Institute of Technology.
 
@@ -14,7 +14,7 @@ The purpose of the iCan device is to be a modified walking cane for the visually
 The users of this app are visually impaired so the focus should be on reading aloud and having the app recognize the user's voice commands.
 
 ### App Startup
-The app starts up by announcing itself as "iCan App" and then asks the user what option they would like to do.
+The app starts up by announcing itself as "iCan App", this app can work in the backround and when the camera takes a picture the AI response in TTS form is outputted out to the audio device of the phone either its through their airpods or phone speakers.
 
 Currently, there is 1 option:
 1) Say Location

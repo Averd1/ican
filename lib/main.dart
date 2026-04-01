@@ -1,9 +1,12 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'core/theme.dart';
 import 'core/app_router.dart';
 
-void main() {
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  
+  await dotenv.load(fileName: '.env');
   runApp(const ICanApp());
 }
 
@@ -20,7 +23,7 @@ class ICanApp extends StatelessWidget {
       title: 'iCan',
       debugShowCheckedModeBanner: false,
       theme: ICanTheme.darkTheme,
-      initialRoute: AppRouter.home,
+      initialRoute: AppRouter.splash,
       routes: AppRouter.routes,
     );
   }

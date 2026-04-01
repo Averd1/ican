@@ -64,21 +64,22 @@ void sendControlMessage(const char *msg);
 
 /**
  * Send a single image data chunk to the connected client.
- * Packs the sequence number header and payload per ble_protocol.h.
+ * Packs a 2-byte sequence number header and payload per ble_protocol.h.
  *
  * @param seqNum   Chunk sequence number (0-based).
  * @param data     Pointer to JPEG data for this chunk.
- * @param dataLen  Number of payload bytes (max IMAGE_MAX_PAYLOAD = 235).
+ * @param dataLen  Number of payload bytes (capped to MTU-based effective max).
+ * @return         Actual bytes of payload sent (used to advance the offset).
  */
-void sendImageChunk(uint16_t seqNum, const uint8_t *data, size_t dataLen);
+size_t sendImageChunk(uint16_t seqNum, const uint8_t *data, size_t dataLen);
 
 /**
- * High-level: stream an entire JPEG buffer over BLE with flow control.
- * Sends SIZE, CRC, image chunks, and END messages automatically.
+ * High-level: stream an entire JPEG buffer over BLE.
+ * Sends SIZE control message, image chunks, and END message.
  *
- * @param jpegBuf   Pointer to JPEG data.
- * @param jpegLen   Length of JPEG data in bytes.
- * @param profileName  Name of the profile used (sent as INFO message).
+ * @param jpegBuf      Pointer to JPEG data.
+ * @param jpegLen      Length of JPEG data in bytes.
+ * @param profileName  Name of the camera profile (for logging only).
  */
 void streamImageViaBle(const uint8_t *jpegBuf, size_t jpegLen,
                        const char *profileName);

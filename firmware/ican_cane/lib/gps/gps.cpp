@@ -1,7 +1,7 @@
 /**
  * gps.cpp — GPS Module Implementation
  *
- * Target: Arduino Nano ESP32
+ * Target: Arduino Nano ESP32 OR WROOM ESP32 Dev Board
  * Hardware: Adafruit Mini GPS PA1010D (or any MTK3333-based module)
  * Interface: UART via Hardware Serial 2
  */

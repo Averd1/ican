@@ -17,10 +17,10 @@
 // =========================================================================
 
 const CameraProfile profiles[] = {
-    {"FAST",     FRAMESIZE_QVGA, 18}, // 0: 320x240  ~2-4 KB
-    {"BALANCED", FRAMESIZE_VGA,  15}, // 1: 640x480  ~10-20 KB
-    {"QUALITY",  FRAMESIZE_SVGA, 12}, // 2: 800x600  ~20-40 KB
-    {"MAX",      FRAMESIZE_UXGA, 12}, // 3: 1600x1200 ~50-100 KB
+    {"FAST",     FRAMESIZE_VGA,   12}, // 0: 640x480   ~8-15 KB
+    {"BALANCED", FRAMESIZE_SVGA,  10}, // 1: 800x600   ~20-40 KB
+    {"QUALITY",  FRAMESIZE_XGA,    8}, // 2: 1024x768  ~40-70 KB
+    {"MAX",      FRAMESIZE_UXGA,   8}, // 3: 1600x1200 ~80-150 KB
 };
 const int NUM_PROFILES = sizeof(profiles) / sizeof(profiles[0]);
 
@@ -57,14 +57,17 @@ void initCamera() {
   config.frame_size   = profiles[currentProfile].frameSize;
   config.jpeg_quality = profiles[currentProfile].jpegQuality;
 
-  // 1 frame buffer + GRAB_WHEN_EMPTY avoids FB-OVF under high exposure
-  config.fb_count  = 1;
-  config.grab_mode = CAMERA_GRAB_WHEN_EMPTY;
-
+  // Use 2 frame buffers with PSRAM for faster capture cycle
   if (psramFound()) {
-    Serial.printf("[CAM] PSRAM found: %d bytes free\n", ESP.getFreePsram());
+    config.fb_count  = 2;
+    config.grab_mode = CAMERA_GRAB_LATEST;
+    config.fb_location = CAMERA_FB_IN_PSRAM;
+    Serial.printf("[CAM] PSRAM found: %d bytes free — using 2 frame buffers\n",
+                  ESP.getFreePsram());
   } else {
-    Serial.println("[CAM] No PSRAM detected");
+    config.fb_count  = 1;
+    config.grab_mode = CAMERA_GRAB_WHEN_EMPTY;
+    Serial.println("[CAM] No PSRAM — single frame buffer");
   }
 
   esp_err_t err = esp_camera_init(&config);
@@ -73,18 +76,20 @@ void initCamera() {
     return;
   }
 
-  // OV2640 sensor tweaks — bright but stable
+  // OV2640 sensor tuning — sharp, balanced exposure
   sensor_t *s = esp_camera_sensor_get();
   if (s) {
-    s->set_brightness(s, 2);
-    s->set_contrast(s, 1);
-    s->set_saturation(s, 0);
-    s->set_whitebal(s, 1);
-    s->set_awb_gain(s, 1);
-    s->set_wb_mode(s, 0);
-    s->set_aec2(s, 1);
-    s->set_ae_level(s, 2);
-    s->set_gainceiling(s, GAINCEILING_16X);
+    s->set_brightness(s, 1);             // +1 (was +2, too washed out)
+    s->set_contrast(s, 1);              // +1 for text readability
+    s->set_saturation(s, 0);            // neutral
+    s->set_sharpness(s, 2);             // +2 sharpness for text/edges
+    s->set_denoise(s, 1);              // light denoise (reduce grain)
+    s->set_whitebal(s, 1);             // auto white balance ON
+    s->set_awb_gain(s, 1);             // AWB gain ON
+    s->set_wb_mode(s, 0);              // auto WB mode
+    s->set_aec2(s, 1);                 // advanced AEC ON
+    s->set_ae_level(s, 1);             // +1 (was +2, overexposed)
+    s->set_gainceiling(s, GAINCEILING_8X); // 8x (was 16x, less noise)
   }
 
   Serial.printf("[CAM] Initialized — profile: %s\n",

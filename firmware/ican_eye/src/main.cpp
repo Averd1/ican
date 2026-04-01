@@ -28,13 +28,31 @@
 // ============================================================================
 
 void setup() {
+  // Use built-in LED (Pin 21) for diagnostics
+  pinMode(21, OUTPUT);
+  digitalWrite(21, LOW); // LED ON: Boot started
+
   Serial.begin(115200);
+
+  uint32_t t = millis();
+  while (!Serial && (millis() - t < 5000)) {
+      delay(10);
+  }
   delay(1000);
-  Serial.println("\n=== iCan Eye Firmware ===");
+
+  Serial.println("\n\n=== iCan Eye Firmware ===");
 
   // Initialize subsystems
   initCamera();
+  
+  // Quick blink before BLE init
+  digitalWrite(21, HIGH); delay(100);
+  digitalWrite(21, LOW); delay(100);
+
   initBleEye();
+
+  // LED OFF: Successfully reached loop()
+  digitalWrite(21, HIGH);
 
   Serial.printf("[Main] Default profile: %d (%s)\n", getCurrentProfile(),
                 profiles[getCurrentProfile()].name);

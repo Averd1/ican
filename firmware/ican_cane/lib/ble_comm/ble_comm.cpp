@@ -15,6 +15,7 @@ static NimBLECharacteristic *pNavCommandChar = nullptr;
 static NimBLECharacteristic *pObstacleChar = nullptr;
 static NimBLECharacteristic *pTelemetryChar = nullptr;
 static NimBLECharacteristic *pStatusChar = nullptr;
+static NimBLECharacteristic *pGpsChar = nullptr;
 
 static volatile NavCommand pendingNavCmd = NAV_STOP;
 static volatile bool clientConnected = false;
@@ -88,6 +89,10 @@ void initBleCane() {
   uint8_t statusData[] = {100, 1, 0, 0xFF};
   pStatusChar->setValue((const uint8_t *)statusData, sizeof(statusData));
 
+  // GPS Data (notify to app, 1 Hz)
+  pGpsChar = pService->createCharacteristic(CHAR_GPS_DATA_TX_UUID,
+                                            NIMBLE_PROPERTY::NOTIFY);
+
   pService->start();
 
   // Start advertising
@@ -124,6 +129,22 @@ void sendTelemetry(const TelemetryPacket &pkt) {
   pTelemetryChar->setValue(reinterpret_cast<const uint8_t *>(&pkt),
                            sizeof(pkt));
   pTelemetryChar->notify();
+}
+
+void sendGpsData(const GpsData &data) {
+  if (!clientConnected) return;
+
+  GpsPacket pkt;
+  pkt.latitude    = data.latitude;
+  pkt.longitude   = data.longitude;
+  pkt.altitude_m  = data.altitudeM;
+  pkt.speed_knots = data.speedKnots;
+  pkt.satellites  = data.satellites;
+  pkt.fix_quality = data.fixQuality;
+  pkt.fix_valid   = data.fix ? 1 : 0;
+
+  pGpsChar->setValue(reinterpret_cast<const uint8_t *>(&pkt), sizeof(pkt));
+  pGpsChar->notify();
 }
 
 bool isBleConnected() { return clientConnected; }

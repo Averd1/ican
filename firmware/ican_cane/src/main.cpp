@@ -22,6 +22,7 @@
 
 // Local library headers (implemented in lib/ subdirectories)
 #include "ble_comm.h"
+#include "gps.h"
 #include "haptics.h"
 #include "sensors.h"
 
@@ -46,9 +47,11 @@ constexpr uint8_t MUX_CH_IMU = 2;     // LSM6DSOX
 // ---------------------------------------------------------------------------
 constexpr unsigned long SENSOR_POLL_INTERVAL_MS = 50;     // 20 Hz
 constexpr unsigned long TELEMETRY_SEND_INTERVAL_MS = 200; // 5 Hz
+constexpr unsigned long GPS_SEND_INTERVAL_MS = 1000;      // 1 Hz
 
 unsigned long lastSensorPoll = 0;
 unsigned long lastTelemetrySend = 0;
+unsigned long lastGpsSend = 0;
 
 // ---------------------------------------------------------------------------
 // I²C Mux Helper
@@ -77,6 +80,7 @@ void setup() {
               PIN_ULTRASONIC_RIGHT_TRIG, PIN_ULTRASONIC_RIGHT_ECHO);
 
   initBleCane();
+  initGPS();
 
   Serial.println("[iCan Cane] Ready.");
 }
@@ -86,6 +90,9 @@ void setup() {
 // ---------------------------------------------------------------------------
 void loop() {
   unsigned long now = millis();
+
+  // --- Poll GPS every iteration (non-blocking, must run every loop) ---
+  pollGPS();
 
   // --- Poll sensors at fixed interval ---
   if (now - lastSensorPoll >= SENSOR_POLL_INTERVAL_MS) {
@@ -162,5 +169,11 @@ void loop() {
     pkt.yaw_angle = static_cast<int16_t>(imu.yaw * 10);
 
     sendTelemetry(pkt);
+  }
+
+  // --- Send GPS data at 1 Hz ---
+  if (now - lastGpsSend >= GPS_SEND_INTERVAL_MS) {
+    lastGpsSend = now;
+    sendGpsData(getGPSData());
   }
 }

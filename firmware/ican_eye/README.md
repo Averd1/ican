@@ -18,10 +18,10 @@ over Bluetooth Low Energy using a reliable chunked protocol.
 
 | File | Description |
 |------|-------------|
-| `src/ble_camera.ino` | V1 firmware — fixed resolution (QVGA 320x240) |
-| `src/receive_photo.py` | V1 receiver — single capture |
-| `src/ble_camera_v2.ino` | **V2 firmware** — selectable quality profiles |
-| `src/receive_photo_v2.py` | **V2 receiver** — interactive, multi-capture |
+| `arduino_examples/ble_camera.ino` | V1 firmware — fixed resolution (QVGA 320x240) |
+| `test_scripts/receive_photo.py` | V1 receiver — single capture |
+| `arduino_examples/ble_camera_v2.ino` | **V2 firmware** — selectable quality profiles |
+| `test_scripts/receive_photo_v2.py` | **V2 receiver** — interactive, multi-capture |
 | `include/camera_pins.h` | Camera GPIO pin definitions (shared) |
 
 ### Quality Profiles (V2)
@@ -41,7 +41,7 @@ over Bluetooth Low Energy using a reliable chunked protocol.
 1. Install the **ESP32 board package** in Arduino IDE  
    *(Board Manager → search "esp32" → install by Espressif)*
 2. Select board: **XIAO_ESP32S3**
-3. Open `src/ble_camera.ino`
+3. Open `arduino_examples/ble_camera.ino`
 4. **Important:** Copy `include/camera_pins.h` into the same folder as the `.ino`,  
    or put it in the Arduino `libraries/` include path
 5. Upload
@@ -62,19 +62,19 @@ pip install bleak
 
 **V1 (single capture):**
 ```bash
-python src/receive_photo.py
+python test_scripts/receive_photo.py
 ```
 
 **V2 (interactive, recommended):**
 ```bash
 # Start with BALANCED profile, interactive mode
-python src/receive_photo_v2.py
+python test_scripts/receive_photo_v2.py
 
 # Start with QUALITY profile
-python src/receive_photo_v2.py --profile 2
+python test_scripts/receive_photo_v2.py --profile 2
 
 # Single MAX capture then exit
-python src/receive_photo_v2.py --profile 3 --once
+python test_scripts/receive_photo_v2.py --profile 3 --once
 ```
 
 V2 interactive commands:

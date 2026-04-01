@@ -17,15 +17,33 @@ static const size_t DUMMY_SIZE = 30000;
 static uint8_t* dummyImage = nullptr;
 
 void setup() {
-  Serial.begin(115200);
-  delay(2000);
+  pinMode(21, OUTPUT);
+  digitalWrite(21, LOW); // LED ON: Boot started
   
+  Serial.begin(115200);
+  
+  // Wait up to 5 seconds for the PC's Serial Monitor to connect
+  uint32_t t = millis();
+  while (!Serial && (millis() - t < 5000)) {
+      delay(10);
+  }
+  delay(1000); 
+
   Serial.println("\n\n===================================");
   Serial.println("iCan Eye - BLE Stream Test Application");
   Serial.println("===================================");
   
+  // Blink twice rapidly: Pre-BLE init
+  digitalWrite(21, HIGH); delay(100);
+  digitalWrite(21, LOW); delay(100);
+  digitalWrite(21, HIGH); delay(100);
+  digitalWrite(21, LOW); // Stay ON during initBleEye
+  
   // Initialize BLE module
   initBleEye();
+  
+  // Turn OFF LED: BLE Init Successful!
+  digitalWrite(21, HIGH);
   
   // Allocate dummy data in PSRAM if available, else heap
   if (psramFound()) {

@@ -9,6 +9,7 @@
 #define BLE_COMM_H
 
 #include "ble_protocol.h"
+#include "gps.h"
 #include <stdint.h>
 
 /**
@@ -37,6 +38,12 @@ void notifyObstacle(ObstacleSide side, uint16_t distCm);
  * Send a telemetry packet notification to the connected app.
  */
 void sendTelemetry(const TelemetryPacket &pkt);
+
+/**
+ * Send a GPS data packet notification to the connected app.
+ * Transmits latitude, longitude, altitude, speed, satellite count, and fix status.
+ */
+void sendGpsData(const GpsData &data);
 
 /**
  * Check if a BLE client (phone) is currently connected.

@@ -24,6 +24,7 @@
 #define CHAR_OBSTACLE_ALERT_TX_UUID "10000003-1000-1000-1000-100000000000"
 #define CHAR_IMU_TELEMETRY_TX_UUID "10000004-1000-1000-1000-100000000000"
 #define CHAR_CANE_STATUS_TX_UUID "10000005-1000-1000-1000-100000000000"
+#define CHAR_GPS_DATA_TX_UUID    "10000006-1000-1000-1000-100000000000"
 
 // ===========================================================================
 // BLE Characteristic UUIDs — Eye
@@ -89,17 +90,32 @@ struct TelemetryPacket {
 static_assert(sizeof(TelemetryPacket) == 6, "TelemetryPacket must be 6 bytes");
 
 // ===========================================================================
+// GPS Data Packet (Cane → App, 19 bytes, 1 Hz)
+// ===========================================================================
+#pragma pack(push, 1)
+struct GpsPacket {
+  float   latitude;    // decimal degrees (positive=N, negative=S)
+  float   longitude;   // decimal degrees (positive=E, negative=W)
+  float   altitude_m;  // meters above mean sea level
+  float   speed_knots; // speed over ground in knots
+  uint8_t satellites;  // number of satellites in use
+  uint8_t fix_quality; // 0=invalid, 1=GPS fix, 2=DGPS fix
+  uint8_t fix_valid;   // 0=no fix, 1=valid fix acquired
+};
+#pragma pack(pop)
+
+static_assert(sizeof(GpsPacket) == 19, "GpsPacket must be 19 bytes");
+
+// ===========================================================================
 // Image Stream Packet Header (Eye → App)
 // ===========================================================================
-constexpr uint8_t IMAGE_HEADER_BYTES = 5;
-constexpr uint8_t IMAGE_MAX_PAYLOAD = 235;
-constexpr uint8_t IMAGE_MAX_PACKET_SIZE = 240;
+constexpr uint8_t IMAGE_HEADER_BYTES = 2;
+constexpr uint16_t IMAGE_MAX_PAYLOAD = 509;
+constexpr uint16_t IMAGE_MAX_PACKET_SIZE = 512;
 
 #pragma pack(push, 1)
 struct ImagePacketHeader {
   uint16_t sequence_number; // little-endian
-  uint16_t total_chunks;    // little-endian
-  uint8_t checksum;         // XOR of payload bytes
 };
 #pragma pack(pop)
 

@@ -30,6 +30,7 @@ class BleCharacteristics {
   static const String obstacleAlertTx = '10000003-1000-1000-1000-100000000000';
   static const String imuTelemetryTx = '10000004-1000-1000-1000-100000000000';
   static const String caneStatusTx = '10000005-1000-1000-1000-100000000000';
+  static const String gpsDataTx    = '10000006-1000-1000-1000-100000000000';
 
   // ---- Eye ----
   static const String eyeInstantTextTx = '20000002-2000-2000-2000-200000000000';
@@ -131,15 +132,58 @@ class TelemetryPacket {
 }
 
 // ===========================================================================
+// GPS Data Packet Codec (19 bytes, 1 Hz)
+// ===========================================================================
+
+class GpsPacket {
+  const GpsPacket({
+    required this.latitude,
+    required this.longitude,
+    required this.altitudeM,
+    required this.speedKnots,
+    required this.satellites,
+    required this.fixQuality,
+    required this.fixValid,
+  });
+
+  /// Decode a 19-byte GPS payload from the Cane.
+  factory GpsPacket.fromBytes(Uint8List data) {
+    if (data.length < 19) {
+      throw ArgumentError('GPS packet must be at least 19 bytes');
+    }
+    final bd = ByteData.sublistView(data);
+    return GpsPacket(
+      latitude:   bd.getFloat32(0,  Endian.little),
+      longitude:  bd.getFloat32(4,  Endian.little),
+      altitudeM:  bd.getFloat32(8,  Endian.little),
+      speedKnots: bd.getFloat32(12, Endian.little),
+      satellites: data[16],
+      fixQuality: data[17],
+      fixValid:   data[18] != 0,
+    );
+  }
+
+  final double latitude;
+  final double longitude;
+  final double altitudeM;
+  final double speedKnots;
+  final int    satellites;
+  final int    fixQuality;
+  final bool   fixValid;
+
+  @override
+  String toString() =>
+      'GPS(fix=$fixValid, lat=$latitude, lon=$longitude, '
+      'alt=${altitudeM.toStringAsFixed(1)}m, '
+      'speed=${speedKnots.toStringAsFixed(1)}kts, sats=$satellites)';
+}
+
+// ===========================================================================
 // Image Stream Packet Codec
 // ===========================================================================
 
 class ImagePacketHeader {
-  const ImagePacketHeader({
-    required this.sequenceNumber,
-    required this.totalChunks,
-    required this.checksum,
-  });
+  const ImagePacketHeader({required this.sequenceNumber});
 
   factory ImagePacketHeader.fromBytes(Uint8List data) {
     if (data.length < headerSize) {
@@ -148,23 +192,11 @@ class ImagePacketHeader {
     final bd = ByteData.sublistView(data);
     return ImagePacketHeader(
       sequenceNumber: bd.getUint16(0, Endian.little),
-      totalChunks: bd.getUint16(2, Endian.little),
-      checksum: data[4],
     );
   }
-  static const int headerSize = 5;
-  static const int maxPayload = 235;
+
+  static const int headerSize = 2;
+  static const int maxPayload = 509;
 
   final int sequenceNumber;
-  final int totalChunks;
-  final int checksum;
-
-  /// Compute XOR checksum over [payload] bytes.
-  static int computeChecksum(Uint8List payload) {
-    int xor = 0;
-    for (final b in payload) {
-      xor ^= b;
-    }
-    return xor & 0xFF;
-  }
 }

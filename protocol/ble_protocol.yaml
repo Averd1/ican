@@ -68,6 +68,12 @@ characteristics:
     direction: "write"  # App → Eye
     description: "App can remotely trigger image capture on the Eye"
 
+  gps_data_tx:
+    service: cane
+    uuid: "10000006-1000-1000-1000-100000000000"
+    direction: "notify"  # Cane → App
+    description: "GPS fix: lat, lon, alt, speed, satellites, fix quality (19 bytes, 1 Hz)"
+
 # ---------------------------------------------------------------------------
 # Navigation Command Opcodes (App → Cane via nav_command_rx)
 # ---------------------------------------------------------------------------
@@ -136,25 +142,62 @@ telemetry_packet:
       size: 1
 
 # ---------------------------------------------------------------------------
+# GPS Data Packet Layout (gps_data_tx, 19 bytes, 1 Hz)
+# ---------------------------------------------------------------------------
+# Bytes  0-3:  latitude   (float32 LE, decimal degrees, positive=N negative=S)
+# Bytes  4-7:  longitude  (float32 LE, decimal degrees, positive=E negative=W)
+# Bytes  8-11: altitude_m (float32 LE, meters above MSL)
+# Bytes 12-15: speed_knots (float32 LE, speed over ground)
+# Byte  16:    satellites  (uint8, number of satellites in use)
+# Byte  17:    fix_quality (uint8: 0=invalid, 1=GPS fix, 2=DGPS fix)
+# Byte  18:    fix_valid   (uint8: 0=no fix, 1=valid fix)
+gps_packet:
+  total_bytes: 19
+  fields:
+    - name: latitude
+      offset: 0
+      size: 4
+      type: float32_le
+      unit: "decimal degrees"
+    - name: longitude
+      offset: 4
+      size: 4
+      type: float32_le
+      unit: "decimal degrees"
+    - name: altitude_m
+      offset: 8
+      size: 4
+      type: float32_le
+      unit: "meters"
+    - name: speed_knots
+      offset: 12
+      size: 4
+      type: float32_le
+      unit: "knots"
+    - name: satellites
+      offset: 16
+      size: 1
+    - name: fix_quality
+      offset: 17
+      size: 1
+    - name: fix_valid
+      offset: 18
+      size: 1
+
+# ---------------------------------------------------------------------------
 # Image Stream Packet Layout (eye_image_stream_tx, variable)
 # ---------------------------------------------------------------------------
 # Byte 0-1:  sequence_number (uint16_t, little-endian)
-# Byte 2-3:  total_chunks (uint16_t, little-endian)
-# Byte 4:    checksum (XOR of payload bytes)
-# Byte 5+:   payload (up to 235 bytes of JPEG data)
+# Byte 2+:   payload (up to 509 bytes of JPEG data)
+#
+# No per-chunk checksum — BLE link layer provides CRC. Integrity is validated
+# by JPEG magic-byte check on the assembled frame.
 image_packet:
-  header_bytes: 5
-  max_payload_bytes: 235
-  max_packet_bytes: 240
+  header_bytes: 2
+  max_payload_bytes: 509
+  max_packet_bytes: 512
   fields:
     - name: sequence_number
       offset: 0
       size: 2
       type: uint16_le
-    - name: total_chunks
-      offset: 2
-      size: 2
-      type: uint16_le
-    - name: checksum
-      offset: 4
-      size: 1

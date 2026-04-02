@@ -7,7 +7,7 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
-	<string>Ican</string>
+	<string>iCan</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -49,6 +49,14 @@
 	</dict>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
+	<key>NSBluetoothAlwaysUsageDescription</key>
+	<string>iCan uses Bluetooth to communicate with the iCan Cane and iCan Eye devices for navigation assistance and scene description.</string>
+	<key>NSBluetoothPeripheralUsageDescription</key>
+	<string>iCan uses Bluetooth to communicate with the iCan Cane and iCan Eye devices.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>iCan uses the microphone for voice commands to control navigation and scene description.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>iCan uses your location to provide turn-by-turn navigation assistance.</string>
 	<key>UILaunchStoryboardName</key>
 	<string>LaunchScreen</string>
 	<key>UIMainStoryboardFile</key>

@@ -5,6 +5,7 @@
 #include "sensors.h"
 #include <Adafruit_LSM6DSOX.h>
 #include <Arduino.h>
+#include <PulseSensorPlayground.h>
 #include <Wire.h>
 
 // ---------------------------------------------------------------------------
@@ -18,8 +19,22 @@ static bool imuReady = false;
 // TF Luna I²C address (default)
 constexpr uint8_t TF_LUNA_ADDR = 0x10;
 
-// Fall detection threshold (m/s² — near free-fall)
-constexpr float FALL_THRESHOLD = 3.0f;
+// ---------------------------------------------------------------------------
+// Fall detection — two-phase state machine
+// Phase 1: FREE_FALL — accel magnitude drops below FREE_FALL_G for ≥80ms
+// Phase 2: IMPACT    — accel magnitude spikes above IMPACT_G within 500ms
+// Phase 3: CONFIRMED — hold fallDetected=true for FALL_HOLD_MS then reset
+// ---------------------------------------------------------------------------
+constexpr float FREE_FALL_G   = 5.0f;    // m/s² (≈0.5g) — low-G entry threshold
+constexpr float IMPACT_G      = 20.0f;   // m/s² (≈2g)   — impact entry threshold
+constexpr unsigned long FREE_FALL_MIN_MS = 80;    // must stay low-G for 80ms
+constexpr unsigned long IMPACT_WINDOW_MS = 500;   // impact must follow within 500ms
+constexpr unsigned long FALL_HOLD_MS     = 10000; // hold fall alert for 10 seconds
+
+enum FallState { FALL_IDLE, FALL_FREE_FALL, FALL_IMPACT, FALL_CONFIRMED };
+static FallState fallState = FALL_IDLE;
+static unsigned long fallStateEnteredMs = 0;  // millis() when we entered current state
+static bool fallDetectedGlobal = false;
 
 // ---------------------------------------------------------------------------
 // Ultrasonic helper
@@ -97,6 +112,78 @@ float readLidar() {
   return static_cast<float>((high << 8) | low); // cm
 }
 
+// ===========================================================================
+// Pulse Sensor — PulseSensor Playground library (WorldFamousElectronics)
+// Hardware: PulseSensor Amped on analog pin A0, 3.3V on Nano ESP32
+// Threshold 2000 is calibrated for ESP32 ADC range (verified working).
+// ===========================================================================
+
+// No delay() used — library handles 2ms sampling internally via micros().
+// Call updatePulseSensor() every loop() iteration; it is a no-op until 2ms pass.
+
+static PulseSensorPlayground pulseSensor;
+static PulseData pulseResult = {0, false};
+static unsigned long pulseLastBeatMs  = 0;
+static unsigned long pulseLastDebugMs = 0;
+
+// BPM is considered stale if no beat detected for 3 seconds
+constexpr unsigned long PULSE_STALE_MS = 3000;
+
+// Threshold tuned for ESP32 12-bit ADC (matches verified standalone firmware)
+constexpr int PULSE_THRESHOLD = 2000;
+
+void initPulseSensor(uint8_t pin) {
+  pulseSensor.analogInput(pin);
+  pulseSensor.setThreshold(PULSE_THRESHOLD);
+
+  if (pulseSensor.begin()) {
+    Serial.printf("[HR] PulseSensor ready on pin %d, threshold=%d\n",
+                  pin, PULSE_THRESHOLD);
+  } else {
+    Serial.println("[HR] WARNING: PulseSensor.begin() failed — check wiring on A0");
+  }
+}
+
+void updatePulseSensor() {
+  // sawStartOfBeat() drives the library's internal 2ms sampling.
+  // Returns true only on a confirmed beat — safe to call every loop().
+  if (pulseSensor.sawStartOfBeat()) {
+    int bpm = pulseSensor.getBeatsPerMinute();
+    pulseLastBeatMs = millis();
+
+    // Clamp to physiologically plausible range before storing
+    if (bpm >= 40 && bpm <= 200) {
+      pulseResult.bpm   = (uint8_t)bpm;
+      pulseResult.valid = true;
+    }
+
+    Serial.printf("[HR] Beat! BPM: %d\n", bpm);
+  }
+
+  // Invalidate if no beat received within stale window (sensor removed / bad contact)
+  if (pulseResult.valid && (millis() - pulseLastBeatMs) > PULSE_STALE_MS) {
+    pulseResult.bpm   = 0;
+    pulseResult.valid = false;
+    Serial.println("[HR] Signal lost — no beat for 3s");
+  }
+
+  // Periodic status log every 2 seconds for debugging
+  unsigned long now = millis();
+  if ((now - pulseLastDebugMs) >= 2000) {
+    pulseLastDebugMs = now;
+    Serial.printf("[HR] BPM: %d, Valid: %s, Signal: %d\n",
+      pulseResult.bpm,
+      pulseResult.valid ? "YES" : "NO",
+      pulseSensor.getLatestSample());
+  }
+}
+
+PulseData getPulseData() {
+  return pulseResult;
+}
+
+// ===========================================================================
+
 ImuData readIMU() {
   ImuData data = {};
   if (!imuReady)
@@ -118,14 +205,65 @@ ImuData readIMU() {
   yawAccum += data.gyroZ * 0.05f; // dt ≈ 50ms
   data.yaw = yawAccum;
 
-  // Fall detection: magnitude squared of accel vector near zero = free-fall
-  // Optimization: use mag squared rather than sqrt() since we just compare to a
-  // threshold
-  float const FALL_THRESH_SQ = FALL_THRESHOLD * FALL_THRESHOLD;
-  float accelMagSq = (data.accelX * data.accelX) + (data.accelY * data.accelY) +
+  // Fall detection — two-phase state machine
+  // Use squared comparisons to avoid sqrt() (problematic on Windows builds)
+  float accelMagSq = (data.accelX * data.accelX) +
+                     (data.accelY * data.accelY) +
                      (data.accelZ * data.accelZ);
+  unsigned long now = millis();
 
-  data.fallDetected = (accelMagSq < FALL_THRESH_SQ);
+  switch (fallState) {
+    case FALL_IDLE:
+      if (accelMagSq < (FREE_FALL_G * FREE_FALL_G)) {
+        fallState = FALL_FREE_FALL;
+        fallStateEnteredMs = now;
+        Serial.printf("[FALL] IDLE → FREE_FALL (accelMagSq=%.2f)\n", accelMagSq);
+      }
+      break;
+
+    case FALL_FREE_FALL:
+      if (accelMagSq >= (FREE_FALL_G * FREE_FALL_G)) {
+        // Left low-G zone without enough duration — reset
+        if ((now - fallStateEnteredMs) < FREE_FALL_MIN_MS) {
+          fallState = FALL_IDLE;
+          Serial.println("[FALL] FREE_FALL → IDLE (too short)");
+          break;
+        }
+        // Stayed in low-G long enough — now watch for impact
+        fallState = FALL_IMPACT;
+        fallStateEnteredMs = now;
+        Serial.printf("[FALL] FREE_FALL → IMPACT (window open, accelMagSq=%.2f)\n", accelMagSq);
+      } else if ((now - fallStateEnteredMs) > IMPACT_WINDOW_MS) {
+        // Stayed low-G too long (device just lying still?) — reset
+        fallState = FALL_IDLE;
+        Serial.println("[FALL] FREE_FALL → IDLE (timeout, no impact)");
+      }
+      break;
+
+    case FALL_IMPACT:
+      if (accelMagSq > (IMPACT_G * IMPACT_G)) {
+        // Impact detected → confirmed fall
+        fallState = FALL_CONFIRMED;
+        fallStateEnteredMs = now;
+        fallDetectedGlobal = true;
+        Serial.printf("[FALL] IMPACT → CONFIRMED (accelMagSq=%.2f) — FALL ALERT!\n", accelMagSq);
+      } else if ((now - fallStateEnteredMs) > IMPACT_WINDOW_MS) {
+        // No impact within window — false alarm
+        fallState = FALL_IDLE;
+        Serial.println("[FALL] IMPACT → IDLE (no impact in window)");
+      }
+      break;
+
+    case FALL_CONFIRMED:
+      if ((now - fallStateEnteredMs) >= FALL_HOLD_MS) {
+        fallState = FALL_IDLE;
+        fallDetectedGlobal = false;
+        Serial.println("[FALL] CONFIRMED → IDLE (hold expired)");
+      }
+      break;
+  }
+
+  data.fallDetected = fallDetectedGlobal;
 
   return data;
 }

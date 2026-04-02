@@ -52,4 +52,33 @@ float readLidar();
  */
 ImuData readIMU();
 
+// ===========================================================================
+// Pulse (Heart Rate) Sensor
+// ===========================================================================
+
+/**
+ * Heart rate measurement result.
+ */
+struct PulseData {
+  uint8_t bpm;  // computed BPM (0 if not yet valid)
+  bool valid;   // true when signal amplitude is good and BPM is in 40–200 range
+};
+
+/**
+ * Initialize the pulse sensor on the given analog pin.
+ * Call once in setup(). Pin must be 3.3V-safe (Nano ESP32 A0).
+ */
+void initPulseSensor(uint8_t pin);
+
+/**
+ * Update pulse sensor state at 500 Hz — call every loop() iteration.
+ * Uses micros() internally; does not block.
+ */
+void updatePulseSensor();
+
+/**
+ * Return the latest computed heart rate data.
+ */
+PulseData getPulseData();
+
 #endif // SENSORS_H

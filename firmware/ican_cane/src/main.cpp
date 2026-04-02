@@ -79,8 +79,13 @@ void setup() {
   initSensors(PIN_ULTRASONIC_LEFT_TRIG, PIN_ULTRASONIC_LEFT_ECHO,
               PIN_ULTRASONIC_RIGHT_TRIG, PIN_ULTRASONIC_RIGHT_ECHO);
 
+  // Pulse sensor on A0 — 3.3V analog, non-blocking 500Hz polling
+  initPulseSensor(A0);
+
   initBleCane();
   initGPS();
+
+  Serial.println("[iCan Cane] Fall thresholds: LOW-G < 5.0 m/s2, IMPACT > 20 m/s2");
 
   Serial.println("[iCan Cane] Ready.");
 }
@@ -90,6 +95,9 @@ void setup() {
 // ---------------------------------------------------------------------------
 void loop() {
   unsigned long now = millis();
+
+  // --- Update pulse sensor at 500 Hz (must run every loop, uses micros()) ---
+  updatePulseSensor();
 
   // --- Poll GPS every iteration (non-blocking, must run every loop) ---
   pollGPS();
@@ -162,11 +170,25 @@ void loop() {
     ImuData imu = readIMU();
 
     TelemetryPacket pkt = {};
-    if (imu.fallDetected)
+
+    // Heart rate
+    PulseData pulse = getPulseData();
+    pkt.pulse_bpm = pulse.bpm;
+    if (pulse.valid) pkt.flags |= 0x02;
+
+    // Fall detection — set flag and trigger haptic on active fall
+    if (imu.fallDetected) {
       pkt.flags |= 0x01;
-    // pkt.pulse_bpm = readPulse();  // TODO: wire up pulse sensor
+      selectMuxChannel(MUX_CH_DRV2605);
+      playPattern(PATTERN_FALL_ALERT); // rapid triple buzz
+    }
+
     pkt.battery_percent = 100; // TODO: read actual battery ADC
     pkt.yaw_angle = static_cast<int16_t>(imu.yaw * 10);
+
+    Serial.printf("[Telemetry] fall=%d hr=%d(%s) bat=%d yaw=%.1f\n",
+      imu.fallDetected, pulse.bpm, pulse.valid ? "valid" : "no-signal",
+      pkt.battery_percent, imu.yaw);
 
     sendTelemetry(pkt);
   }

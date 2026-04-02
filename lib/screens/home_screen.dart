@@ -1,7 +1,9 @@
 import 'dart:io';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'dart:async';
+import 'package:image/image.dart' as img;
 import 'package:shared_preferences/shared_preferences.dart';
 import '../core/app_router.dart';
 import '../services/ble_service.dart';
@@ -163,69 +165,116 @@ class _HomeScreenState extends State<HomeScreen> {
 
     setState(() {
       _isProcessing = true;
-      _aiStatusMessage = 'Analyzing with ${_aiService.model.label}... (${imageBytes.lengthInBytes} bytes)';
+      _aiStatusMessage = 'Enhancing image...';
     });
 
+    // Enhance on a background isolate: crop black bars + boost contrast/exposure
+    final enhancedBytes = await compute(_enhanceImageForApi, imageBytes);
+    debugPrint('[AI] Enhanced: ${imageBytes.length} → ${enhancedBytes.length} bytes');
+
+    // --- Save both raw and enhanced for debugging ---
     try {
-      final text = await _aiService.generateContentFromImage(
-        imageBytes,
-        'You are the eyes of a blind person. This photo is from a camera on their chest. '
-        'Respond in plain spoken English (no markdown, no bullets — this is read aloud by TTS). '
-        'Priority order: '
-        '1) SAFETY: obstacles, stairs, curbs, vehicles, people nearby — use clock positions (e.g. "person at your 2 o\'clock"). '
-        '2) TEXT: read ALL visible text — signs, labels, screens, menus, price tags — word for word. '
-        '3) SCENE: briefly describe the environment, layout, and key landmarks. '
-        'Be direct and concise. Maximum 4 sentences.',
-      );
+      final directory = Directory('captures');
+      if (!await directory.exists()) {
+        await directory.create(recursive: true);
+      }
+      final timestamp = DateTime.now()
+          .toIso8601String()
+          .replaceAll(':', '-')
+          .replaceAll('.', '-');
+      await File('captures/capture_${timestamp}_raw.jpg').writeAsBytes(imageBytes);
+      await File('captures/capture_$timestamp.jpg').writeAsBytes(enhancedBytes);
+      debugPrint('[AI] Saved raw (${imageBytes.length}B) + enhanced (${enhancedBytes.length}B) to captures/');
+    } catch (e) {
+      debugPrint('[AI] Failed to save images: $e');
+    }
 
-      // --- Save image to local captures folder ---
-      try {
-        final directory = Directory('captures');
-        if (!await directory.exists()) {
-          await directory.create(recursive: true);
+    setState(() {
+      _aiStatusMessage = 'Analyzing with ${_aiService.model.label}...';
+    });
+
+    const systemPrompt =
+        'You are the vision system for a blind person wearing a chest camera. '
+        'Speak in plain, conversational English — no markdown, no bullet points, no lists — '
+        'everything you say is read aloud by a text-to-speech engine. '
+        'Describe the scene in 4–6 sentences:\n'
+        '1) Start with WHERE you are (room type, indoor/outdoor, general setting).\n'
+        '2) SAFETY: name any obstacles, steps, edges, vehicles, or people. '
+        'Use clock positions for direction (e.g. "chair at 2 o\'clock").\n'
+        '3) Describe what is DIRECTLY AHEAD and within arm\'s reach.\n'
+        '4) Read any visible text verbatim — signs, labels, screens, buttons.\n'
+        '5) Mention notable objects, colors, or landmarks that help orientation.\n'
+        'Be specific and spatial. Never say "I see" — describe as if you are the person\'s eyes.';
+
+    try {
+      // Stream API response and start TTS as soon as first sentence arrives.
+      // Regex matches punctuation followed by whitespace (mid-stream) OR
+      // punctuation at end-of-string (last sentence in final chunk).
+      final textBuffer = StringBuffer();
+      final sentenceEnd = RegExp(r'[.!?](?:\s|$)');
+      int chunkCount = 0;
+
+      await for (final chunk in _aiService.streamContentFromImage(
+        enhancedBytes,
+        systemPrompt: systemPrompt,
+      )) {
+        chunkCount++;
+        debugPrint('[AI] Stream chunk #$chunkCount (${chunk.length} chars): "$chunk"');
+        textBuffer.write(chunk);
+
+        // Drain ALL complete sentences from the buffer — not just the first.
+        // Without the loop, multi-sentence chunks leave sentences stranded in
+        // the buffer, which then get spoken as one big block at stream end
+        // (the "repeats halfway" bug).
+        while (true) {
+          final accumulated = textBuffer.toString();
+          final match = sentenceEnd.firstMatch(accumulated);
+          if (match == null) break;
+
+          final sentence = accumulated.substring(0, match.end).trim();
+          final leftover = accumulated.substring(match.end);
+          textBuffer.clear();
+          textBuffer.write(leftover);
+          debugPrint('[AI] Sentence ready → TTS: "$sentence" | leftover: "${leftover.trim()}"');
+          try {
+            await _ttsService.speak(sentence);
+          } catch (e) {
+            debugPrint('[AI] TTS error during streaming: $e');
+          }
         }
-
-        final timestamp = DateTime.now()
-            .toIso8601String()
-            .replaceAll(':', '-')
-            .replaceAll('.', '-');
-        final file = File('captures/capture_$timestamp.jpg');
-        await file.writeAsBytes(imageBytes);
-        debugPrint('[AI] Saved image to: ${file.path}');
-      } catch (e) {
-        debugPrint('[AI] Failed to save image to folder: $e');
       }
 
-      setState(() {
-        _aiStatusMessage = 'Done!';
-        _isProcessing = false;
-      });
+      final fullResponse = textBuffer.toString().trim();
+      debugPrint('[AI] Stream complete. $chunkCount chunks. Remaining: "${fullResponse.isEmpty ? "(none)" : fullResponse}"');
 
-      // Read aloud the AI response safely
-      try {
-        await _ttsService.speak(text);
-      } catch (e) {
-        debugPrint('[TTS] Failed to speak AI response: $e');
-        // Still consider this a successful image processing even if TTS fails
-        if (mounted) {
-          setState(() {
-            _aiStatusMessage = 'Image processed (TTS unavailable)';
-          });
+      // Speak any remaining text after stream ends
+      if (fullResponse.isNotEmpty) {
+        debugPrint('[AI] Speaking remaining text → TTS: "$fullResponse"');
+        try {
+          await _ttsService.speak(fullResponse);
+        } catch (e) {
+          debugPrint('[AI] TTS error for remaining text: $e');
         }
+      }
+
+      if (mounted) {
+        setState(() {
+          _aiStatusMessage = 'Done!';
+          _isProcessing = false;
+        });
       }
     } catch (e, stack) {
       debugPrint('[AI] Error processing image: $e');
       debugPrint('[AI] Stack trace: $stack');
-      setState(() {
-        _aiStatusMessage = 'Error: $e';
-        _isProcessing = false;
-      });
-      // Safely speak error message without crashing if TTS fails
-      try {
-        await _ttsService.speak('Sorry, there was an error processing the image. $e');
-      } catch (ttsError) {
-        debugPrint('[TTS] Failed to speak error message: $ttsError');
+      if (mounted) {
+        setState(() {
+          _aiStatusMessage = 'Error: $e';
+          _isProcessing = false;
+        });
       }
+      try {
+        await _ttsService.speak('Sorry, there was an error processing the image.');
+      } catch (_) {}
     }
   }
 
@@ -683,4 +732,80 @@ class _HomeScreenState extends State<HomeScreen> {
       }
     }
   }
+}
+
+// ---------------------------------------------------------------------------
+// Image enhancement — top-level so it can be run via compute() in an isolate
+// ---------------------------------------------------------------------------
+
+/// Adaptive image enhancement for the vision API. Runs in a background isolate
+/// via compute(). Handles truncated BLE transfers, dark scenes, and text
+/// sharpening without over-processing bright or complete images.
+Uint8List _enhanceImageForApi(Uint8List rawBytes) {
+  final decoded = img.decodeJpg(rawBytes);
+  if (decoded == null) return rawBytes;
+
+  var image = decoded;
+
+  // 1. Only crop black bars if JPEG is truncated (missing EOI marker 0xFF 0xD9).
+  //    Complete images may have legitimately dark bottom content (night, floors).
+  final isTruncated = rawBytes.length < 2 ||
+      rawBytes[rawBytes.length - 2] != 0xFF ||
+      rawBytes[rawBytes.length - 1] != 0xD9;
+  if (isTruncated) {
+    image = _cropBottomBlackBar(image);
+  }
+
+  // 2. Adaptive enhancement based on scene brightness
+  final meanLuma = _computeMeanLuminance(image);
+  if (meanLuma < 80) {
+    // Dark scene: auto-levels via histogram stretch
+    image = img.normalize(image, min: 10, max: 245);
+  } else if (meanLuma <= 180) {
+    // Normal scene: gentle contrast boost only
+    image = img.adjustColor(image, contrast: 1.1);
+  }
+  // Bright scenes (>180): no color adjustment — avoid washing out
+
+  // 3. Subtle sharpen for text readability (30% blend to avoid amplifying JPEG artifacts)
+  image = img.convolution(image,
+    filter: [0, -1, 0, -1, 5, -1, 0, -1, 0],
+    amount: 0.3,
+  );
+
+  return Uint8List.fromList(img.encodeJpg(image, quality: 85));
+}
+
+/// Fast mean luminance sampling (every 8th pixel in both axes).
+double _computeMeanLuminance(img.Image src) {
+  double sum = 0;
+  int count = 0;
+  for (int y = 0; y < src.height; y += 8) {
+    for (int x = 0; x < src.width; x += 8) {
+      final p = src.getPixel(x, y);
+      sum += 0.299 * p.r.toDouble() + 0.587 * p.g.toDouble() + 0.114 * p.b.toDouble();
+      count++;
+    }
+  }
+  return count > 0 ? sum / count : 128;
+}
+
+/// Crop black bar from the bottom of a truncated JPEG.
+img.Image _cropBottomBlackBar(img.Image src) {
+  const brightnessThreshold = 20;
+  for (int y = src.height - 1; y >= src.height * 2 ~/ 3; y--) {
+    for (int x = 0; x < src.width; x += 16) {
+      final p = src.getPixel(x, y);
+      if (p.r > brightnessThreshold ||
+          p.g > brightnessThreshold ||
+          p.b > brightnessThreshold) {
+        final cropTo = y + 1;
+        if (cropTo < src.height - 8) {
+          return img.copyCrop(src, x: 0, y: 0, width: src.width, height: cropTo);
+        }
+        return src;
+      }
+    }
+  }
+  return src;
 }

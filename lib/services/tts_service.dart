@@ -25,22 +25,37 @@ class TtsService extends ChangeNotifier {
     await _flutterTts.setSpeechRate(_rate);
     await _flutterTts.setPitch(_pitch);
 
-    // On Windows, native callbacks fire on a non-platform thread which crashes.
-    // Use awaitSpeakCompletion so speak() returns when done — no callbacks needed.
-    if (Platform.isWindows) {
+    // Use awaitSpeakCompletion on all platforms:
+    // - Windows: native callbacks fire on a non-platform thread (crashes).
+    // - iOS: same threading issue — flutter_tts fires completion/cancel/error
+    //   handlers from the native audio thread, which violates Flutter's
+    //   platform-channel threading contract and causes data loss.
+    // awaitSpeakCompletion(true) makes speak() block until done on the Dart
+    // side so we never need native-thread callbacks at all.
+    if (Platform.isWindows || Platform.isIOS || Platform.isMacOS) {
       await _flutterTts.awaitSpeakCompletion(true);
+      debugPrint('[TTS] Using awaitSpeakCompletion mode (platform: ${Platform.operatingSystem}).');
     } else {
+      // Android: native callbacks are dispatched on the platform thread, so
+      // callbacks are safe here. Wrap in Future.microtask anyway as a guard.
       _flutterTts.setCompletionHandler(() {
-        _isSpeaking = false;
-        notifyListeners();
+        Future.microtask(() {
+          _isSpeaking = false;
+          notifyListeners();
+        });
       });
       _flutterTts.setCancelHandler(() {
-        _isSpeaking = false;
-        notifyListeners();
+        Future.microtask(() {
+          _isSpeaking = false;
+          notifyListeners();
+        });
       });
-      _flutterTts.setErrorHandler((_) {
-        _isSpeaking = false;
-        notifyListeners();
+      _flutterTts.setErrorHandler((msg) {
+        debugPrint('[TTS] Native error: $msg');
+        Future.microtask(() {
+          _isSpeaking = false;
+          notifyListeners();
+        });
       });
     }
 
@@ -55,17 +70,18 @@ class TtsService extends ChangeNotifier {
       _isSpeaking = true;
       notifyListeners();
 
+      // Log before speak so we always see what was requested, even if TTS throws.
+      debugPrint('[TTS] Speaking (${text.length} chars): "$text"');
       await _flutterTts.speak(text);
-      debugPrint('[TTS] Speaking: "$text"');
 
-      // On Windows, speak() awaits completion, so reset here.
-      // On other platforms, the completion handler resets it.
-      if (Platform.isWindows) {
+      // awaitSpeakCompletion platforms: speak() blocks until done, so reset here.
+      // Android callback platforms: completion handler resets it async.
+      if (Platform.isWindows || Platform.isIOS || Platform.isMacOS) {
         _isSpeaking = false;
         notifyListeners();
       }
     } on PlatformException catch (e) {
-      debugPrint('[TTS] Platform error: ${e.code}');
+      debugPrint('[TTS] Platform error: ${e.code} — "${e.message}"');
       _isSpeaking = false;
       notifyListeners();
     } catch (e) {

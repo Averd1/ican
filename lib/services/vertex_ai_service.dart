@@ -74,7 +74,11 @@ class VertexAiService extends ChangeNotifier {
     ]);
   }
 
-  Future<String> generateContentFromImage(Uint8List imageBytes, String prompt) async {
+  Future<String> generateContentFromImage(
+    Uint8List imageBytes, {
+    required String systemPrompt,
+    String userPrompt = 'Describe what you see.',
+  }) async {
     final base64Image = base64Encode(imageBytes);
 
     return _sendRequest([
@@ -84,11 +88,14 @@ class VertexAiService extends ChangeNotifier {
           'data': base64Image,
         }
       },
-      {'text': prompt},
-    ]);
+      {'text': userPrompt},
+    ], systemPrompt: systemPrompt);
   }
 
-  Future<String> _sendRequest(List<Map<String, dynamic>> parts) async {
+  Future<String> _sendRequest(
+    List<Map<String, dynamic>> parts, {
+    String? systemPrompt,
+  }) async {
     final apiKey = dotenv.env['API_KEY'];
 
     if (apiKey == null || apiKey.isEmpty) {
@@ -97,17 +104,30 @@ class VertexAiService extends ChangeNotifier {
 
     final url = Uri.parse('$_baseUrl/${_model.id}:generateContent?key=$apiKey');
 
+    final body = <String, dynamic>{
+      'contents': [
+        {
+          'role': 'user',
+          'parts': parts,
+        },
+      ],
+      'generationConfig': {
+        'temperature': 0.2,
+        'maxOutputTokens': 500,
+        'topP': 0.8,
+      },
+    };
+
+    if (systemPrompt != null) {
+      body['system_instruction'] = {
+        'parts': [{'text': systemPrompt}],
+      };
+    }
+
     final response = await http.post(
       url,
       headers: {'Content-Type': 'application/json'},
-      body: jsonEncode({
-        'contents': [
-          {
-            'role': 'user',
-            'parts': parts,
-          },
-        ],
-      }),
+      body: jsonEncode(body),
     );
 
     debugPrint('[VisionAI] ${_model.id} response: ${response.statusCode}');
@@ -118,6 +138,108 @@ class VertexAiService extends ChangeNotifier {
     } else {
       debugPrint('[VisionAI] Error: ${response.body.substring(0, response.body.length > 300 ? 300 : response.body.length)}');
       throw Exception('AI request failed (${response.statusCode})');
+    }
+  }
+
+  /// Stream content from image using SSE for lower first-token latency.
+  /// Yields incremental text chunks as they arrive from the API.
+  Stream<String> streamContentFromImage(
+    Uint8List imageBytes, {
+    required String systemPrompt,
+    String userPrompt = 'Describe what you see.',
+  }) async* {
+    final base64Image = base64Encode(imageBytes);
+    final apiKey = dotenv.env['API_KEY'];
+    if (apiKey == null || apiKey.isEmpty) {
+      throw Exception('API_KEY not found in .env file');
+    }
+
+    final url = Uri.parse(
+      '$_baseUrl/${_model.id}:streamGenerateContent?alt=sse&key=$apiKey',
+    );
+
+    final body = <String, dynamic>{
+      'system_instruction': {
+        'parts': [{'text': systemPrompt}],
+      },
+      'contents': [
+        {
+          'role': 'user',
+          'parts': [
+            {
+              'inlineData': {
+                'mimeType': 'image/jpeg',
+                'data': base64Image,
+              }
+            },
+            {'text': userPrompt},
+          ],
+        },
+      ],
+      'generationConfig': {
+        'temperature': 0.2,
+        'maxOutputTokens': 500,
+        'topP': 0.8,
+      },
+    };
+
+    final request = http.Request('POST', url);
+    request.headers['Content-Type'] = 'application/json';
+    request.body = jsonEncode(body);
+
+    final client = http.Client();
+    try {
+      final streamed = await client.send(request);
+
+      if (streamed.statusCode != 200) {
+        final errorBody = await streamed.stream.bytesToString();
+        debugPrint('[VisionAI] Stream error: '
+            '${errorBody.substring(0, errorBody.length > 300 ? 300 : errorBody.length)}');
+        throw Exception('AI stream failed (${streamed.statusCode})');
+      }
+
+      debugPrint('[VisionAI] ${_model.id} streaming started');
+
+      // Parse SSE events: "data: {json}\n\n"
+      String lineBuf = '';
+      await for (final chunk in streamed.stream.transform(const Utf8Decoder())) {
+        lineBuf += chunk;
+        while (lineBuf.contains('\n')) {
+          final lineEnd = lineBuf.indexOf('\n');
+          final line = lineBuf.substring(0, lineEnd).trim();
+          lineBuf = lineBuf.substring(lineEnd + 1);
+
+          if (line.startsWith('data: ')) {
+            try {
+              final json = jsonDecode(line.substring(6)) as Map<String, dynamic>;
+              final text = _extractText(json);
+              if (text.isNotEmpty && text != 'Could not analyze the image.') {
+                yield text;
+              }
+            } catch (e) {
+              debugPrint('[VisionAI] SSE parse error: $e');
+            }
+          }
+        }
+      }
+
+      // Flush remaining data — the last SSE line may not end with \n
+      final remaining = lineBuf.trim();
+      if (remaining.startsWith('data: ')) {
+        try {
+          final json = jsonDecode(remaining.substring(6)) as Map<String, dynamic>;
+          final text = _extractText(json);
+          if (text.isNotEmpty && text != 'Could not analyze the image.') {
+            yield text;
+          }
+        } catch (e) {
+          debugPrint('[VisionAI] SSE flush parse error: $e');
+        }
+      }
+
+      debugPrint('[VisionAI] stream complete');
+    } finally {
+      client.close();
     }
   }
 

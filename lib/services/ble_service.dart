@@ -6,6 +6,7 @@ import 'package:win_ble/win_ble.dart';
 import 'package:win_ble/win_file.dart' show WinServer;
 import '../protocol/ble_protocol.dart';
 import 'device_prefs_service.dart';
+import 'notification_service.dart';
 
 /// BLE connection status.
 enum BleConnectionState { disconnected, scanning, connecting, connected }
@@ -73,6 +74,9 @@ class BleService extends ChangeNotifier {
   TelemetryPacket? _lastTelemetry;
   TelemetryPacket? get lastTelemetry => _lastTelemetry;
 
+  // Fall detection edge tracking — only fire notification on rising edge
+  bool _prevFallDetected = false;
+
   // Streams for real-time data
   final _telemetryController = StreamController<TelemetryPacket>.broadcast();
   Stream<TelemetryPacket> get telemetryStream => _telemetryController.stream;
@@ -111,7 +115,7 @@ class BleService extends ChangeNotifier {
 
   // Known MAC for the iCan Eye hardware. Used as fallback when no device has
   // been saved yet, and as the auto-connect target on startup.
-  static const String fallbackEyeDeviceId = '90:70:69:12:53:BD';
+  static const String fallbackEyeDeviceId = '90:70:69:12:53:be';
 
   // ---------------------------------------------------------------------------
   // Windows BLE state — Eye (win_ble transport)
@@ -1023,23 +1027,33 @@ class BleService extends ChangeNotifier {
     debugPrint('[BLE Eye Msg] $message');
 
     if (message.startsWith('SIZE:')) {
+      final newSize = int.tryParse(message.substring(5)) ?? 0;
+
+      // Ignore duplicate SIZE messages while we're already accumulating this
+      // frame. iOS BLE can fire the same notification 2-3× and each duplicate
+      // would wipe the buffer mid-transfer.
+      if (_imageBuffer.isNotEmpty && newSize == _expectedImageSize && !_frameEmitted) {
+        debugPrint('[BLE] Ignoring duplicate SIZE:$newSize (already buffering ${_imageBuffer.length} bytes)');
+        return;
+      }
+
       _imageBuffer.clear();
       _seenSequenceNumbers.clear();
       _lastSequenceNumber = -1;
       _lostChunks = 0;
       _frameEmitted = false;
       _frameSessionId++;
-      _expectedImageSize = int.tryParse(message.substring(5)) ?? 0;
+      _expectedImageSize = newSize;
       debugPrint('[BLE] Expecting image of size $_expectedImageSize bytes');
       _captureStartedController.add(null);
 
       // Safety timeout: if END never arrives, emit what we have after 10s
       _imageTimeoutTimer?.cancel();
       final timeoutSessionId = _frameSessionId;
-      _imageTimeoutTimer = Timer(const Duration(seconds: 10), () {
+      _imageTimeoutTimer = Timer(const Duration(seconds: 5), () {
         if (timeoutSessionId != _frameSessionId) return;
         if (_imageBuffer.isNotEmpty && !_frameEmitted) {
-          debugPrint('[BLE] TIMEOUT: No END after 10s. Buffer=${_imageBuffer.length}/$_expectedImageSize bytes, chunks=${_seenSequenceNumbers.length}');
+          debugPrint('[BLE] TIMEOUT: No END after 5s. Buffer=${_imageBuffer.length}/$_expectedImageSize bytes, chunks=${_seenSequenceNumbers.length}');
           _emitImageIfValid(_imageBuffer);
           _imageBuffer.clear();
           _expectedImageSize = 0;
@@ -1133,7 +1147,21 @@ class BleService extends ChangeNotifier {
       return;
     }
 
-    debugPrint('[BLE] Emitting ${bytes.length} bytes.');
+    // Reject severely truncated frames — a JPEG missing >25% of its data
+    // will produce heavy artifacts that confuse the vision AI. Better to
+    // discard and let the user retry than send garbage to the API.
+    if (_expectedImageSize > 0) {
+      final pct = bytes.length * 100 ~/ _expectedImageSize;
+      if (pct < 75) {
+        debugPrint('[BLE] WARN: Image too incomplete '
+            '(${bytes.length}/$_expectedImageSize = $pct%). Discarding.');
+        return;
+      }
+      debugPrint('[BLE] Emitting ${bytes.length} bytes ($pct% of $_expectedImageSize expected).');
+    } else {
+      debugPrint('[BLE] Emitting ${bytes.length} bytes (expected size unknown).');
+    }
+
     _imageController.add(bytes);
     _frameEmitted = true;
   }
@@ -1261,6 +1289,14 @@ class BleService extends ChangeNotifier {
       final pkt = TelemetryPacket.fromBytes(data);
       _lastTelemetry = pkt;
       _telemetryController.add(pkt);
+
+      // Rising-edge fall detection — trigger OS notification only on transition
+      if (pkt.fallDetected && !_prevFallDetected) {
+        debugPrint('[BLE] FALL DETECTED — hr=${pkt.pulseBpm} bat=${pkt.batteryPercent}%');
+        NotificationService.showFallAlert();
+      }
+      _prevFallDetected = pkt.fallDetected;
+
       notifyListeners();
     } catch (e) {
       // In complete app, handle properly. Can ignore partial packets silently here.

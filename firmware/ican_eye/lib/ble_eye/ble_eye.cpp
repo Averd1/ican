@@ -17,6 +17,8 @@
 #include <BLEServer.h>
 #include <BLEUtils.h>
 #include <BLE2902.h>
+#include <esp_gatts_api.h>
+#include <esp_gatt_common_api.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 #include <string>
@@ -33,7 +35,14 @@ static BLECharacteristic *pInstantTextChar = nullptr; // instant text TX
 static BLECharacteristic *pCaptureChar = nullptr;     // capture command RX
 
 static volatile bool clientConnected = false;  // bool read/write is atomic on Xtensa
+static volatile bool s_congested = false;      // set by ESP_GATTS_CONGEST_EVT
 static uint16_t s_negotiatedMtu = 23;          // BLE default ATT MTU
+
+// Captured from ESP-IDF GATTS events — lets us bypass the Arduino BLE
+// library's notify() wrapper (which returns void and silently drops
+// notifications) and call esp_ble_gatts_send_indicate() directly.
+static volatile uint16_t s_gattsIf = 0;
+static volatile uint16_t s_connId = 0;
 
 static portMUX_TYPE s_cmdMux = portMUX_INITIALIZER_UNLOCKED;
 static EyeCommand pendingCmdType = EYE_CMD_NONE;
@@ -44,14 +53,20 @@ static int pendingCmdProfile = 0;
 // =========================================================================
 
 class EyeServerCallbacks : public BLEServerCallbacks {
-  void onConnect(BLEServer *server) override {
+  void onConnect(BLEServer *server, esp_ble_gatts_cb_param_t *param) override {
     clientConnected = true;
+    s_congested = false;
     s_negotiatedMtu = 23;  // Reset to safe default; updated by onMtuChanged
     Serial.println("[BLE] Client connected. MTU reset to default.");
+
+    // Request fast connection interval: 15-30ms (same as Cane firmware).
+    // iOS accepts >=15ms minimum. Without this, iOS may choose 30ms+.
+    pServer->updateConnParams(param->connect.remote_bda, 12, 24, 0, 200);
   }
 
   void onDisconnect(BLEServer *server) override {
     clientConnected = false;
+    s_congested = false;
     Serial.println("[BLE] Client disconnected. Restarting advertising.");
     BLEDevice::startAdvertising();
   }
@@ -61,6 +76,38 @@ class EyeServerCallbacks : public BLEServerCallbacks {
     Serial.printf("[BLE] MTU updated to %d bytes\n", s_negotiatedMtu);
   }
 };
+
+// Custom GATTS handler — registered via BLEDevice::setCustomGattsHandler().
+// Runs alongside the Arduino BLE library's built-in handler.
+//
+// We use this to:
+// 1. Capture gatts_if and conn_id so we can call esp_ble_gatts_send_indicate()
+//    directly (BLEServer::getGattsIf/getConnId are private in this version).
+// 2. Track congestion state via ESP_GATTS_CONGEST_EVT.
+static void eyeGattsEventHandler(esp_gatts_cb_event_t event,
+                                 esp_gatt_if_t gatts_if,
+                                 esp_ble_gatts_cb_param_t *param) {
+  // Always capture the interface handle — it's the same for all events
+  // on this GATT server.
+  s_gattsIf = gatts_if;
+
+  switch (event) {
+    case ESP_GATTS_CONNECT_EVT:
+      s_connId = param->connect.conn_id;
+      Serial.printf("[BLE] GATTS connect: gatts_if=%u conn_id=%u\n",
+                    gatts_if, param->connect.conn_id);
+      break;
+
+    case ESP_GATTS_CONGEST_EVT:
+      s_congested = param->congest.congested;
+      Serial.printf("[BLE] TX %s\n",
+                    s_congested ? "CONGESTED" : "congestion cleared");
+      break;
+
+    default:
+      break;
+  }
+}
 
 class CaptureCommandCallback : public BLECharacteristicCallbacks {
   void onWrite(BLECharacteristic *pChar) override {
@@ -97,7 +144,16 @@ class CaptureCommandCallback : public BLECharacteristicCallbacks {
 
 void initBleEye() {
   BLEDevice::init("iCan Eye");
-  
+
+  // Advertise support for the maximum ATT MTU (517 bytes = 514 payload + 3
+  // ATT header). The actual MTU is negotiated per-connection; this sets the
+  // upper bound so the phone can request the largest possible value.
+  esp_ble_gatt_set_local_mtu(517);
+
+  // Register a custom GATTS handler to capture gatts_if/conn_id and
+  // congestion events. Runs alongside the library's built-in handler.
+  BLEDevice::setCustomGattsHandler(eyeGattsEventHandler);
+
   // Allow the BLE stack/radio to stabilize after init
   delay(100);
 
@@ -131,7 +187,7 @@ void initBleEye() {
 
   // Start advertising with scan response to ensure visibility on all platforms
   BLEAdvertising *pAdv = BLEDevice::getAdvertising();
-  
+
   // Create advertisement data
   BLEAdvertisementData oAdvData = BLEAdvertisementData();
   oAdvData.setFlags(0x06); // General Discoverable, No BR/EDR
@@ -143,11 +199,11 @@ void initBleEye() {
   BLEAdvertisementData oScanResponseData = BLEAdvertisementData();
   oScanResponseData.setCompleteServices(BLEUUID(ICAN_EYE_SERVICE_UUID));
   pAdv->setScanResponseData(oScanResponseData);
-  
+
   pAdv->setScanResponse(true);
-  pAdv->setMinPreferred(0x06); 
+  pAdv->setMinPreferred(0x06);
   pAdv->setMaxPreferred(0x12);
-  
+
   pAdv->start();
 
   Serial.println("[BLE] iCan Eye service advertising.");
@@ -171,14 +227,50 @@ EyeCommandData getLastEyeCommand() {
 }
 
 // =========================================================================
+// Notification — direct ESP-IDF call with return code + retry
+// =========================================================================
+//
+// The Arduino BLE library's notify() returns void and silently drops
+// notifications when the Bluedroid TX buffer is full (rc=-1).  We bypass
+// it entirely and call esp_ble_gatts_send_indicate() using the gatts_if
+// and conn_id captured in our custom GATTS event handler.  This gives us
+// the actual return code so we can wait and retry on congestion.
+
+static bool sendNotify(uint16_t attrHandle, const uint8_t *data, size_t len) {
+  if (!clientConnected || s_gattsIf == 0) return false;
+
+  const int maxRetries = 25;
+
+  for (int attempt = 0; attempt < maxRetries; attempt++) {
+    esp_err_t rc = esp_ble_gatts_send_indicate(
+        s_gattsIf, s_connId, attrHandle,
+        (uint16_t)len, (uint8_t *)data, false /* notification, not indication */);
+
+    if (rc == ESP_OK) return true;
+
+    if (!clientConnected) return false;
+
+    // TX buffer full — yield to let the BLE controller drain it.
+    // Longer waits on later attempts (2ms → 20ms) to handle Windows BLE
+    // which drains slowly.
+    int waitMs = (attempt < 5) ? 5 : (attempt < 15) ? 20 : 50;
+    vTaskDelay(pdMS_TO_TICKS(waitMs));
+  }
+
+  return false;
+}
+
+// =========================================================================
 // Public API — Control Messages
 // =========================================================================
 
 void sendControlMessage(const char *msg) {
   if (!clientConnected)
     return;
-  pCaptureChar->setValue((uint8_t *)msg, strlen(msg));
-  pCaptureChar->notify();
+  if (!sendNotify(pCaptureChar->getHandle(),
+                  (const uint8_t *)msg, strlen(msg))) {
+    Serial.printf("[BLE] WARN: Control message lost: %s\n", msg);
+  }
 }
 
 // =========================================================================
@@ -208,14 +300,19 @@ size_t sendImageChunk(uint16_t seqNum, const uint8_t *data, size_t dataLen) {
   // Copy payload
   memcpy(chunkBuf + IMAGE_HEADER_BYTES, data, dataLen);
 
-  pImageStreamChar->setValue(chunkBuf, IMAGE_HEADER_BYTES + dataLen);
-  pImageStreamChar->notify();
+  if (!sendNotify(pImageStreamChar->getHandle(),
+                  chunkBuf, IMAGE_HEADER_BYTES + dataLen)) {
+    Serial.printf("[BLE] FAILED chunk %u after retries\n", seqNum);
+    return 0;
+  }
 
-  // Must wait long enough for the BLE controller to flush the notification.
-  // Windows BLE connection interval is typically 15-30ms.  At 20ms we still
-  // lost ~50% of chunks because the TX queue fills faster than it drains.
-  // 30ms ensures each notification is transmitted before the next is queued.
-  delay(30);
+  // Inter-chunk pacing: yield to BLE task so notifications get flushed.
+  // Every 10 chunks, add a longer drain pause for the remote BLE stack.
+  if (seqNum > 0 && seqNum % 10 == 0) {
+    vTaskDelay(pdMS_TO_TICKS(25));
+  } else {
+    vTaskDelay(pdMS_TO_TICKS(8));
+  }
   return dataLen;
 }
 
@@ -224,18 +321,28 @@ void streamImageViaBle(const uint8_t *jpegBuf, size_t jpegLen,
   if (!clientConnected)
     return;
 
-  Serial.printf("[BLE] Streaming %u bytes (MTU=%u, profile=%s)\n",
-                (unsigned)jpegLen, s_negotiatedMtu, profileName);
+  // Effective max payload per chunk (for logging)
+  const size_t mtuPayload = (s_negotiatedMtu > 3 + IMAGE_HEADER_BYTES)
+                                ? (s_negotiatedMtu - 3 - IMAGE_HEADER_BYTES)
+                                : 0;
+  const size_t effectiveMax = (mtuPayload < IMAGE_MAX_PAYLOAD) ? mtuPayload : IMAGE_MAX_PAYLOAD;
+  const unsigned estChunks = (jpegLen + effectiveMax - 1) / effectiveMax;
+
+  Serial.printf("[BLE] Streaming %u bytes (MTU=%u, payload=%u, ~%u chunks, profile=%s)\n",
+                (unsigned)jpegLen, s_negotiatedMtu, (unsigned)effectiveMax,
+                estChunks, profileName);
 
   // 1. Send SIZE
   char ctrlMsg[32];
   snprintf(ctrlMsg, sizeof(ctrlMsg), "SIZE:%u", (unsigned)jpegLen);
   sendControlMessage(ctrlMsg);
-  delay(20);
+  vTaskDelay(pdMS_TO_TICKS(30)); // Let client process SIZE before chunks arrive
 
-  // 2. Stream image chunks — offset advances by ACTUAL bytes sent
+  // 2. Stream image chunks with retry on failure
+  const unsigned long startMs = millis();
   uint16_t seqNum = 0;
   size_t offset = 0;
+  int consecutiveFails = 0;
 
   while (offset < jpegLen) {
     if (!isBleEyeConnected()) {
@@ -244,22 +351,39 @@ void streamImageViaBle(const uint8_t *jpegBuf, size_t jpegLen,
     }
     size_t remaining = jpegLen - offset;
     size_t sent = sendImageChunk(seqNum, jpegBuf + offset, remaining);
-    if (sent == 0)
-      break; // MTU too small or disconnected
+    if (sent == 0) {
+      consecutiveFails++;
+      if (consecutiveFails > 3) {
+        Serial.printf("[BLE] %d consecutive failures — aborting stream.\n",
+                      consecutiveFails);
+        break;
+      }
+      // Wait and retry the SAME chunk — don't skip data
+      vTaskDelay(pdMS_TO_TICKS(100));
+      continue;
+    }
+    consecutiveFails = 0;
     offset += sent;
     seqNum++;
-    if (seqNum % 10 == 0) {
-      Serial.printf("[BLE] Progress: chunk %u, %u/%u bytes\n",
-                    seqNum, (unsigned)offset, (unsigned)jpegLen);
+    if (seqNum % 20 == 0) {
+      Serial.printf("[BLE] Progress: chunk %u, %u/%u bytes (%.0f%%)\n",
+                    seqNum, (unsigned)offset, (unsigned)jpegLen,
+                    offset * 100.0 / jpegLen);
     }
   }
 
-  // 3. Send END
-  delay(20);
+  const unsigned long elapsed = millis() - startMs;
+
+  // 3. Send END — repeated 3× with gaps to survive BLE notification loss
+  vTaskDelay(pdMS_TO_TICKS(30));
   snprintf(ctrlMsg, sizeof(ctrlMsg), "END:%u", seqNum);
-  sendControlMessage(ctrlMsg);
+  for (int i = 0; i < 3; i++) {
+    sendControlMessage(ctrlMsg);
+    if (i < 2) vTaskDelay(pdMS_TO_TICKS(50));
+  }
 
-  Serial.printf("[BLE] Sent %u chunks (%u bytes)\n", seqNum,
-                (unsigned)jpegLen);
+  const float kbps = (elapsed > 0) ? (jpegLen / 1024.0f) / (elapsed / 1000.0f) : 0;
+  Serial.printf("[BLE] Transfer complete: %u chunks, %u bytes in %lu ms "
+                "(%.1f KB/s, %d retried)\n",
+                seqNum, (unsigned)offset, elapsed, kbps, consecutiveFails);
 }
-

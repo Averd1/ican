@@ -1,3 +1,4 @@
+import 'dart:io' show Platform;
 import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 
@@ -43,8 +44,17 @@ class NotificationService {
     iOS: _iosDetails,
   );
 
+  // flutter_local_notifications supports Android, iOS, macOS, Linux — not Windows.
+  static bool get _supported =>
+      Platform.isAndroid || Platform.isIOS || Platform.isMacOS || Platform.isLinux;
+
   /// Call once in main() before runApp().
   static Future<void> init() async {
+    if (!_supported) {
+      debugPrint('[Notifications] Skipped — not supported on ${Platform.operatingSystem}.');
+      return;
+    }
+
     const initSettingsAndroid =
         AndroidInitializationSettings('@mipmap/ic_launcher');
     const initSettingsIOS = DarwinInitializationSettings(
@@ -59,9 +69,8 @@ class NotificationService {
 
     await _plugin.initialize(initSettings);
 
-    // Create the Android notification channel
-    final androidPlugin =
-        _plugin.resolvePlatformSpecificImplementation<
+    final androidPlugin = _plugin
+        .resolvePlatformSpecificImplementation<
             AndroidFlutterLocalNotificationsPlugin>();
     await androidPlugin?.createNotificationChannel(_androidChannel);
 
@@ -70,17 +79,22 @@ class NotificationService {
 
   /// Show an urgent fall-detected notification.
   static Future<void> showFallAlert() async {
+    if (!_supported) {
+      debugPrint('[Notifications] Fall alert skipped on ${Platform.operatingSystem} — in-app dialog handles it.');
+      return;
+    }
     debugPrint('[Notifications] Showing fall alert notification.');
     await _plugin.show(
-      0, // notification ID (0 = replace previous fall alert)
+      0,
       'Fall Detected',
       'iCan Cane has detected a fall. Check on the user immediately.',
       _notificationDetails,
     );
   }
 
-  /// Cancel the active fall alert notification (call after caretaker acknowledges).
+  /// Cancel the active fall alert notification.
   static Future<void> cancelFallAlert() async {
+    if (!_supported) return;
     await _plugin.cancel(0);
     debugPrint('[Notifications] Fall alert notification dismissed.');
   }

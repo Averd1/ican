@@ -399,14 +399,20 @@ class BleService extends ChangeNotifier {
       debugPrint('[BLE Cane Win] WinBle scan started (20s timeout).');
       WinBle.startScanning();
 
-      // Stop after 20 s if nothing found
+      // Stop after 20 s if nothing found, then retry after 5 s
       Future.delayed(const Duration(seconds: 20), () {
         if (_caneState == BleConnectionState.scanning) {
           try { WinBle.stopScanning(); } catch (_) {}
           _winCaneScanSub?.cancel();
           _winCaneScanSub = null;
           _setCaneState(BleConnectionState.disconnected);
-          debugPrint('[BLE Cane Win] Scan timed out — no Cane found.');
+          debugPrint('[BLE Cane Win] Scan timed out — retrying in 5s...');
+          Future.delayed(const Duration(seconds: 5), () {
+            if (_caneState == BleConnectionState.disconnected) {
+              debugPrint('[BLE Cane Win] Retrying scan...');
+              startScanForCane();
+            }
+          });
         }
       });
     } catch (e) {

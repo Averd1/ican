@@ -113,65 +113,56 @@ float readLidar() {
 }
 
 // ===========================================================================
-// Pulse Sensor — PulseSensor Playground library (WorldFamousElectronics)
-// Hardware: PulseSensor Amped on analog pin A0, 3.3V on Nano ESP32
-// Threshold 2000 is calibrated for ESP32 ADC range (verified working).
+// Pulse Sensor — PulseSensor Playground library v1.x (polling mode)
+// USE_ARDUINO_INTERRUPTS=false set via build flag — library polls in loop().
+// Hardware: PulseSensor Amped, 3.3V, analog pin A0 on Nano ESP32.
+// Threshold 2000 matches verified standalone firmware for this sensor.
 // ===========================================================================
 
-// No delay() used — library handles 2ms sampling internally via micros().
-// Call updatePulseSensor() every loop() iteration; it is a no-op until 2ms pass.
-
 static PulseSensorPlayground pulseSensor;
-static PulseData pulseResult = {0, false};
+static PulseData pulseResult          = {0, false};
 static unsigned long pulseLastBeatMs  = 0;
 static unsigned long pulseLastDebugMs = 0;
-
-// BPM is considered stale if no beat detected for 3 seconds
-constexpr unsigned long PULSE_STALE_MS = 3000;
-
-// Threshold tuned for ESP32 12-bit ADC (matches verified standalone firmware)
-constexpr int PULSE_THRESHOLD = 2000;
+constexpr unsigned long PULSE_STALE_MS = 3000; // invalidate if no beat for 3s
 
 void initPulseSensor(uint8_t pin) {
   pulseSensor.analogInput(pin);
-  pulseSensor.setThreshold(PULSE_THRESHOLD);
+  pulseSensor.blinkOnPulse(LED_BUILTIN); // built-in LED flashes on each beat
+  pulseSensor.setThreshold(2000);        // tuned for ESP32 ADC, matches standalone firmware
 
   if (pulseSensor.begin()) {
-    Serial.printf("[HR] PulseSensor ready on pin %d, threshold=%d\n",
-                  pin, PULSE_THRESHOLD);
+    Serial.printf("[HR] PulseSensor Playground ready on A0, threshold=2000\n");
   } else {
-    Serial.println("[HR] WARNING: PulseSensor.begin() failed — check wiring on A0");
+    Serial.println("[HR] WARNING: PulseSensor.begin() failed — check wiring");
   }
 }
 
 void updatePulseSensor() {
-  // sawStartOfBeat() drives the library's internal 2ms sampling.
-  // Returns true only on a confirmed beat — safe to call every loop().
+  // In polling mode (USE_ARDUINO_INTERRUPTS=false), sawStartOfBeat() drives
+  // the library's internal 2ms sampling — must be called every loop().
   if (pulseSensor.sawStartOfBeat()) {
     int bpm = pulseSensor.getBeatsPerMinute();
     pulseLastBeatMs = millis();
 
-    // Clamp to physiologically plausible range before storing
     if (bpm >= 40 && bpm <= 200) {
       pulseResult.bpm   = (uint8_t)bpm;
       pulseResult.valid = true;
     }
-
     Serial.printf("[HR] Beat! BPM: %d\n", bpm);
   }
 
-  // Invalidate if no beat received within stale window (sensor removed / bad contact)
+  // Clear if no beat for 3s (sensor removed / no contact)
   if (pulseResult.valid && (millis() - pulseLastBeatMs) > PULSE_STALE_MS) {
     pulseResult.bpm   = 0;
     pulseResult.valid = false;
     Serial.println("[HR] Signal lost — no beat for 3s");
   }
 
-  // Periodic status log every 2 seconds for debugging
+  // Status log every 2s
   unsigned long now = millis();
   if ((now - pulseLastDebugMs) >= 2000) {
     pulseLastDebugMs = now;
-    Serial.printf("[HR] BPM: %d, Valid: %s, Signal: %d\n",
+    Serial.printf("[HR] BPM: %d  Valid: %s  Signal: %d\n",
       pulseResult.bpm,
       pulseResult.valid ? "YES" : "NO",
       pulseSensor.getLatestSample());

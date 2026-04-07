@@ -20,9 +20,14 @@ class _CaretakerDashboardScreenState extends State<CaretakerDashboardScreen>
   StreamSubscription<TelemetryPacket>? _telemetrySub;
 
   TelemetryPacket? _latest;
+
+  // Active fall state
   bool _fallAcknowledged = false;
   DateTime? _fallTime;
   bool _fallDialogShown = false;
+
+  // Fall history — persists for the session, never cleared on acknowledge
+  final List<_FallRecord> _fallHistory = [];
 
   // Heartbeat animation
   late final AnimationController _heartController;
@@ -41,34 +46,34 @@ class _CaretakerDashboardScreenState extends State<CaretakerDashboardScreen>
     );
 
     _telemetrySub = BleService.instance.telemetryStream.listen(_onTelemetry);
+    BleService.instance.addListener(_onBleStateChanged);
 
     debugPrint('[Caretaker] Dashboard started, listening to telemetry stream.');
   }
 
   void _onTelemetry(TelemetryPacket pkt) {
-    setState(() {
-      _latest = pkt;
-    });
+    setState(() => _latest = pkt);
 
-    // Animate heartbeat on each valid pulse packet
     if (pkt.pulseValid) {
       _heartController.forward(from: 0);
     }
 
-    // Show fall alert modal on first detection (rising edge)
-    if (pkt.fallDetected && !_fallAcknowledged) {
-      if (_fallTime == null) {
-        setState(() {
-          _fallTime = DateTime.now();
-        });
-        _showFallDialog();
-      }
+    // Rising edge — new fall event
+    if (pkt.fallDetected && _fallTime == null) {
+      final now = DateTime.now();
+      setState(() {
+        _fallTime = now;
+        _fallAcknowledged = false;
+        _fallDialogShown = false;
+        _fallHistory.insert(0, _FallRecord(time: now)); // newest first
+      });
+      _showFallDialog();
+      debugPrint('[Caretaker] Fall recorded at $now. Total: ${_fallHistory.length}');
     }
 
-    // Reset acknowledged state when firmware clears the fall flag
-    if (!pkt.fallDetected && _fallAcknowledged) {
+    // Firmware cleared the fall flag — ready for next event
+    if (!pkt.fallDetected && _fallTime != null && _fallAcknowledged) {
       setState(() {
-        _fallAcknowledged = false;
         _fallTime = null;
         _fallDialogShown = false;
       });
@@ -120,14 +125,27 @@ class _CaretakerDashboardScreenState extends State<CaretakerDashboardScreen>
   void _acknowledgeFall() {
     setState(() {
       _fallAcknowledged = true;
+      // Mark the most recent history entry as acknowledged
+      if (_fallHistory.isNotEmpty) {
+        _fallHistory.first.acknowledged = true;
+      }
     });
     NotificationService.cancelFallAlert();
-    debugPrint('[Caretaker] Fall alert acknowledged by caretaker.');
+    debugPrint('[Caretaker] Fall acknowledged. History: ${_fallHistory.length} total.');
+  }
+
+  void _onBleStateChanged() {
+    if (!mounted) return;
+    setState(() {
+      // Clear stale telemetry when device disconnects so HR shows "--" not old data
+      if (!_caneConnected) _latest = null;
+    });
   }
 
   @override
   void dispose() {
     _telemetrySub?.cancel();
+    BleService.instance.removeListener(_onBleStateChanged);
     _heartController.dispose();
     super.dispose();
   }
@@ -138,6 +156,10 @@ class _CaretakerDashboardScreenState extends State<CaretakerDashboardScreen>
 
   bool get _caneConnected =>
       BleService.instance.caneState == BleConnectionState.connected;
+
+  bool get _caneScanning =>
+      BleService.instance.caneState == BleConnectionState.scanning ||
+      BleService.instance.caneState == BleConnectionState.connecting;
 
   String _formatTime(DateTime dt) {
     final h = dt.hour.toString().padLeft(2, '0');
@@ -189,7 +211,11 @@ class _CaretakerDashboardScreenState extends State<CaretakerDashboardScreen>
         child: ListView(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
           children: [
-            _ConnectionCard(connected: _caneConnected),
+            _ConnectionCard(
+              connected: _caneConnected,
+              scanning: _caneScanning,
+              onScan: () => BleService.instance.startScanForCane(),
+            ),
             const SizedBox(height: 12),
             _HeartRateCard(
               pkt: _latest,
@@ -206,6 +232,8 @@ class _CaretakerDashboardScreenState extends State<CaretakerDashboardScreen>
               fallTime: _fallTime,
               onAcknowledge: _acknowledgeFall,
             ),
+            const SizedBox(height: 12),
+            _FallHistoryCard(history: _fallHistory),
             const SizedBox(height: 24),
             // Debug info strip
             if (_latest != null)
@@ -244,37 +272,77 @@ class _DashCard extends StatelessWidget {
 
 // --- Connection Status ---
 class _ConnectionCard extends StatelessWidget {
-  const _ConnectionCard({required this.connected});
+  const _ConnectionCard({
+    required this.connected,
+    required this.scanning,
+    required this.onScan,
+  });
   final bool connected;
+  final bool scanning;
+  final VoidCallback onScan;
 
   @override
   Widget build(BuildContext context) {
+    final Color dotColor = connected
+        ? ICanTheme.success
+        : scanning
+            ? ICanTheme.accentOrange
+            : ICanTheme.error;
+
+    final String label = connected
+        ? 'iCan Cane Connected'
+        : scanning
+            ? 'Searching for iCan Cane...'
+            : 'iCan Cane Not Connected';
+
     return _DashCard(
       child: Row(
         children: [
+          // Status dot — pulsing orange when scanning
           Container(
             width: 12,
             height: 12,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
-              color: connected ? ICanTheme.success : ICanTheme.error,
+              color: dotColor,
             ),
           ),
           const SizedBox(width: 12),
           Expanded(
             child: Text(
-              connected ? 'iCan Cane Connected' : 'iCan Cane Not Connected',
+              label,
               style: const TextStyle(
                   color: ICanTheme.textPrimary,
                   fontSize: 16,
                   fontWeight: FontWeight.w600),
             ),
           ),
-          Icon(
-            connected ? Icons.bluetooth_connected : Icons.bluetooth_disabled,
-            color: connected ? ICanTheme.success : ICanTheme.textSecondary,
-            size: 22,
-          ),
+          if (!connected)
+            TextButton.icon(
+              onPressed: scanning ? null : onScan,
+              icon: scanning
+                  ? const SizedBox(
+                      width: 14,
+                      height: 14,
+                      child: CircularProgressIndicator(
+                          strokeWidth: 2, color: ICanTheme.accentOrange))
+                  : const Icon(Icons.bluetooth_searching,
+                      size: 18, color: ICanTheme.accentOrange),
+              label: Text(
+                scanning ? 'Scanning...' : 'Connect',
+                style: const TextStyle(
+                    color: ICanTheme.accentOrange, fontSize: 13),
+              ),
+              style: TextButton.styleFrom(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                minimumSize: Size.zero,
+                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              ),
+            )
+          else
+            const Icon(Icons.bluetooth_connected,
+                color: ICanTheme.success, size: 22),
         ],
       ),
     );
@@ -564,6 +632,91 @@ class _FallAlertCard extends StatelessWidget {
     final h = dt.hour.toString().padLeft(2, '0');
     final m = dt.minute.toString().padLeft(2, '0');
     return '$h:$m';
+  }
+}
+
+// --- Fall Record data class ---
+class _FallRecord {
+  _FallRecord({required this.time, this.acknowledged = false});
+  final DateTime time;
+  bool acknowledged;
+}
+
+// --- Fall History Card ---
+class _FallHistoryCard extends StatelessWidget {
+  const _FallHistoryCard({required this.history});
+  final List<_FallRecord> history;
+
+  String _fmt(DateTime dt) {
+    final h = dt.hour.toString().padLeft(2, '0');
+    final m = dt.minute.toString().padLeft(2, '0');
+    final s = dt.second.toString().padLeft(2, '0');
+    return '$h:$m:$s';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return _DashCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.history_rounded,
+                  color: ICanTheme.textSecondary, size: 20),
+              const SizedBox(width: 8),
+              Text(
+                'Fall History  (${history.length})',
+                style: const TextStyle(
+                    color: ICanTheme.textSecondary,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w500),
+              ),
+            ],
+          ),
+          if (history.isEmpty) ...[
+            const SizedBox(height: 10),
+            const Text('No falls recorded this session.',
+                style: TextStyle(color: ICanTheme.textSecondary, fontSize: 14)),
+          ] else ...[
+            const SizedBox(height: 10),
+            ...history.map((r) => Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: Row(
+                children: [
+                  Icon(
+                    r.acknowledged
+                        ? Icons.check_circle_rounded
+                        : Icons.warning_rounded,
+                    color: r.acknowledged
+                        ? ICanTheme.textSecondary
+                        : Colors.redAccent,
+                    size: 16,
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    _fmt(r.time),
+                    style: const TextStyle(
+                        color: ICanTheme.textPrimary,
+                        fontSize: 14,
+                        fontFamily: 'monospace'),
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    r.acknowledged ? 'Acknowledged' : 'Active',
+                    style: TextStyle(
+                        color: r.acknowledged
+                            ? ICanTheme.textSecondary
+                            : Colors.redAccent,
+                        fontSize: 12),
+                  ),
+                ],
+              ),
+            )),
+          ],
+        ],
+      ),
+    );
   }
 }
 

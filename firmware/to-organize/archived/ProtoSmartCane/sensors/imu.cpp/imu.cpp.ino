@@ -1,10 +1,8 @@
 #include "imu.h"
-#include "../mux/mux.h"
+#include "../../mux/mux.h"
 #include <Wire.h>
 #include <Adafruit_LSM6DSOX.h>
 #include <math.h>
-
-#define IMU_CHANNEL 0
 
 Adafruit_LSM6DSOX lsm6dsox;
 IMUData imu;
@@ -24,7 +22,7 @@ static const unsigned long IMPACT_WINDOW = 500;  // ms
 static const unsigned long INACTIVITY_TIME = 2000; // ms
 
 void initIMU() {
-    selectMux(IMU_CHANNEL);
+    selectIMU();
 
     if (!lsm6dsox.begin_I2C()) {
         Serial.println("IMU NOT FOUND");
@@ -34,8 +32,8 @@ void initIMU() {
     Serial.println("IMU READY");
 }
 
-void updateIMU() {
-    selectMux(IMU_CHANNEL);
+void updateIMUData() {
+    selectIMU();
 
     sensors_event_t accel, gyro, temp;
     lsm6dsox.getEvent(&accel, &gyro, &temp);

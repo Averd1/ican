@@ -1,7 +1,9 @@
 #pragma once
 
-extern bool falldetected; 
+extern bool fallDetected;
 
 void initSensors();
-void updateSensors();
 void updateIMU();
+void updateUltrasonic();
+void updateLidar();
+void updatePulse();

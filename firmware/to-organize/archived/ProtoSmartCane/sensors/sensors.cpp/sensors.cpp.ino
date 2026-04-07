@@ -1,5 +1,8 @@
 #include "sensors.h"
 #include "../imu/imu.h"
+#include "../ultrasonic/ultrasonic.h"
+#include "../lidar/lidar.h"
+#include "../pulse/pulse.h"
 #include <Arduino.h>
 
 // ---- FALL STATE ----
@@ -9,38 +12,29 @@ bool fallDetected = false;
 static unsigned long lastFallTime = 0;
 static const unsigned long FALL_COOLDOWN = 5000; // 5 sec
 
-// assuming you already have heart BPM variable
-extern int heartBPM;
-
 void initSensors() {
     initIMU();
     initUltrasonic();
-    initLight();
-    initHeart();
+    initLidar();
+    initPulse();
 }
 
-void updateSensors() {
-    updateUltrasonic();
-    updateLight();
-    updateHeart();
-
-    bool heartAbnormal = false;
-
-    if (heartBPM > 120 || heartBPM < 50) {
-        heartAbnormal = true;
-    }
-
-    if (imuFallCandidate &&
-        (imuInactive || heartAbnormal) &&
-        millis() - lastFallTime > FALL_COOLDOWN) {
-
-        fallDetected = true;
-        lastFallTime = millis();
-
-        // reset trigger
-        imuFallCandidate = false;
-    } else {
-        fallDetected = false;
-    }
+void updateIMU() {
+    // IMU update logic handled in imu.cpp
+    updateIMUData();
 }
+
+void updateUltrasonic() {
+    // Ultrasonic update logic handled in ultrasonic.cpp
+    updateUltrasonicData();
+}
+
+void updateLidar() {
+    // LiDAR update logic handled in lidar.cpp
+    updateLidarData();
+}
+
+void updatePulse() {
+    // Pulse sensor update logic handled in pulse.cpp
+    updatePulseData();
 }

@@ -57,6 +57,8 @@ dependencies:
   # Local push notifications — used for fall detection alerts
   flutter_local_notifications: ^18.0.0
 
+  objective_c: 9.1.0
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

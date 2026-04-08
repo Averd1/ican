@@ -13,7 +13,7 @@ uint16_t ambientLux = 0;
 bool lowLightDetected = false;
 
 void lightSensorInit() {
-    selectLidar();  // Route I2C to light sensor via mux
+    selectLight();  // Route I2C to light sensor via mux
 
     // Initialize light sensor communication
     Wire.beginTransmission(LIGHT_SENSOR_ADDR);
@@ -25,7 +25,7 @@ void lightSensorInit() {
 }
 
 void lightSensorUpdate() {
-    selectLidar();  // Ensure correct I2C mux channel
+    selectLight();  // Ensure correct I2C mux channel
 
     // Read light sensor data (varies by sensor model)
     // Example for TSL2561: 2-channel (infrared + visible light)

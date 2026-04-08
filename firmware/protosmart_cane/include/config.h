@@ -8,7 +8,9 @@
 // === HARDWARE PIN DEFINITIONS ===
 #define BUZZER_PIN 9
 #define LED_PIN 6
-#define BATTERY_PIN A0
+#define BATTERY_PIN A1         // Battery monitor on separate analog input from pulse sensor
+#define HEART_PIN A0           // Pulse sensor input
+#define PULSE_LED 13           // Optional pulse-sensor blink LED pin
 
 // === BATTERY MONITORING ===
 #define BATTERY_R1 10000.0f    // Voltage divider resistor 1 (10k)
@@ -29,6 +31,8 @@
 #define LIDAR_CHANNEL 0
 #define ULTRASONIC_CHANNEL 1
 #define IMU_CHANNEL 2
+#define LIGHT_CHANNEL 3
+#define HAPTIC_CHANNEL 4
 
 // === FALL DETECTION PARAMETERS ===
 #define FALL_FREEFALL_THRESHOLD 4.0f     // m/s² (~0.4g) - start of free fall
@@ -70,23 +74,33 @@
 #define EMERGENCY_INITIAL_INTENSITY_MS 3000  // 3 seconds of max intensity
 
 // === POWER MODE SAMPLING RATES (ms intervals) ===
-#define NORMAL_IMU_INTERVAL 50           // 20 Hz
-#define NORMAL_ULTRASONIC_INTERVAL 100   // 10 Hz
-#define NORMAL_LIDAR_INTERVAL 100        // 10 Hz
-#define NORMAL_PULSE_INTERVAL 200        // 5 Hz
-#define NORMAL_BATTERY_CHECK_INTERVAL 5000  // 5 seconds
+// NORMAL MODE: 20 Hz IMU, 15 Hz ultrasonic, 20 Hz LiDAR, 10 Hz pulse
+#define NORMAL_IMU_INTERVAL 50           // 20 Hz  (responsive motion + fall detection)
+#define NORMAL_ULTRASONIC_INTERVAL 67    // 15 Hz  (frequent proximity checks)
+#define NORMAL_LIDAR_INTERVAL 50         // 20 Hz  (rapid forward updates)
+#define NORMAL_PULSE_INTERVAL 100        // 10 Hz  (real-time stress capability)
+#define NORMAL_BATTERY_CHECK_INTERVAL 2000  // 2 seconds (increased frequency)
 
-#define LOW_POWER_IMU_INTERVAL 200       // 5 Hz
-#define LOW_POWER_ULTRASONIC_INTERVAL 500 // 2 Hz
-#define LOW_POWER_LIDAR_INTERVAL 500     // 2 Hz
-#define LOW_POWER_PULSE_INTERVAL 1000    // 1 Hz
+// LOW_POWER MODE: 5 Hz all sensors (battery <20% fallback)
+#define LOW_POWER_IMU_INTERVAL 200       // 5 Hz   (fall detection only)
+#define LOW_POWER_ULTRASONIC_INTERVAL 200 // 5 Hz  (coarse checks)
+#define LOW_POWER_LIDAR_INTERVAL 200     // 5 Hz   (sparse awareness)
+#define LOW_POWER_PULSE_INTERVAL 500     // 2 Hz   (minimal overhead)
 #define LOW_POWER_BATTERY_CHECK_INTERVAL 10000  // 10 seconds
 
-#define EMERGENCY_IMU_INTERVAL 10        // 100 Hz
-#define EMERGENCY_ULTRASONIC_INTERVAL 50 // 20 Hz
-#define EMERGENCY_LIDAR_INTERVAL 50      // 20 Hz
-#define EMERGENCY_PULSE_INTERVAL 50      // 20 Hz
-#define EMERGENCY_BATTERY_CHECK_INTERVAL 1000  // 1 second
+// HIGH_STRESS MODE: 50 Hz IMU, 30 Hz ultrasonic/LiDAR, 20 Hz pulse (close obstacle + abnormal HR)
+#define HIGH_STRESS_IMU_INTERVAL 20      // 50 Hz  (rapid threat detection)
+#define HIGH_STRESS_ULTRASONIC_INTERVAL 33 // 30 Hz (very frequent proximity)
+#define HIGH_STRESS_LIDAR_INTERVAL 33    // 30 Hz  (rapid threat updates)
+#define HIGH_STRESS_PULSE_INTERVAL 50    // 20 Hz  (stress level tracking)
+#define HIGH_STRESS_BATTERY_CHECK_INTERVAL 1000 // 1 second
+
+// EMERGENCY MODE: 100+ Hz IMU, 40 Hz ultrasonic/LiDAR, 40 Hz pulse (fall detection, time-limited)
+#define EMERGENCY_IMU_INTERVAL 10        // 100 Hz (maximum fall impact resolution)
+#define EMERGENCY_ULTRASONIC_INTERVAL 25 // 40 Hz  (ground impact + environment)
+#define EMERGENCY_LIDAR_INTERVAL 25      // 40 Hz  (detailed landing mapping)
+#define EMERGENCY_PULSE_INTERVAL 25      // 40 Hz  (stress spike capture)
+#define EMERGENCY_BATTERY_CHECK_INTERVAL 500  // 0.5 second
 
 // === RESPONSE SYSTEM TIMING ===
 #define RESPONSE_PULSE_FAR_MS 300        // Slow pulse for distant obstacles
@@ -118,17 +132,17 @@
 
 // === BLE TELEMETRY OPTIMIZATION ===
 // The cane sends minimal data; the app calculates battery lifetime using this power profile:
-//   NORMAL: 85 mA → 8 hours @ 660mAh
-//   LOW_POWER: 50 mA → 13 hours @ 660mAh
-//   EMERGENCY: 250 mA → 2.6 hours @ 660mAh (capped 30s)
-//   CAUTIOUS_SLEEP: 30 mA → 22 hours @ 660mAh
-//   DEEP_SLEEP: 10 mA → 66 hours @ 660mAh
+//   NORMAL: 85 mA → ~77 hours @ 6600mAh
+//   LOW_POWER: 50 mA → ~118 hours @ 6600mAh
+//   EMERGENCY: 250 mA → ~26 hours @ 6600mAh (capped 30s)
+//   CAUTIOUS_SLEEP: 30 mA → ~198 hours @ 6600mAh
+//   DEEP_SLEEP: 10 mA → ~594 hours @ 6600mAh
 //
 // App telemetry input (5 bytes):
 //   [battery_percent] [current_mode] [heart_rate] [flags] [reserved]
 // App output:
-//   Estimated runtime = 660mAh / current_power_in_mode × battery_percent / 100
-//   Example: 85% battery in NORMAL mode → 85 / 100 × 8 hours = 6.8 hours remaining
+//   Estimated runtime = 6600mAh / current_power_in_mode × battery_percent / 100
+//   Example: 85% battery in NORMAL mode → 85 / 100 × 77 hours = 65.45 hours remaining
 
 // === SERIAL DEBUGGING ===
 #define SERIAL_BAUD_RATE 115200

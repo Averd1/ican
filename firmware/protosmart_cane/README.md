@@ -3,7 +3,7 @@
 **Status:** ✅ Ready for Hardware Integration & Field Testing  
 **Version:** 2.1 (8-Hour Continuous Operation Optimization)  
 **Target Platform:** ESP32 (Arduino Nano ESP32)  
-**Battery Life:** **8 hours continuous NORMAL mode** (vs 2.8 hours in v1)
+**Battery Life:** **8 hours continuous NORMAL mode minimum target** on a 6600mAh LiPo (vs 2.8 hours in v1)
 
 ---
 
@@ -19,7 +19,7 @@
 | **Reduced BLE packet size** | 5 bytes vs 9 bytes | Less overhead |
 | **Reduced LiDAR polling** | 15-20Hz vs 25Hz | -10mA |
 | **App-side battery calc** | Cane sends % + mode only | CPU power saving |
-| **Result** | 85mA NORMAL mode | **8 hours @ 660mAh LiPo** |
+| **Result** | 85mA NORMAL mode | **~77 hours @ 6600mAh LiPo** |
 
 ### Feature Changes (Deliberate)
 
@@ -44,11 +44,11 @@
 ## 🔋 Power Profile Summary
 
 ```
-NORMAL            → 85 mA  → 8 hours @ 660mAh     (target: continuous operation)
-LOW_POWER         → 50 mA  → 13 hours @ 660mAh    (when battery <20%)
-EMERGENCY         → 250 mA → 2.6 hours @ 660mAh   (capped 30s max)
-CAUTIOUS_SLEEP    → 30 mA  → 22 hours @ 660mAh    (5min inactivity)
-DEEP_SLEEP        → 10 mA  → 66 hours @ 660mAh    (20min inactivity)
+NORMAL            → 85 mA  → ~77 hours @ 6600mAh  (target: continuous operation)
+LOW_POWER         → 50 mA  → ~118 hours @ 6600mAh (when battery <20%)
+EMERGENCY         → 250 mA → ~26 hours @ 6600mAh  (capped 30s max)
+CAUTIOUS_SLEEP    → 30 mA  → ~198 hours @ 6600mAh (5min inactivity)
+DEEP_SLEEP        → 10 mA  → ~594 hours @ 6600mAh (20min inactivity)
 ```
 
 **For app developers:** See OPTIMIZATION_GUIDE.md for battery calculation formula

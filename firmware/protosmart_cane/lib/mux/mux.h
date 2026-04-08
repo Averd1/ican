@@ -11,3 +11,5 @@ void selectMuxChannel(uint8_t channel);
 void selectLidar();
 void selectUltrasonic();
 void selectIMU();
+void selectLight();
+void selectHaptic();

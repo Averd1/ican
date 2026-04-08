@@ -35,3 +35,11 @@ void selectUltrasonic() {
 void selectIMU() {
     selectMuxChannel(IMU_CHANNEL);
 }
+
+void selectLight() {
+    selectMuxChannel(LIGHT_CHANNEL);
+}
+
+void selectHaptic() {
+    selectMuxChannel(HAPTIC_CHANNEL);
+}

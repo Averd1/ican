@@ -110,31 +110,37 @@ void handleResponses() {
 }
 
 void handleFallResponse() {
-    // OPTIMIZED Fall response - haptic vibration only
-    // No buzzer or LED (saves 200+ mA, reduces power draw significantly)
-    // Single vibration pattern for fall detection
+    // FALL RESPONSE - LED + Buzzer only (NO HAPTICS)
+    // Rationale: Person is already falling; haptic feedback provides no safety value.
+    //           Focus on maximum visibility (LED) and audio alert (buzzer).
     //
-    // Haptic pattern: Strong vibration pulses to alert user
-    // Duration: Full emergency timeout (30s max)
+    // Pattern:
+    //   Phase 1 (0-3s): LED full bright + rapid buzzer pulses (95% brightness, 50ms buzzer)
+    //   Phase 2 (3-30s): LED medium bright + slow buzzer pulses (70% brightness, 150ms buzzer)
+    //   Timeout: After 30s, return to normal + keep emergency registered with app
+    //
+    // User can extend alert via app or manual recovery sequence
 
     if (!emergencyActive) {
         emergencyActive = true;
         emergencyStartTime = millis();
-        if (DEBUG_MODE) Serial.println("FALL DETECTED - Haptic alert activated");
+        if (DEBUG_MODE) Serial.println("FALL DETECTED - LED + Buzzer alert activated (NO HAPTICS)");
     }
 
     unsigned long timeSinceFall = millis() - emergencyStartTime;
 
     if (timeSinceFall < EMERGENCY_INITIAL_INTENSITY_MS) {
-        // Phase 1: Strong vibration pattern for immediate attention
-        hapticPulse(255, 150);  // Max intensity, 150ms pulses
+        // Phase 1: Maximum visibility + rapid audio alert
+        setLED(LED_BRIGHT);                         // 255 brightness for immediate visibility
+        buzzerPulse(RESPONSE_PULSE_IMMINENT_MS);   // Very fast buzzer pulses (50ms)
     } else if (timeSinceFall < EMERGENCY_DURATION_MS) {
-        // Phase 2: Continued haptic vibration (help is on way)
-        hapticPulse(200, 200);  // High intensity, 200ms pulses
+        // Phase 2: Sustained visibility + slower audio feedback
+        setLED(LED_MEDIUM);                        // 180 brightness (still prominent)
+        buzzerPulse(RESPONSE_PULSE_NEAR_MS);       // Moderate speed pulses (150ms)
     } else {
-        // Timeout reached - stop alerts
-        hapticStop();
+        // Timeout reached - return to normal LED control but keep emergency flag
+        buzzerOff();
         emergencyActive = false;
-        if (DEBUG_MODE) Serial.println("Fall alert timeout");
+        if (DEBUG_MODE) Serial.println("Fall alert timeout - continuing with standard LED control");
     }
 }

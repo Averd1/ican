@@ -118,19 +118,12 @@ void loop() {
 
     // === BATTERY MONITORING (Power Management Core) ===
     if (now - lastBatteryCheck > modeConfig.batteryCheckInterval) {
-        batteryStatus = getBatteryStatus();
+        updateBatteryMonitor();  // Enhanced battery health tracking
         currentSensors.batteryLevel = batteryStatus.percentage;
         
-        if (DEBUG_MODE) {
-            Serial.print("Battery: ");
-            Serial.print(batteryStatus.voltage_v);
-            Serial.print("V (");
-            Serial.print(batteryStatus.percentage);
-            Serial.print("%) - ");
-            Serial.print(batteryStatus.estimated_runtime_minutes);
-            Serial.println(" min remaining");
-        }
-
+        // Debug output periodically (comprehensive battery metrics)
+        debugBatteryMetrics();
+        
         // Automatic power mode switching with hysteresis
         if (batteryStatus.percentage < BATTERY_LOW_THRESHOLD && currentMode != EMERGENCY) {
             setMode(LOW_POWER);
@@ -179,7 +172,7 @@ void loop() {
 
     // === SLEEP MANAGEMENT ===
     if (now - lastSleepCheck > SLEEP_CHECK_INTERVAL_MS) {
-        updateSleepManager(currentSituation, currentMode);
+        updateSleepManager();
         lastSleepCheck = now;
     }
 
@@ -190,6 +183,7 @@ void loop() {
     fuseSituations();
 
     // === EMERGENCY MODE CONTROL (Highest Priority) ===
+    // PRIORITY 1: FALL DETECTION triggers EMERGENCY (user safety critical)
     if (currentSituation == FALL_DETECTED || systemFaults.imu_fail) {
         if (currentMode != EMERGENCY) {
             setMode(EMERGENCY);
@@ -197,17 +191,28 @@ void loop() {
                                  EMERGENCY_FALL : EMERGENCY_SENSOR_FAIL;
             if (DEBUG_MODE) Serial.println("EMERGENCY MODE: Fall/IMU failure detected");
         }
-    } else if (currentSituation == HIGH_STRESS) {
-        if (currentMode != EMERGENCY) {
-            setMode(EMERGENCY);
+    }
+    // PRIORITY 2: HIGH_STRESS (close obstacle + abnormal HR) transitions to HIGH_STRESS mode
+    // Note: HIGH_STRESS is NOT emergency-level but requires higher sensor sampling + faster BLE
+    else if (currentSituation == HIGH_STRESS) {
+        if (currentMode != HIGH_STRESS && currentMode != EMERGENCY) {
+            setMode(HIGH_STRESS);
             currentEmergencyType = EMERGENCY_HIGH_STRESS;
-            if (DEBUG_MODE) Serial.println("EMERGENCY MODE: High stress condition");
+            if (DEBUG_MODE) Serial.println("HIGH_STRESS MODE: Close obstacle + abnormal heart rate");
         }
-    } else if (currentMode == EMERGENCY &&
-               currentSituation != FALL_DETECTED &&
-               currentSituation != HIGH_STRESS &&
-               !systemFaults.imu_fail) {
-        // Exit emergency mode when situation clears
+    }
+    // PRIORITY 3: Exit HIGH_STRESS when threat clears (but stay above NORMAL if battery allows)
+    else if (currentMode == HIGH_STRESS &&
+             currentSituation != HIGH_STRESS) {
+        setMode(currentSensors.batteryLevel < BATTERY_LOW_THRESHOLD ? LOW_POWER : NORMAL);
+        currentEmergencyType = EMERGENCY_NONE;
+        if (DEBUG_MODE) Serial.println("HIGH_STRESS CLEARED: Returning to normal operation");
+    }
+    // PRIORITY 4: Exit emergency mode when situation clears
+    else if (currentMode == EMERGENCY &&
+             currentSituation != FALL_DETECTED &&
+             !systemFaults.imu_fail) {
+        // Exit emergency mode when fall situation clears
         setMode(currentSensors.batteryLevel < BATTERY_LOW_THRESHOLD ? LOW_POWER : NORMAL);
         currentEmergencyType = EMERGENCY_NONE;
         emergencyActive = false;

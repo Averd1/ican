@@ -28,7 +28,10 @@ extern const PowerProfile PROFILE_NORMAL;
 // LOW_POWER MODE: Extended battery life
 extern const PowerProfile PROFILE_LOW_POWER;
 
-// EMERGENCY MODE: Maximum monitoring (temporary, ~30s)
+// HIGH_STRESS MODE: Peak threat response (close obstacle + abnormal HR)
+extern const PowerProfile PROFILE_HIGH_STRESS;
+
+// EMERGENCY MODE: Maximum monitoring (temporary, ~30-60s)
 extern const PowerProfile PROFILE_EMERGENCY;
 
 // CAUTIOUS_SLEEP: Minimal sampling, waiting for motion
@@ -38,7 +41,7 @@ extern const PowerProfile PROFILE_CAUTIOUS_SLEEP;
 extern const PowerProfile PROFILE_DEEP_SLEEP;
 
 // === BATTERY SPECIFICATIONS ===
-#define BATTERY_CAPACITY_MAH 660        // LiPo battery capacity
+#define BATTERY_CAPACITY_MAH 6600       // LiPo battery capacity
 #define BATTERY_NOMINAL_VOLTAGE 3.7f    // Nominal voltage for runtime calc
 #define BATTERY_USABLE_CAPACITY 0.9f    // 90% of rated capacity (preserve cell life)
 

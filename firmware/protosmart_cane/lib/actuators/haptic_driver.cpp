@@ -14,7 +14,7 @@ static uint16_t hapticPulseInterval = 0;
 static uint8_t hapticCurrentIntensity = 0;
 
 void hapticDriverInit() {
-    selectIMU();  // Route I2C to haptic driver via mux
+    selectHaptic();  // Route I2C to haptic driver via mux
 
     Wire.beginTransmission(DRV2605_ADDR);
     if (Wire.endTransmission() == 0) {
@@ -32,29 +32,35 @@ void hapticDriverInit() {
 }
 
 void updateHapticFeedback() {
-    // Distance-based haptic scaling similar to LED feedback
+    // Distance-based haptic scaling for obstacle and stress responses
+    // EXCLUSION: FALL_DETECTED - no haptic feedback during fall (not useful for safety)
+    // In LOW_POWER mode: reduce intensity by 40% and increase intervals for less frequent feedback
     // Closer object = higher intensity + faster pulses
+
+    float intensityModifier = (currentMode == LOW_POWER) ? 0.6f : 1.0f;  // 40% reduction in LOW_POWER
+    unsigned long intervalModifier = (currentMode == LOW_POWER) ? 1.5f : 1.0f;  // 50% more time between pulses
 
     if (currentSituation == OBJECT_FAR) {
         // Far obstacle: light, slow pulses
-        hapticIntensity = HAPTIC_LIGHT;
-        hapticPulseInterval = RESPONSE_PULSE_FAR_MS;
+        hapticIntensity = (uint8_t)(HAPTIC_LIGHT * intensityModifier);
+        hapticPulseInterval = (uint16_t)(RESPONSE_PULSE_FAR_MS * intervalModifier);
     } else if (currentSituation == OBJECT_NEAR) {
         // Near obstacle: medium, moderate pulses
-        hapticIntensity = HAPTIC_MEDIUM;
-        hapticPulseInterval = RESPONSE_PULSE_NEAR_MS;
+        hapticIntensity = (uint8_t)(HAPTIC_MEDIUM * intensityModifier);
+        hapticPulseInterval = (uint16_t)(RESPONSE_PULSE_NEAR_MS * intervalModifier);
     } else if (currentSituation == OBJECT_IMMINENT) {
-        // Imminent collision: heavy, fast pulses
-        hapticIntensity = HAPTIC_STRONG;
-        hapticPulseInterval = RESPONSE_PULSE_IMMINENT_MS;
+        // Imminent collision: heavy, fast pulses (still strong even in LOW_POWER for safety)
+        hapticIntensity = (uint8_t)(HAPTIC_STRONG * 0.85f);  // Slightly reduced but still urgent
+        hapticPulseInterval = (uint16_t)(RESPONSE_PULSE_IMMINENT_MS * 1.2f);  // Slightly slower
     } else if (currentSituation == HIGH_STRESS) {
-        // High stress: maximum intensity, very fast
-        hapticIntensity = HAPTIC_STRONG;
-        hapticPulseInterval = RESPONSE_PULSE_STRESS_MS;
+        // High stress: maximum intensity, very fast (reduce if LOW_POWER)
+        hapticIntensity = (uint8_t)(HAPTIC_STRONG * intensityModifier);
+        hapticPulseInterval = (uint16_t)(RESPONSE_PULSE_STRESS_MS * intervalModifier);
     } else if (currentSituation == FALL_DETECTED) {
-        // Fall: intense sharp pulses
-        hapticIntensity = HAPTIC_STRONG;
-        hapticPulseInterval = RESPONSE_PULSE_FALL_MS;
+        // FALL: NO HAPTIC FEEDBACK - person is falling, haptics not useful for safety
+        // Fall response uses LED + buzzer only (handled in responses.cpp handleFallResponse)
+        hapticIntensity = HAPTIC_OFF;
+        hapticPulseInterval = 0;
     } else {
         // No obstacle: no haptic feedback
         hapticIntensity = HAPTIC_OFF;
@@ -82,7 +88,7 @@ void hapticPulse(uint8_t intensity, uint16_t durationMs) {
         return;
     }
 
-    selectIMU();  // Ensure correct I2C mux channel
+    selectHaptic();  // Ensure correct I2C mux channel
 
     // Write to DRV2605L RTP data register
     Wire.beginTransmission(DRV2605_ADDR);
@@ -105,7 +111,7 @@ void hapticPulse(uint8_t intensity, uint16_t durationMs) {
 void hapticStop() {
     if (!hapticActive) return;
 
-    selectIMU();  // Ensure correct I2C mux channel
+    selectHaptic();  // Ensure correct I2C mux channel
 
     // Stop haptic vibration
     Wire.beginTransmission(DRV2605_ADDR);

@@ -10,9 +10,10 @@
 
 // === SYSTEM MODES ===
 enum SystemMode {
-    NORMAL,      // Balanced performance and power
-    LOW_POWER,   // Reduced sampling to extend battery life
-    EMERGENCY    // Maximum sampling for critical situations
+    NORMAL,        // 8-hour target: balanced responsive operation (20-30 Hz sensors)
+    LOW_POWER,     // 15-hour target: battery fallback when <20% (5 Hz sensors, no LED)
+    HIGH_STRESS,   // 4-hour peak: close obstacle + abnormal HR (30-50 Hz sensors, max haptics)
+    EMERGENCY      // Fall/critical: <60s duration, 100+ Hz sensors, max telemetry, NO haptic
 };
 
 enum EmergencyType {
@@ -78,14 +79,16 @@ struct __attribute__((packed)) TelemetryPacket {
 //
 // App calculation for battery lifetime:
 //   PowerProfile[currentMode] = lookup table (NORMAL: 85mA, etc)
-//   EstimatedHours = (660mAh / PowerProfile[mode]) × (battery_percent / 100)
+//   EstimatedHours = (6600mAh / PowerProfile[mode]) × (battery_percent / 100)
 
 // === BATTERY STATUS (NEW) ===
 struct BatteryStatus {
     float voltage_v;
     uint8_t percentage;
-    uint8_t estimated_runtime_minutes;
-    uint8_t warning_level;  // 0=normal, 1=low, 2=critical
+    float estimatedRuntimeMinutes;
+    uint8_t warningLevel;  // 0=normal, 1=low, 2=critical
+    float currentDraw;     // mA
+    const PowerProfile* currentProfile;
 };
 
 // === LIGHT SENSOR STATUS (NEW) ===

@@ -1,11 +1,11 @@
 /*
- * Power Consumption Profiles - Optimized for 6600mAh LiPo battery
+ * Power Consumption Profiles - Optimized for 4400mAh LiPo battery
  * 
- * TARGET RUNTIMES (usable capacity: 6600 × 0.9 = 5940 mAh):
- *   NORMAL: 8 hours continuous = 742 mA avg (5940 mAh / 8h)
- *   LOW_POWER: 15 hours (battery <20% fallback) = 396 mA avg (5940 / 15h)
- *   HIGH_STRESS: 4 hours peak (close obstacle + abnormal HR) = 1485 mA (5940 / 4h)
- *   EMERGENCY: Fall/critical alert, ≤60s = 815 mA unrestricted (user safety priority)
+ * TARGET RUNTIMES (usable capacity: 4400 × 0.9 = 3960 mAh):
+ *   NORMAL: 8 hours continuous = 495 mA avg (3960 mAh / 8h)
+ *   LOW_POWER: 15 hours (battery <20% fallback) = 264 mA avg (3960 / 15h)
+ *   HIGH_STRESS: 4 hours peak (close obstacle + abnormal HR) = 990 mA (3960 / 4h)
+ *   EMERGENCY: Fall/critical alert, ≤60s = 660 mA unrestricted (user safety priority)
  */
 
 #include "power_profile.h"

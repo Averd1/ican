@@ -17,9 +17,8 @@ static unsigned long freeFallStartTime = 0;
 static unsigned long lastMotionTime = 0;
 
 void imuInit() {
-    selectIMU();
-
-    if (!lsm6dsox.begin_I2C(IMU_I2C_ADDR)) {
+    // IMU is wired to the secondary I2C bus on D6/D7
+    if (!lsm6dsox.begin_I2C(IMU_I2C_ADDR, &Wire1)) {
         if (DEBUG_MODE) Serial.println("IMU initialization failed!");
         systemFaults.imu_fail = true;
         return;
@@ -30,8 +29,6 @@ void imuInit() {
 }
 
 void imuUpdate() {
-    selectIMU();
-
     sensors_event_t accel, gyro, temp;
     if (!lsm6dsox.getEvent(&accel, &gyro, &temp)) {
         // Sensor read failed

@@ -13,7 +13,7 @@ struct PowerProfile {
     const char* name;
     float imuPower;              // mA - accelerometer + gyro
     float ultrasonicPower;       // mA - per sensor
-    float lidarPower;            // mA
+    float matrixSensorPower;            // mA
     float pulsePower;            // mA
     float ledPower;              // mA - at full brightness
     float hapticPower;           // mA - DRV2605L active
@@ -41,7 +41,7 @@ extern const PowerProfile PROFILE_CAUTIOUS_SLEEP;
 extern const PowerProfile PROFILE_DEEP_SLEEP;
 
 // === BATTERY SPECIFICATIONS ===
-#define BATTERY_CAPACITY_MAH 6600       // LiPo battery capacity
+#define BATTERY_CAPACITY_MAH 4400       // LiPo battery capacity
 #define BATTERY_NOMINAL_VOLTAGE 3.7f    // Nominal voltage for runtime calc
 #define BATTERY_USABLE_CAPACITY 0.9f    // 90% of rated capacity (preserve cell life)
 

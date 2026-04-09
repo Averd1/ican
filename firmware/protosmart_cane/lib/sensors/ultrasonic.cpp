@@ -1,44 +1,62 @@
 /*
- * Ultrasonic Sensor (URM37) Implementation
- * Handles distance measurement for obstacle detection
+ * Ultrasonic Sensor Implementation
+ * Handles distance measurement using GPIO trigger/echo pins
  */
 
 #include "ultrasonic.h"
-#include <Wire.h>
+#include <Arduino.h>
 
-void ultrasonicInit() {
-    selectUltrasonic();
+static uint16_t triggerUltrasonic(uint8_t trigPin, uint8_t echoPin) {
+    digitalWrite(trigPin, LOW);
+    delayMicroseconds(2);
+    digitalWrite(trigPin, HIGH);
+    delayMicroseconds(10);
+    digitalWrite(trigPin, LOW);
 
-    // Test communication
-    Wire.beginTransmission(ULTRASONIC_I2C_ADDR);
-    if (Wire.endTransmission() != 0) {
-        if (DEBUG_MODE) Serial.println("Ultrasonic sensor initialization failed!");
-        systemFaults.ultrasonic_fail = true;
-        return;
+    unsigned long duration = pulseIn(echoPin, HIGH, 30000);  // 30ms timeout
+    if (duration == 0) {
+        return SENSOR_ERROR_DISTANCE;
     }
 
-    if (DEBUG_MODE) Serial.println("Ultrasonic sensor initialized successfully");
+    float distanceMm = duration / 5.0f;  // URM37: duration_us / 5 = distance_mm
+    if (distanceMm <= 0.0f || distanceMm > ULTRASONIC_MAX_RANGE_MM) {
+        return SENSOR_ERROR_DISTANCE;
+    }
+
+    return static_cast<uint16_t>(distanceMm);
+}
+
+void ultrasonicInit() {
+    pinMode(ULTRASONIC_LEFT_TRIG_PIN, OUTPUT);
+    pinMode(ULTRASONIC_LEFT_ECHO_PIN, INPUT);
+    pinMode(ULTRASONIC_RIGHT_TRIG_PIN, OUTPUT);
+    pinMode(ULTRASONIC_RIGHT_ECHO_PIN, INPUT);
+
+    digitalWrite(ULTRASONIC_LEFT_TRIG_PIN, LOW);
+    digitalWrite(ULTRASONIC_RIGHT_TRIG_PIN, LOW);
+    delay(50);
+
     systemFaults.ultrasonic_fail = false;
 }
 
 void ultrasonicUpdate() {
-    selectUltrasonic();
-
-    ultrasonicNear = false;
-    ultrasonicImminent = false;
-
     // Read all ultrasonic sensors
     for (uint8_t i = 0; i < NUM_ULTRASONIC_SENSORS; i++) {
         currentSensors.ultrasonicDistances[i] = readUltrasonicDistance(i);
 
-        // Update zone detection flags
+        // Update zone detection
         if (currentSensors.ultrasonicDistances[i] != SENSOR_ERROR_DISTANCE) {
             if (currentSensors.ultrasonicDistances[i] <= OBSTACLE_IMMINENT_MM) {
-                ultrasonicImminent = true;
-                ultrasonicNear = true;
+                currentSensors.ultrasonicZones[i] = OBSTACLE_IMMINENT;
             } else if (currentSensors.ultrasonicDistances[i] <= OBSTACLE_NEAR_MM) {
-                ultrasonicNear = true;
+                currentSensors.ultrasonicZones[i] = OBSTACLE_NEAR;
+            } else if (currentSensors.ultrasonicDistances[i] <= OBSTACLE_FAR_MM) {
+                currentSensors.ultrasonicZones[i] = OBSTACLE_FAR;
+            } else {
+                currentSensors.ultrasonicZones[i] = OBSTACLE_NONE;
             }
+        } else {
+            currentSensors.ultrasonicZones[i] = OBSTACLE_NONE;
         }
     }
 
@@ -55,37 +73,7 @@ void ultrasonicUpdate() {
 uint16_t readUltrasonicDistance(uint8_t sensorIndex) {
     if (sensorIndex >= NUM_ULTRASONIC_SENSORS) return SENSOR_ERROR_DISTANCE;
 
-    // Trigger measurement
-    Wire.beginTransmission(ULTRASONIC_I2C_ADDR);
-    Wire.write(0x04);  // Trigger register
-    Wire.write(0x01);  // Start measurement
-    if (Wire.endTransmission() != 0) {
-        return SENSOR_ERROR_DISTANCE;
-    }
-
-    // Wait for measurement to complete (URM37 needs ~50ms)
-    delay(50);
-
-    // Read distance registers
-    Wire.beginTransmission(ULTRASONIC_I2C_ADDR);
-    Wire.write(0x01);  // Distance low byte register
-    if (Wire.endTransmission() != 0) {
-        return SENSOR_ERROR_DISTANCE;
-    }
-
-    Wire.requestFrom(ULTRASONIC_I2C_ADDR, 2);
-    if (Wire.available() >= 2) {
-        uint8_t low = Wire.read();
-        uint8_t high = Wire.read();
-        uint16_t distance = (high << 8) | low;
-
-        // Validate reading (URM37 returns 0 for invalid readings)
-        if (distance == 0 || distance > ULTRASONIC_MAX_RANGE_MM) {
-            return SENSOR_ERROR_DISTANCE;
-        }
-
-        return distance;
-    }
-
-    return SENSOR_ERROR_DISTANCE;
+    uint8_t trigPin = (sensorIndex == 0) ? ULTRASONIC_LEFT_TRIG_PIN : ULTRASONIC_RIGHT_TRIG_PIN;
+    uint8_t echoPin = (sensorIndex == 0) ? ULTRASONIC_LEFT_ECHO_PIN : ULTRASONIC_RIGHT_ECHO_PIN;
+    return triggerUltrasonic(trigPin, echoPin);
 }

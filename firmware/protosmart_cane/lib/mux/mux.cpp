@@ -7,7 +7,8 @@
 #include <Wire.h>
 
 void muxInit() {
-    Wire.begin();
+    Wire.begin(I2C_SDA_PIN, I2C_SCL_PIN);   // Primary I2C on SDA/A4 and SCL/A5
+    Wire1.begin(I2C2_SDA_PIN, I2C2_SCL_PIN); // Secondary I2C on D6 / D7
     // Disable all channels initially for safety
     selectMuxChannel(0xFF);  // 0xFF disables all channels
 }
@@ -25,15 +26,15 @@ void selectMuxChannel(uint8_t channel) {
 }
 
 void selectLidar() {
-    selectMuxChannel(LIDAR_CHANNEL);
+    // LiDAR is on the dedicated secondary I2C bus (Wire1), no primary mux selection required
 }
 
 void selectUltrasonic() {
-    selectMuxChannel(ULTRASONIC_CHANNEL);
+    // Ultrasonic sensors are wired to direct GPIO pins, no I2C mux selection required
 }
 
 void selectIMU() {
-    selectMuxChannel(IMU_CHANNEL);
+    // IMU is on the dedicated secondary I2C bus (Wire1), no primary mux selection required
 }
 
 void selectLight() {

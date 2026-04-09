@@ -56,7 +56,7 @@ bool ultrasonicImminent = false;
 
 unsigned long lastIMUUpdate = 0;
 unsigned long lastUltrasonicUpdate = 0;
-unsigned long lastLidarUpdate = 0;
+unsigned long lastMatrixSensorUpdate = 0;
 unsigned long lastPulseUpdate = 0;
 unsigned long lastBatteryCheck = 0;
 unsigned long lastTelemetryUpdate = 0;
@@ -149,9 +149,9 @@ void loop() {
     }
 
     // LiDAR: Forward-looking obstacle detection
-    if (now - lastLidarUpdate > modeConfig.lidarInterval) {
-        updateLidar();
-        lastLidarUpdate = now;
+    if (now - lastMatrixSensorUpdate > modeConfig.matrixSensorInterval) {
+        updateMatrixSensor();
+        lastMatrixSensorUpdate = now;
     }
 
     // Pulse Sensor: Heart rate monitoring

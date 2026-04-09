@@ -11,10 +11,10 @@ void setMode(SystemMode newMode) {
 
     switch(newMode) {
         case NORMAL:
-            // Responsive active navigation: 20Hz IMU, 15Hz ultrasonic, 20Hz LiDAR, 10Hz pulse
+            // Responsive active navigation: 20Hz IMU, 15Hz ultrasonic, 20Hz 8x8 sensor, 10Hz pulse
             modeConfig.imuInterval = NORMAL_IMU_INTERVAL;
             modeConfig.ultrasonicInterval = NORMAL_ULTRASONIC_INTERVAL;
-            modeConfig.lidarInterval = NORMAL_LIDAR_INTERVAL;
+            modeConfig.matrixSensorInterval = NORMAL_MATRIX_SENSOR_INTERVAL;
             modeConfig.pulseInterval = NORMAL_PULSE_INTERVAL;
             modeConfig.batteryCheckInterval = NORMAL_BATTERY_CHECK_INTERVAL;
             break;
@@ -23,16 +23,16 @@ void setMode(SystemMode newMode) {
             // Battery fallback (<20%): 5Hz all sensors, no LED, minimal feedback
             modeConfig.imuInterval = LOW_POWER_IMU_INTERVAL;
             modeConfig.ultrasonicInterval = LOW_POWER_ULTRASONIC_INTERVAL;
-            modeConfig.lidarInterval = LOW_POWER_LIDAR_INTERVAL;
+            modeConfig.matrixSensorInterval = LOW_POWER_MATRIX_SENSOR_INTERVAL;
             modeConfig.pulseInterval = LOW_POWER_PULSE_INTERVAL;
             modeConfig.batteryCheckInterval = LOW_POWER_BATTERY_CHECK_INTERVAL;
             break;
 
         case HIGH_STRESS:
-            // Peak threat response: 50Hz IMU, 30Hz ultrasonic/LiDAR, 20Hz pulse, max haptics
+            // Peak threat response: 50Hz IMU, 30Hz ultrasonic/8x8 sensor, 20Hz pulse, max haptics
             modeConfig.imuInterval = HIGH_STRESS_IMU_INTERVAL;
             modeConfig.ultrasonicInterval = HIGH_STRESS_ULTRASONIC_INTERVAL;
-            modeConfig.lidarInterval = HIGH_STRESS_LIDAR_INTERVAL;
+            modeConfig.matrixSensorInterval = HIGH_STRESS_MATRIX_SENSOR_INTERVAL;
             modeConfig.pulseInterval = HIGH_STRESS_PULSE_INTERVAL;
             modeConfig.batteryCheckInterval = HIGH_STRESS_BATTERY_CHECK_INTERVAL;
             break;
@@ -41,7 +41,7 @@ void setMode(SystemMode newMode) {
             // Fall/critical alert (<60s): 100Hz IMU, 40Hz sensors, max BLE, NO haptic
             modeConfig.imuInterval = EMERGENCY_IMU_INTERVAL;
             modeConfig.ultrasonicInterval = EMERGENCY_ULTRASONIC_INTERVAL;
-            modeConfig.lidarInterval = EMERGENCY_LIDAR_INTERVAL;
+            modeConfig.matrixSensorInterval = EMERGENCY_MATRIX_SENSOR_INTERVAL;
             modeConfig.pulseInterval = EMERGENCY_PULSE_INTERVAL;
             modeConfig.batteryCheckInterval = EMERGENCY_BATTERY_CHECK_INTERVAL;
             break;

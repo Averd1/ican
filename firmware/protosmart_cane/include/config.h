@@ -6,13 +6,29 @@
 #pragma once
 
 // === HARDWARE PIN DEFINITIONS ===
-#define BUZZER_PIN 9
-#define LED_PIN 6
-#define BATTERY_PIN A1         // Battery monitor on separate analog input from pulse sensor
-#define HEART_PIN A0           // Pulse sensor input
-#define PULSE_LED 13           // Optional pulse-sensor blink LED pin
+#define BUZZER_PIN 16           // Placeholder buzzer pin; primary alerts use haptic driver bus
+#define LED_PIN 6               // Main feedback LED (legacy)
+#define LED_HEAD_PIN 9          // NEW: Head zone LED (GPIO9)
+#define LED_LEFT_PIN 10         // NEW: Left ultrasonic LED (GPIO10)  
+#define LED_RIGHT_PIN 11        // NEW: Right ultrasonic LED (GPIO11)
+#define BATTERY_PIN A1          // Battery monitor on separate analog input from pulse sensor
+#define HEART_PIN A0            // Pulse sensor input
+#define PULSE_LED 13            // Optional pulse-sensor blink LED pin
+#define LOW_BATTERY_PIN 8       // LB0 from PowerBoost low battery signal (D8)
 
-// === BATTERY MONITORING ===
+// === SPI / I2C BUS PINS ===
+#define I2C_SDA_PIN 23          // SDA bus on Arduino Nano ESP32 A4
+#define I2C_SCL_PIN 24          // SCL bus on Arduino Nano ESP32 A5
+
+// === ULTRASONIC PIN DEFINITIONS ===
+#define ULTRASONIC_LEFT_ECHO_PIN 4   // GPIO4 (D2)
+#define ULTRASONIC_LEFT_TRIG_PIN 5   // GPIO5 (D3)
+#define ULTRASONIC_RIGHT_ECHO_PIN 2  // GPIO2 (D0) - REASSIGNED
+#define ULTRASONIC_RIGHT_TRIG_PIN 3  // GPIO3 (D1) - REASSIGNED
+
+// === I2C2 BUS PINS (FIXED CONFLICT) ===
+#define I2C2_SDA_PIN 18            // SDA2 bus on GPIO18 for 8x8 sensor and IMU
+#define I2C2_SCL_PIN 19            // SCL2 bus on GPIO19 for 8x8 sensor and IMU
 #define BATTERY_R1 10000.0f    // Voltage divider resistor 1 (10k)
 #define BATTERY_R2 3300.0f     // Voltage divider resistor 2 (3.3k)
 #define BATTERY_VREF 3.3f      // ESP32 ADC reference voltage
@@ -23,16 +39,23 @@
 
 // === I2C ADDRESSES ===
 #define MUX_ADDR 0x70              // PCA9548A I2C multiplexer
-#define LIDAR_I2C_ADDR 0x10        // TF Luna LiDAR
-#define ULTRASONIC_I2C_ADDR 0x11   // URM37 Ultrasonic
+#define MATRIX_SENSOR_I2C_ADDR 0x33        // 8x8 matrix sensor on secondary I2C bus
 #define IMU_I2C_ADDR 0x6A          // LSM6DSOX IMU (primary address)
 
+// === I2C2 BUS PINS ===
+#define I2C2_SDA_PIN 6             // SDA2 bus on D6 for 8x8 LIDAR and IMU
+#define I2C2_SCL_PIN 7             // SCL2 bus on D7 for 8x8 LIDAR and IMU
+
 // === MUX CHANNEL ASSIGNMENTS ===
-#define LIDAR_CHANNEL 0
+#define MATRIX_SENSOR_CHANNEL 0
 #define ULTRASONIC_CHANNEL 1
 #define IMU_CHANNEL 2
 #define LIGHT_CHANNEL 3
 #define HAPTIC_CHANNEL 4
+
+// === 8x8 MATRIX SENSOR CONFIGURATION ===
+#define MATRIX_SENSOR_MAX_DISTANCE_MM 1500  // mm - ignore far readings beyond useful range
+#define MATRIX_SENSOR_ZONE_THRESHOLD_MM 1000 // mm - use this for far obstacle classification
 
 // === FALL DETECTION PARAMETERS ===
 #define FALL_FREEFALL_THRESHOLD 4.0f     // m/s² (~0.4g) - start of free fall
@@ -42,6 +65,7 @@
 #define FALL_COOLDOWN 5000               // ms - prevent fall spam detection
 
 // === OBSTACLE DETECTION THRESHOLDS ===
+#define OBSTACLE_FAR_MM 1000             // mm - far obstacle detection
 #define OBSTACLE_NEAR_MM 500             // mm - near obstacle warning
 #define OBSTACLE_IMMINENT_MM 200         // mm - imminent collision alert
 
@@ -77,28 +101,28 @@
 // NORMAL MODE: 20 Hz IMU, 15 Hz ultrasonic, 20 Hz LiDAR, 10 Hz pulse
 #define NORMAL_IMU_INTERVAL 50           // 20 Hz  (responsive motion + fall detection)
 #define NORMAL_ULTRASONIC_INTERVAL 67    // 15 Hz  (frequent proximity checks)
-#define NORMAL_LIDAR_INTERVAL 50         // 20 Hz  (rapid forward updates)
+#define NORMAL_MATRIX_SENSOR_INTERVAL 50         // 20 Hz  (rapid forward updates)
 #define NORMAL_PULSE_INTERVAL 100        // 10 Hz  (real-time stress capability)
 #define NORMAL_BATTERY_CHECK_INTERVAL 2000  // 2 seconds (increased frequency)
 
 // LOW_POWER MODE: 5 Hz all sensors (battery <20% fallback)
 #define LOW_POWER_IMU_INTERVAL 200       // 5 Hz   (fall detection only)
 #define LOW_POWER_ULTRASONIC_INTERVAL 200 // 5 Hz  (coarse checks)
-#define LOW_POWER_LIDAR_INTERVAL 200     // 5 Hz   (sparse awareness)
+#define LOW_POWER_MATRIX_SENSOR_INTERVAL 200     // 5 Hz   (sparse awareness)
 #define LOW_POWER_PULSE_INTERVAL 500     // 2 Hz   (minimal overhead)
 #define LOW_POWER_BATTERY_CHECK_INTERVAL 10000  // 10 seconds
 
 // HIGH_STRESS MODE: 50 Hz IMU, 30 Hz ultrasonic/LiDAR, 20 Hz pulse (close obstacle + abnormal HR)
 #define HIGH_STRESS_IMU_INTERVAL 20      // 50 Hz  (rapid threat detection)
 #define HIGH_STRESS_ULTRASONIC_INTERVAL 33 // 30 Hz (very frequent proximity)
-#define HIGH_STRESS_LIDAR_INTERVAL 33    // 30 Hz  (rapid threat updates)
+#define HIGH_STRESS_MATRIX_SENSOR_INTERVAL 33    // 30 Hz  (rapid threat updates)
 #define HIGH_STRESS_PULSE_INTERVAL 50    // 20 Hz  (stress level tracking)
 #define HIGH_STRESS_BATTERY_CHECK_INTERVAL 1000 // 1 second
 
 // EMERGENCY MODE: 100+ Hz IMU, 40 Hz ultrasonic/LiDAR, 40 Hz pulse (fall detection, time-limited)
 #define EMERGENCY_IMU_INTERVAL 10        // 100 Hz (maximum fall impact resolution)
 #define EMERGENCY_ULTRASONIC_INTERVAL 25 // 40 Hz  (ground impact + environment)
-#define EMERGENCY_LIDAR_INTERVAL 25      // 40 Hz  (detailed landing mapping)
+#define EMERGENCY_MATRIX_SENSOR_INTERVAL 25      // 40 Hz  (detailed landing mapping)
 #define EMERGENCY_PULSE_INTERVAL 25      // 40 Hz  (stress spike capture)
 #define EMERGENCY_BATTERY_CHECK_INTERVAL 500  // 0.5 second
 
@@ -141,8 +165,8 @@
 // App telemetry input (5 bytes):
 //   [battery_percent] [current_mode] [heart_rate] [flags] [reserved]
 // App output:
-//   Estimated runtime = 6600mAh / current_power_in_mode × battery_percent / 100
-//   Example: 85% battery in NORMAL mode → 85 / 100 × 77 hours = 65.45 hours remaining
+//   Estimated runtime = 4400mAh / current_power_in_mode × battery_percent / 100
+//   Example: 85% battery in NORMAL mode → 85 / 100 × 47.6 hours = 40.46 hours remaining
 
 // === SERIAL DEBUGGING ===
 #define SERIAL_BAUD_RATE 115200

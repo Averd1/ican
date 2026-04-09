@@ -10,13 +10,27 @@
 static unsigned long lastBuzzerToggle = 0;
 static bool buzzerState = false;
 
+// === INDEPENDENT LED CONTROL (detection_logic approach) ===
+static unsigned long lastHeadLEDToggle = 0;
+static unsigned long lastLeftLEDToggle = 0;
+static unsigned long lastRightLEDToggle = 0;
+static bool headLEDState = false;
+static bool leftLEDState = false;
+static bool rightLEDState = false;
+
 void responsesInit() {
     pinMode(BUZZER_PIN, OUTPUT);
     pinMode(LED_PIN, OUTPUT);
+    pinMode(LED_HEAD_PIN, OUTPUT);
+    pinMode(LED_LEFT_PIN, OUTPUT);
+    pinMode(LED_RIGHT_PIN, OUTPUT);
 
     // Ensure actuators start in off state
     digitalWrite(BUZZER_PIN, LOW);
     analogWrite(LED_PIN, LED_OFF);
+    digitalWrite(LED_HEAD_PIN, LOW);
+    digitalWrite(LED_LEFT_PIN, LOW);
+    digitalWrite(LED_RIGHT_PIN, LOW);
 
     // Initialize LED driver for illumination
     ledDriverInit();
@@ -43,61 +57,142 @@ void buzzerOff() {
     buzzerState = false;
 }
 
+static unsigned long lastLidarFeedbackToggle = 0;
+static bool lidarFeedbackState = false;
+
+// === INDEPENDENT ACTUATION FUNCTIONS (detection_logic inspired) ===
+
+static unsigned long getIntervalFromDistance(uint16_t distanceMm) {
+    if (distanceMm >= SENSOR_ERROR_DISTANCE || distanceMm >= MATRIX_SENSOR_MAX_DISTANCE_MM) {
+        return 0; // No blinking
+    }
+    
+    // Constrain to valid range and map to interval (50-500ms like detection_logic)
+    uint16_t constrainedDist = constrain(distanceMm, OBSTACLE_IMMINENT_MM, MATRIX_SENSOR_MAX_DISTANCE_MM);
+    return map(constrainedDist, OBSTACLE_IMMINENT_MM, MATRIX_SENSOR_MAX_DISTANCE_MM, 50, 500);
+}
+
+static void updateHeadLED() {
+    unsigned long interval = 0;
+    
+    if (currentSensors.matrixSensorHeadDetected && currentSensors.matrixSensorHeadDistance != SENSOR_ERROR_DISTANCE) {
+        interval = getIntervalFromDistance(currentSensors.matrixSensorHeadDistance);
+    }
+    
+    if (interval == 0) {
+        digitalWrite(LED_HEAD_PIN, LOW);
+        headLEDState = false;
+        return;
+    }
+    
+    unsigned long now = millis();
+    if (now - lastHeadLEDToggle >= interval) {
+        lastHeadLEDToggle = now;
+        headLEDState = !headLEDState;
+        digitalWrite(LED_HEAD_PIN, headLEDState);
+    }
+}
+
+static void updateWaistLEDs() {
+    // Find closest obstacle for waist zone (front/waist + ultrasonic left/right)
+    uint16_t closestDistance = SENSOR_ERROR_DISTANCE;
+    bool frontDetected = false;
+    bool leftDetected = false;
+    bool rightDetected = false;
+    
+    // Check LiDAR waist zone
+    if (currentSensors.lidarWaistDetected && currentSensors.lidarWaistDistance != SENSOR_ERROR_DISTANCE) {
+        closestDistance = currentSensors.lidarWaistDistance;
+        frontDetected = true;
+    }
+    
+    // Check ultrasonic sensors
+    for (uint8_t i = 0; i < NUM_ULTRASONIC_SENSORS; i++) {
+        if (currentSensors.ultrasonicDistances[i] != SENSOR_ERROR_DISTANCE) {
+            if (currentSensors.ultrasonicDistances[i] < closestDistance) {
+                closestDistance = currentSensors.ultrasonicDistances[i];
+            }
+            if (i == 0) leftDetected = true;  // Left ultrasonic
+            else rightDetected = true;        // Right ultrasonic
+        }
+    }
+    
+    unsigned long interval = getIntervalFromDistance(closestDistance);
+    
+    if (interval == 0) {
+        // No obstacles - turn off all waist LEDs
+        digitalWrite(LED_LEFT_PIN, LOW);
+        digitalWrite(LED_RIGHT_PIN, LOW);
+        leftLEDState = false;
+        rightLEDState = false;
+        return;
+    }
+    
+    unsigned long now = millis();
+    if (now - lastLeftLEDToggle >= interval) {
+        lastLeftLEDToggle = now;
+        lastRightLEDToggle = now;  // Sync both LEDs
+        
+        leftLEDState = !leftLEDState;
+        rightLEDState = !rightLEDState;
+        
+        // Priority system: closest obstacle determines which LED(s) blink
+        if (closestDistance == currentSensors.matrixSensorWaistDistance && frontDetected) {
+            // Front obstacle - both LEDs
+            digitalWrite(LED_LEFT_PIN, leftLEDState);
+            digitalWrite(LED_RIGHT_PIN, rightLEDState);
+        } else if (leftDetected && (!rightDetected || currentSensors.ultrasonicDistances[0] <= currentSensors.ultrasonicDistances[1])) {
+            // Left is closest or only left detected
+            digitalWrite(LED_LEFT_PIN, leftLEDState);
+            digitalWrite(LED_RIGHT_PIN, LOW);
+        } else if (rightDetected) {
+            // Right is closest or only right detected
+            digitalWrite(LED_LEFT_PIN, LOW);
+            digitalWrite(LED_RIGHT_PIN, rightLEDState);
+        }
+    }
+}
+
 void handleResponses() {
     // OPTIMIZED Response handler for 8-hour continuous operation
-    // Strategy: Haptic feedback for all events, LED only for low-light navigation,
-    //           Buzzer ONLY for imminent collision (<200mm)
-    //
-    // Power savings: Removes LED/buzzer from fall, obstacle-far, obstacle-near events
-    //                Haptic driver is more efficient than buzzer+LED combination
-
+    // Strategy: Independent spatial feedback + haptic for all events, buzzer ONLY for imminent collision
+    // Power savings: Multi-modal feedback with spatial awareness
+    
     // === Update autonomous systems ===
     updateLEDIllumination();    // Auto-control LED based on light sensor (only when <100 lux)
+    updateHeadLED();            // Independent head zone feedback
+    updateWaistLEDs();          // Independent waist/front + ultrasonic feedback
     updateHapticFeedback();     // Distance-based haptic feedback (primary alert mechanism)
 
-    switch(currentSituation) {
-        case OBJECT_FAR:
-            // Distant obstacle: Haptic feedback only (no LED/buzzer to save power)
-            buzzerOff();                    // No buzzer for distant obstacles
-            // LED stays as-is from updateLEDIllumination() (low-light only)
-            // Haptic driver handles intensity automatically
-            emergencyActive = false;
-            break;
+    // Determine overall obstacle response based on per-sensor zones
+    bool anyImminent = false;
+    bool anyNear = false;
+    for (uint8_t i = 0; i < NUM_ULTRASONIC_SENSORS; i++) {
+        if (currentSensors.ultrasonicZones[i] == OBSTACLE_IMMINENT) anyImminent = true;
+        if (currentSensors.ultrasonicZones[i] == OBSTACLE_NEAR) anyNear = true;
+    }
+    if (currentSensors.matrixSensorZone == OBSTACLE_IMMINENT) anyImminent = true;
+    if (currentSensors.matrixSensorZone == OBSTACLE_NEAR) anyNear = true;
 
-        case OBJECT_NEAR:
-            // Near obstacle: Haptic feedback only (no LED/buzzer)
-            buzzerOff();                    // No buzzer
-            // LED stays as-is from updateLEDIllumination()
-            // Haptic driver handles increased intensity
-            emergencyActive = false;
-            break;
+    // Buzzer response - ONLY for imminent threats (<200mm)
+    if (anyImminent) {
+        buzzerPulse(RESPONSE_PULSE_IMMINENT_MS);  // Fast buzzer pulse for imminent
+    } else {
+        buzzerOff();
+    }
 
-        case OBJECT_IMMINENT:
-            // IMMINENT COLLISION: Haptic + Buzzer pulse only (no LED)
-            buzzerPulse(RESPONSE_PULSE_IMMINENT_MS);  // Fast buzzer pulse
-            // LED stays as-is from updateLEDIllumination()
-            // Haptic driver at maximum intensity for tactile alert
-            emergencyActive = false;
-            break;
-
-        case FALL_DETECTED:
-            // FALL: Haptic vibration pattern only (no LED, no buzzer)
-            handleFallResponse();  // Haptic pulsed response only
-            break;
-
-        case HIGH_STRESS:
-            // High stress: Haptic feedback (no LED/buzzer)
-            buzzerOff();
-            // Haptic driver handles high-intensity vibration
-            emergencyActive = true;
-            emergencyStartTime = millis();
-            break;
-
-        default:
-            // No situation: All alerts off (except LED if low-light)
-            buzzerOff();
-            // LED stays as-is from updateLEDIllumination()
-            emergencyActive = false;
+    // Special cases for fall and high stress (handled separately from obstacle zones)
+    if (currentSituation == FALL_DETECTED) {
+        handleFallResponse();  // Haptic pulsed response only
+    } else if (currentSituation == HIGH_STRESS) {
+        // High stress: haptic feedback (no LED/buzzer)
+        buzzerOff();
+        emergencyActive = true;
+        emergencyStartTime = millis();
+    } else {
+        emergencyActive = false;
+    }
+}
             break;
     }
 

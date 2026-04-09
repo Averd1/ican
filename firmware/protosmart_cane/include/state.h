@@ -23,6 +23,14 @@ enum EmergencyType {
     EMERGENCY_SENSOR_FAIL
 };
 
+// === OBSTACLE ZONES ===
+enum ObstacleZone {
+    OBSTACLE_NONE,
+    OBSTACLE_FAR,
+    OBSTACLE_NEAR,
+    OBSTACLE_IMMINENT
+};
+
 // === SITUATION DETECTION ===
 enum Situation {
     NONE,
@@ -42,18 +50,24 @@ struct IMUData {
 struct SensorData {
     IMUData imu;
     uint16_t ultrasonicDistances[NUM_ULTRASONIC_SENSORS];  // mm
-    uint16_t lidarDistance;     // mm
+    uint16_t matrixSensorDistance;     // mm
+    uint16_t matrixSensorHeadDistance; // mm - closest object in head zone
+    uint16_t matrixSensorWaistDistance; // mm - closest object in waist/front zone
+    bool matrixSensorHeadDetected;     // object present in the top half of the matrix
+    bool matrixSensorWaistDetected;    // object present in lower-middle front of the matrix
     int heartBPM;              // beats per minute
     int heartRaw;              // raw analog reading
     bool pulseDetected;        // beat detection flag
     bool heartAbnormal;        // abnormal heart rate flag
     int batteryLevel;          // battery percentage (0-100)
+    ObstacleZone ultrasonicZones[NUM_ULTRASONIC_SENSORS];
+    ObstacleZone matrixSensorZone;
 };
 
 struct ModeConfig {
     unsigned long imuInterval;
     unsigned long ultrasonicInterval;
-    unsigned long lidarInterval;
+    unsigned long matrixSensorInterval;
     unsigned long pulseInterval;
     unsigned long batteryCheckInterval;
 };
@@ -61,7 +75,7 @@ struct ModeConfig {
 struct FaultState {
     bool imu_fail;
     bool ultrasonic_fail;
-    bool lidar_fail;
+    bool matrixSensor_fail;
     bool heart_fail;
     unsigned long lastRecoveryAttempt;
 };
@@ -133,7 +147,7 @@ extern bool ultrasonicImminent;
 // Timing variables
 extern unsigned long lastIMUUpdate;
 extern unsigned long lastUltrasonicUpdate;
-extern unsigned long lastLidarUpdate;
+extern unsigned long lastMatrixSensorUpdate;
 extern unsigned long lastPulseUpdate;
 extern unsigned long lastBatteryCheck;
 extern unsigned long lastTelemetryUpdate;

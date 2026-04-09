@@ -6,13 +6,13 @@
 #include "sensors.h"
 #include "imu.h"
 #include "ultrasonic.h"
-#include "lidar.h"
+#include "8x8_sensor.h"
 #include "pulse.h"
 
 void sensorsInit() {
     imuInit();
     ultrasonicInit();
-    lidarInit();
+    matrixSensorInit();
     pulseInit();
 }
 
@@ -24,8 +24,8 @@ void updateUltrasonic() {
     ultrasonicUpdate();
 }
 
-void updateLidar() {
-    lidarUpdate();
+void updateMatrixSensor() {
+    matrixSensorUpdate();
 }
 
 void updatePulse() {

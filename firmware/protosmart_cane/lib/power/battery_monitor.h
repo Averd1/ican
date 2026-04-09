@@ -17,9 +17,9 @@
 
 #include "../include/power_profile.h"
 
-// PKCELL ICR18650 6600mAh Battery Specs from Datasheet
-#define BATTERY_NOMINAL_CAPACITY_MAH 6600.0f      // Typical capacity
-#define BATTERY_MIN_CAPACITY_MAH 6270.0f          // Minimum rated
+// PKCELL ICR18650 4400mAh Battery Specs from Datasheet
+#define BATTERY_NOMINAL_CAPACITY_MAH 4400.0f      // Typical capacity
+#define BATTERY_MIN_CAPACITY_MAH 4180.0f          // Minimum rated
 #define BATTERY_NOMINAL_VOLTAGE 3.7f              // Nominal voltage (V)
 #define BATTERY_MAX_VOLTAGE 4.2f                  // Charging cutoff (V)
 #define BATTERY_MIN_SAFE_VOLTAGE 3.0f             // Discharge cutoff (V)

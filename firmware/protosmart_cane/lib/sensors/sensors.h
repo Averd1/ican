@@ -7,5 +7,5 @@
 void sensorsInit();
 void updateIMU();
 void updateUltrasonic();
-void updateLidar();
+void updateMatrixSensor();
 void updatePulse();

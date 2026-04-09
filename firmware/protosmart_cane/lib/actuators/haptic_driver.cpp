@@ -40,15 +40,27 @@ void updateHapticFeedback() {
     float intensityModifier = (currentMode == LOW_POWER) ? 0.6f : 1.0f;  // 40% reduction in LOW_POWER
     unsigned long intervalModifier = (currentMode == LOW_POWER) ? 1.5f : 1.0f;  // 50% more time between pulses
 
-    if (currentSituation == OBJECT_FAR) {
+    // Determine the highest priority obstacle zone across all sensors
+    ObstacleZone maxZone = OBSTACLE_NONE;
+    for (uint8_t i = 0; i < NUM_ULTRASONIC_SENSORS; i++) {
+        if (currentSensors.ultrasonicZones[i] > maxZone) {
+            maxZone = currentSensors.ultrasonicZones[i];
+        }
+    }
+    if (currentSensors.lidarZone > maxZone) {
+        maxZone = currentSensors.lidarZone;
+    }
+
+    // Set haptic based on max zone or special situations
+    if (maxZone == OBSTACLE_FAR) {
         // Far obstacle: light, slow pulses
         hapticIntensity = (uint8_t)(HAPTIC_LIGHT * intensityModifier);
         hapticPulseInterval = (uint16_t)(RESPONSE_PULSE_FAR_MS * intervalModifier);
-    } else if (currentSituation == OBJECT_NEAR) {
+    } else if (maxZone == OBSTACLE_NEAR) {
         // Near obstacle: medium, moderate pulses
         hapticIntensity = (uint8_t)(HAPTIC_MEDIUM * intensityModifier);
         hapticPulseInterval = (uint16_t)(RESPONSE_PULSE_NEAR_MS * intervalModifier);
-    } else if (currentSituation == OBJECT_IMMINENT) {
+    } else if (maxZone == OBSTACLE_IMMINENT) {
         // Imminent collision: heavy, fast pulses (still strong even in LOW_POWER for safety)
         hapticIntensity = (uint8_t)(HAPTIC_STRONG * 0.85f);  // Slightly reduced but still urgent
         hapticPulseInterval = (uint16_t)(RESPONSE_PULSE_IMMINENT_MS * 1.2f);  // Slightly slower

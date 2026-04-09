@@ -81,7 +81,7 @@ float voltageToSOC_LiPo(float voltage_v, float temp_C) {
 // Battery datasheet specs:
 //   25°C (ref): 100% capacity
 //   55°C (2h): 80% capacity (≥5280mAh vs 6600mAh)
-//   -10°C (16-24h): 60% capacity (≥3960mAh vs 6600mAh)
+//   -10°C (16-24h): 60% capacity (≥2640mAh vs 4400mAh)
 float getTemperatureCompensation(float temp_C) {
     // Returns capacity multiplier for temperature
     // Reference: 25°C = 1.0x

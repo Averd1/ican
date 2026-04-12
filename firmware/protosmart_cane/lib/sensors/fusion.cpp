@@ -17,10 +17,10 @@ void fuseSituations() {
         }
     }
 
-    // Check LiDAR sensor
-    if (currentSensors.lidarDistance != SENSOR_ERROR_DISTANCE &&
-        currentSensors.lidarDistance < minDistance) {
-        minDistance = currentSensors.lidarDistance;
+    // Check matrix sensor
+    if (currentSensors.matrixSensorDistance != SENSOR_ERROR_DISTANCE &&
+        currentSensors.matrixSensorDistance < minDistance) {
+        minDistance = currentSensors.matrixSensorDistance;
     }
 
     // PRIORITY 1: FALL DETECTION (highest priority - triggers emergency)
@@ -29,7 +29,7 @@ void fuseSituations() {
     // PRIORITY 2: HIGH STRESS CONDITION
     // Close obstacle + abnormal heart rate
     if (minDistance <= OBSTACLE_IMMINENT_MM && currentSensors.heartAbnormal) {
-        currentSituation = HIGH_STRESS;
+        currentSituation = HIGH_STRESS_EVENT;
         return;
     }
 

@@ -3,6 +3,7 @@
  */
 
 #include "sleep_manager.h"
+#include "../mode/mode.h"
 #include <Arduino.h>
 
 SleepState sleepState = {SLEEP_NONE, 0, 0, false, {}, 0};
@@ -73,11 +74,11 @@ void recordStateHistory() {
 
     entry.flags = 0;
     if (currentSituation == FALL_DETECTED) entry.flags |= 0x01;
-    if (currentSituation == HIGH_STRESS) entry.flags |= 0x02;
+    if (currentSituation == HIGH_STRESS_EVENT) entry.flags |= 0x02;
     if (emergencyActive) entry.flags |= 0x04;
 
     entry.heartBPM = currentSensors.heartBPM;
-    entry.minDistance = currentSensors.lidarDistance; // Use primary sensor
+    entry.minDistance = currentSensors.matrixSensorDistance; // Use primary sensor
     entry.timestamp = millis();
 
     // Move to next slot

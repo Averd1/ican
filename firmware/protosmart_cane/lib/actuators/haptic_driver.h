@@ -6,7 +6,10 @@
 
 #pragma once
 
+#include <Arduino.h>
 #include "../include/config.h"
+#include "../include/state.h"
+#include "../mux/mux.h"
 
 // DRV2605L I2C address
 #define DRV2605_ADDR 0x5A

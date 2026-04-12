@@ -15,6 +15,8 @@
 
 #pragma once
 
+#include "../include/config.h"
+#include "../include/state.h"
 #include "../include/power_profile.h"
 
 // PKCELL ICR18650 4400mAh Battery Specs from Datasheet

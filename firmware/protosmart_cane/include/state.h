@@ -6,6 +6,7 @@
 #pragma once
 
 #include "config.h"
+#include "power_profile.h"
 #include <Arduino.h>
 
 // === SYSTEM MODES ===
@@ -38,7 +39,7 @@ enum Situation {
     OBJECT_NEAR,       // Close obstacle detected
     OBJECT_IMMINENT,   // Very close obstacle - collision imminent
     FALL_DETECTED,     // Fall detected via IMU
-    HIGH_STRESS        // High stress: close obstacle + abnormal heart rate
+    HIGH_STRESS_EVENT  // High stress: close obstacle + abnormal heart rate
 };
 
 // === SENSOR DATA STRUCTURES ===
@@ -95,35 +96,10 @@ struct __attribute__((packed)) TelemetryPacket {
 //   PowerProfile[currentMode] = lookup table (NORMAL: 85mA, etc)
 //   EstimatedHours = (6600mAh / PowerProfile[mode]) × (battery_percent / 100)
 
-// === BATTERY STATUS (NEW) ===
-struct BatteryStatus {
-    float voltage_v;
-    uint8_t percentage;
-    float estimatedRuntimeMinutes;
-    uint8_t warningLevel;  // 0=normal, 1=low, 2=critical
-    float currentDraw;     // mA
-    const PowerProfile* currentProfile;
-};
-
 // === LIGHT SENSOR STATUS (NEW) ===
 struct LightStatus {
     uint16_t lux;
     bool is_low_light;
-};
-
-// === SLEEP MANAGER STATE (NEW) ===
-enum SleepState {
-    NORMAL_OPERATION,
-    CAUTIOUS_SLEEP,
-    DEEP_SLEEP
-};
-
-struct SleepManagerState {
-    SleepState current_sleep_state;
-    unsigned long last_motion_time;
-    unsigned long session_start_time;
-    unsigned long sleep_transition_time;
-    bool recent_emergency;
 };
 
 // === GLOBAL STATE VARIABLES ===
@@ -157,10 +133,8 @@ extern unsigned long lastSleepCheck;
 extern uint16_t telemetrySequence;
 
 // === NEW STATE VARIABLES (Power Management & Sensing) ===
-extern BatteryStatus batteryStatus;
-extern SleepManagerState sleepState;
 extern LightStatus lightStatus;
 
 // Emergency state history (for safe sleep transitions)
-extern unsigned long emergencyHistory[SLEEP_HISTORY_SIZE];
+extern unsigned long emergencyHistory[STATE_HISTORY_SIZE];
 extern uint8_t emergencyHistoryIndex;

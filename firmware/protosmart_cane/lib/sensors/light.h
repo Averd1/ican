@@ -5,6 +5,10 @@
 
 #pragma once
 
+#include <Arduino.h>
+#include "../include/config.h"
+#include "../mux/mux.h"
+
 void lightSensorInit();
 void lightSensorUpdate();
 

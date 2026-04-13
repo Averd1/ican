@@ -25,6 +25,24 @@ class TtsService extends ChangeNotifier {
     await _flutterTts.setSpeechRate(_rate);
     await _flutterTts.setPitch(_pitch);
 
+    if (Platform.isIOS) {
+      // Force audio to play even if the physical silent switch is engaged,
+      // and ensure it prefers the main speaker or Bluetooth.
+      await _flutterTts.setSharedInstance(true);
+      await _flutterTts.setIosAudioCategory(
+        IosTextToSpeechAudioCategory.playback,
+        [
+          IosTextToSpeechAudioCategoryOptions.allowBluetooth,
+          IosTextToSpeechAudioCategoryOptions.allowBluetoothA2DP,
+          IosTextToSpeechAudioCategoryOptions.mixWithOthers,
+          IosTextToSpeechAudioCategoryOptions.defaultToSpeaker,
+          IosTextToSpeechAudioCategoryOptions.duckOthers,
+          IosTextToSpeechAudioCategoryOptions.interruptSpokenAudioAndMixWithOthers
+        ],
+        IosTextToSpeechAudioMode.defaultMode,
+      );
+    }
+
     // Use awaitSpeakCompletion on all platforms:
     // - Windows: native callbacks fire on a non-platform thread (crashes).
     // - iOS: same threading issue — flutter_tts fires completion/cancel/error

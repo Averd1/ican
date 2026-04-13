@@ -116,10 +116,6 @@ void setup() {
 void loop() {
     unsigned long now = millis();
 
-    if (ENABLE_BLE) {
-        blePoll();
-    }
-
     // === BATTERY MONITORING (Power Management Core) ===
     if (now - lastBatteryCheck > modeConfig.batteryCheckInterval) {
         updateBatteryMonitor();  // Enhanced battery health tracking

@@ -1,7 +1,6 @@
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
-import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 /// Available AI models for image understanding, ordered by speed.
@@ -96,10 +95,10 @@ class VertexAiService extends ChangeNotifier {
     List<Map<String, dynamic>> parts, {
     String? systemPrompt,
   }) async {
-    final apiKey = dotenv.env['API_KEY'];
+    const apiKey = String.fromEnvironment('API_KEY');
 
-    if (apiKey == null || apiKey.isEmpty) {
-      throw Exception('API_KEY not found in .env file');
+    if (apiKey.isEmpty) {
+      throw Exception('API_KEY not set — build with --dart-define=API_KEY=<your_key>');
     }
 
     final url = Uri.parse('$_baseUrl/${_model.id}:generateContent?key=$apiKey');
@@ -149,9 +148,9 @@ class VertexAiService extends ChangeNotifier {
     String userPrompt = 'Describe what you see.',
   }) async* {
     final base64Image = base64Encode(imageBytes);
-    final apiKey = dotenv.env['API_KEY'];
-    if (apiKey == null || apiKey.isEmpty) {
-      throw Exception('API_KEY not found in .env file');
+    const apiKey = String.fromEnvironment('API_KEY');
+    if (apiKey.isEmpty) {
+      throw Exception('API_KEY not set — build with --dart-define=API_KEY=<your_key>');
     }
 
     final url = Uri.parse(

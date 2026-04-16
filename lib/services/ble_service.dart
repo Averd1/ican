@@ -162,6 +162,14 @@ class BleService extends ChangeNotifier {
       // Windows WinRT BLE requires a scan to discover devices before connect.
       // Direct connect by MAC does not work (returns "Device not found").
       await _startWinBleScanForEye();
+    } else if (Platform.isIOS && _isMacAddress(mac)) {
+      // iOS CoreBluetooth never exposes real MAC addresses — it assigns its own
+      // per-device UUIDs. A MAC-format ID means we have no saved iOS UUID yet
+      // (e.g. first launch). Fall through to a scan so we discover the Eye by
+      // its service UUID and name, then save the real iOS UUID for next time.
+      debugPrint('[BLE] iOS: MAC-format ID not valid on CoreBluetooth — scanning instead.');
+      _setState(BleConnectionState.disconnected);
+      await startScan();
     } else {
       try {
         final device = BluetoothDevice.fromId(mac);
@@ -171,6 +179,12 @@ class BleService extends ChangeNotifier {
         _setState(BleConnectionState.disconnected);
       }
     }
+  }
+
+  /// Returns true if [id] looks like a colon-separated MAC address
+  /// (e.g. "90:70:69:12:53:be") rather than a CoreBluetooth UUID.
+  static bool _isMacAddress(String id) {
+    return RegExp(r'^([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$').hasMatch(id);
   }
 
   StreamSubscription? _winEyeScanSub;

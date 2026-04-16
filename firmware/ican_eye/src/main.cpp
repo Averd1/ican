@@ -23,6 +23,11 @@
 // Shared protocol (included via -I../../shared build flag)
 #include "ble_protocol.h"
 
+// Hardware Button Configuration
+#define CAPTURE_BUTTON_PIN D1
+unsigned long lastButtonPressMillis = 0;
+const unsigned long BUTTON_DEBOUNCE_DELAY_MS = 3000;
+
 // ============================================================================
 // Setup
 // ============================================================================
@@ -41,6 +46,9 @@ void setup() {
   delay(1000);
 
   Serial.println("\n\n=== iCan Eye Firmware ===");
+
+  // Initialize physical button
+  pinMode(CAPTURE_BUTTON_PIN, INPUT_PULLUP);
 
   // Initialize subsystems
   initCamera();
@@ -64,6 +72,31 @@ void setup() {
 // ============================================================================
 
 void loop() {
+  // Check physical button state (LOW means pressed because of INPUT_PULLUP)
+  if (digitalRead(CAPTURE_BUTTON_PIN) == LOW) {
+    if (millis() - lastButtonPressMillis > BUTTON_DEBOUNCE_DELAY_MS) {
+      lastButtonPressMillis = millis();
+      Serial.println("[Main] Physical button pressed. Triggering capture...");
+      
+      // Quick double blink for physical feedback
+      digitalWrite(21, LOW); delay(50);
+      digitalWrite(21, HIGH); delay(50);
+      digitalWrite(21, LOW); delay(50);
+      digitalWrite(21, HIGH);
+
+      if (!isBleEyeConnected()) {
+        Serial.println("[Main] Capture requested via button but no client connected.");
+      } else {
+        camera_fb_t *fb = capturePhoto();
+        if (fb) {
+          streamImageViaBle(fb->buf, fb->len,
+                            profiles[getCurrentProfile()].name);
+          esp_camera_fb_return(fb);
+        }
+      }
+    }
+  }
+
   // Check for pending BLE commands
   EyeCommandData cmd = getLastEyeCommand();
 

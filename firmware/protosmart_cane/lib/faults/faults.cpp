@@ -4,6 +4,10 @@
  */
 
 #include "faults.h"
+#include "../sensors/imu.h"
+#include "../sensors/ultrasonic.h"
+#include "../sensors/8x8_sensor.h"
+#include "../sensors/pulse.h"
 
 void checkFaults() {
     // IMU fault detection - check for valid readings
@@ -31,14 +35,14 @@ void checkFaults() {
     }
     systemFaults.ultrasonic_fail = (ultrasonicFailCount >= SENSOR_FAIL_THRESHOLD);
 
-    // LiDAR fault detection
-    static uint8_t lidarFailCount = 0;
-    if (currentSensors.lidarDistance == SENSOR_ERROR_DISTANCE) {
-        lidarFailCount++;
+    // Matrix sensor fault detection
+    static uint8_t matrixSensorFailCount = 0;
+    if (currentSensors.matrixSensorDistance == SENSOR_ERROR_DISTANCE) {
+        matrixSensorFailCount++;
     } else {
-        lidarFailCount = 0;
+        matrixSensorFailCount = 0;
     }
-    systemFaults.lidar_fail = (lidarFailCount >= SENSOR_FAIL_THRESHOLD);
+    systemFaults.matrixSensor_fail = (matrixSensorFailCount >= SENSOR_FAIL_THRESHOLD);
 
     // Heart sensor fault detection - check for valid BPM readings
     static uint8_t heartFailCount = 0;
@@ -55,7 +59,7 @@ void checkFaults() {
 
     // Attempt recovery for failed sensors
     if ((systemFaults.imu_fail || systemFaults.ultrasonic_fail ||
-         systemFaults.lidar_fail || systemFaults.heart_fail) &&
+         systemFaults.matrixSensor_fail || systemFaults.heart_fail) &&
         (millis() - systemFaults.lastRecoveryAttempt > SENSOR_RECOVERY_TIME_MS)) {
 
         if (DEBUG_MODE) Serial.println("Attempting sensor recovery...");
@@ -63,7 +67,7 @@ void checkFaults() {
         // Reinitialize failed sensors
         if (systemFaults.imu_fail) imuInit();
         if (systemFaults.ultrasonic_fail) ultrasonicInit();
-        if (systemFaults.lidar_fail) lidarInit();
+        if (systemFaults.matrixSensor_fail) matrixSensorInit();
         if (systemFaults.heart_fail) pulseInit();
 
         systemFaults.lastRecoveryAttempt = millis();

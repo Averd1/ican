@@ -30,13 +30,13 @@
 #include "mux.h"
 #include "mode.h"
 #include "sensors.h"
-#include "sensors/light.h"
+#include "light.h"
 #include "fusion.h"
 #include "responses.h"
 #include "faults.h"
 #include "ble.h"
-#include "power/battery_monitor.h"
-#include "power/sleep_manager.h"
+#include "battery_monitor.h"
+#include "sleep_manager.h"
 
 // Global state variables (defined in state.h)
 SystemMode currentMode = NORMAL;
@@ -64,16 +64,14 @@ unsigned long lastSleepCheck = 0;
 
 uint16_t telemetrySequence = 0;
 
-// Battery and Power Management state
-BatteryStatus batteryStatus = {0};
-SleepManagerState sleepState = {NORMAL_OPERATION, 0, 0, 0, false};
-
 // Light sensor state
 LightStatus lightStatus = {0, false};
 
 // Emergency state history (tracks last 12 emergency events ~1 min window)
-unsigned long emergencyHistory[SLEEP_HISTORY_SIZE] = {0};
+unsigned long emergencyHistory[STATE_HISTORY_SIZE] = {0};
 uint8_t emergencyHistoryIndex = 0;
+
+static unsigned long lastLightUpdate = 0;
 
 void setup() {
     // Initialize serial for debugging
@@ -95,7 +93,7 @@ void setup() {
     sensorsInit();
 
     // Initialize light sensor (ambient lux measurement)
-    lightInit();
+    lightSensorInit();
 
     // Initialize battery monitor and sleep manager
     batteryMonitorInit();
@@ -104,8 +102,10 @@ void setup() {
     // Initialize actuators (buzzer, LED, haptic)
     responsesInit();
 
-    // Initialize BLE communication
-    bleInit();
+    // Initialize BLE communication (optional for local serial-only validation)
+    if (ENABLE_BLE) {
+        bleInit();
+    }
 
     if (DEBUG_MODE) {
         Serial.println("System initialization complete!");
@@ -115,6 +115,10 @@ void setup() {
 
 void loop() {
     unsigned long now = millis();
+
+    if (ENABLE_BLE) {
+        blePoll();
+    }
 
     // === BATTERY MONITORING (Power Management Core) ===
     if (now - lastBatteryCheck > modeConfig.batteryCheckInterval) {
@@ -161,17 +165,20 @@ void loop() {
     }
 
     // Light Sensor: Ambient illumination level detection
-    if (now - lastPulseUpdate > LIGHT_SENSOR_INTERVAL_MS) {
-        lightStatus = getLightStatus();
+    if (now - lastLightUpdate > LIGHT_SENSOR_UPDATE_INTERVAL) {
+        lightSensorUpdate();
+        lightStatus.lux = ambientLux;
+        lightStatus.is_low_light = lowLightDetected;
         if (DEBUG_MODE && lightStatus.is_low_light) {
             Serial.print("Low-light condition detected: ");
             Serial.print(lightStatus.lux);
             Serial.println(" lux");
         }
+        lastLightUpdate = now;
     }
 
     // === SLEEP MANAGEMENT ===
-    if (now - lastSleepCheck > SLEEP_CHECK_INTERVAL_MS) {
+    if (now - lastSleepCheck > 1000) {
         updateSleepManager();
         lastSleepCheck = now;
     }
@@ -194,7 +201,7 @@ void loop() {
     }
     // PRIORITY 2: HIGH_STRESS (close obstacle + abnormal HR) transitions to HIGH_STRESS mode
     // Note: HIGH_STRESS is NOT emergency-level but requires higher sensor sampling + faster BLE
-    else if (currentSituation == HIGH_STRESS) {
+    else if (currentSituation == HIGH_STRESS_EVENT) {
         if (currentMode != HIGH_STRESS && currentMode != EMERGENCY) {
             setMode(HIGH_STRESS);
             currentEmergencyType = EMERGENCY_HIGH_STRESS;
@@ -203,7 +210,7 @@ void loop() {
     }
     // PRIORITY 3: Exit HIGH_STRESS when threat clears (but stay above NORMAL if battery allows)
     else if (currentMode == HIGH_STRESS &&
-             currentSituation != HIGH_STRESS) {
+             currentSituation != HIGH_STRESS_EVENT) {
         setMode(currentSensors.batteryLevel < BATTERY_LOW_THRESHOLD ? LOW_POWER : NORMAL);
         currentEmergencyType = EMERGENCY_NONE;
         if (DEBUG_MODE) Serial.println("HIGH_STRESS CLEARED: Returning to normal operation");
@@ -227,7 +234,7 @@ void loop() {
     unsigned long telemetryInterval = (currentMode == EMERGENCY) ? 50 :  // 20 Hz in emergency
                                      (currentMode == LOW_POWER) ? 1000 : // 1 Hz in low power
                                      200; // 5 Hz normal
-    if (now - lastTelemetryUpdate > telemetryInterval) {
+    if (ENABLE_BLE && now - lastTelemetryUpdate > telemetryInterval) {
         updateBLETelemetry();
         lastTelemetryUpdate = now;
     }

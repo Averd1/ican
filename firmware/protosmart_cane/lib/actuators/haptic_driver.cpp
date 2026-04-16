@@ -47,8 +47,8 @@ void updateHapticFeedback() {
             maxZone = currentSensors.ultrasonicZones[i];
         }
     }
-    if (currentSensors.lidarZone > maxZone) {
-        maxZone = currentSensors.lidarZone;
+    if (currentSensors.matrixSensorZone > maxZone) {
+        maxZone = currentSensors.matrixSensorZone;
     }
 
     // Set haptic based on max zone or special situations
@@ -64,7 +64,7 @@ void updateHapticFeedback() {
         // Imminent collision: heavy, fast pulses (still strong even in LOW_POWER for safety)
         hapticIntensity = (uint8_t)(HAPTIC_STRONG * 0.85f);  // Slightly reduced but still urgent
         hapticPulseInterval = (uint16_t)(RESPONSE_PULSE_IMMINENT_MS * 1.2f);  // Slightly slower
-    } else if (currentSituation == HIGH_STRESS) {
+    } else if (currentSituation == HIGH_STRESS_EVENT) {
         // High stress: maximum intensity, very fast (reduce if LOW_POWER)
         hapticIntensity = (uint8_t)(HAPTIC_STRONG * intensityModifier);
         hapticPulseInterval = (uint16_t)(RESPONSE_PULSE_STRESS_MS * intervalModifier);

@@ -6,29 +6,34 @@
 #pragma once
 
 // === HARDWARE PIN DEFINITIONS ===
-#define BUZZER_PIN 16           // Placeholder buzzer pin; primary alerts use haptic driver bus
-#define LED_PIN 6               // Main feedback LED (legacy)
-#define LED_HEAD_PIN 9          // NEW: Head zone LED (GPIO9)
-#define LED_LEFT_PIN 10         // NEW: Left ultrasonic LED (GPIO10)  
-#define LED_RIGHT_PIN 11        // NEW: Right ultrasonic LED (GPIO11)
+#define BUZZER_PIN A2           // Buzzer output (A2)
+#define LED_PIN -1              // Legacy LED output disabled to avoid overlap with SDA2 bus
+#define LED_HEAD_PIN 9          // NEW: Head zone LED (D9)
+#define LED_LEFT_PIN 10         // NEW: Left zone LED (D10)
+#define LED_RIGHT_PIN 11        // NEW: Right zone LED (D11)
+#define LED_HAPTIC_FRONT_PIN 12 // Haptic mimic LED for 8x8 matrix front detection
+#define LED_HAPTIC_LEFT_PIN 13  // Haptic mimic LED for left ultrasonic sensor
+#define LED_HAPTIC_RIGHT_PIN A3 // Haptic mimic LED for right ultrasonic sensor (A3)
 #define BATTERY_PIN A1          // Battery monitor on separate analog input from pulse sensor
 #define HEART_PIN A0            // Pulse sensor input
-#define PULSE_LED 13            // Optional pulse-sensor blink LED pin
+#define PULSE_LED -1            // Optional pulse blink LED disabled for external wiring cleanup
 #define LOW_BATTERY_PIN 8       // LB0 from PowerBoost low battery signal (D8)
 
 // === SPI / I2C BUS PINS ===
-#define I2C_SDA_PIN 23          // SDA bus on Arduino Nano ESP32 A4
-#define I2C_SCL_PIN 24          // SCL bus on Arduino Nano ESP32 A5
+// Nano ESP32 remapped pin API: A4=21, A5=22
+#define I2C_SDA_PIN 21          // Primary SDA bus (A4)
+#define I2C_SCL_PIN 22          // Primary SCL bus (A5)
 
 // === ULTRASONIC PIN DEFINITIONS ===
-#define ULTRASONIC_LEFT_ECHO_PIN 4   // GPIO4 (D2)
-#define ULTRASONIC_LEFT_TRIG_PIN 5   // GPIO5 (D3)
-#define ULTRASONIC_RIGHT_ECHO_PIN 2  // GPIO2 (D0) - REASSIGNED
-#define ULTRASONIC_RIGHT_TRIG_PIN 3  // GPIO3 (D1) - REASSIGNED
+#define ULTRASONIC_LEFT_ECHO_PIN 4   // Left ultrasonic ECHO (D4)
+#define ULTRASONIC_LEFT_TRIG_PIN 5   // Left ultrasonic TRIG (D5)
+#define ULTRASONIC_RIGHT_ECHO_PIN 2  // Right ultrasonic ECHO (D2)
+#define ULTRASONIC_RIGHT_TRIG_PIN 3  // Right ultrasonic TRIG (D3)
 
-// === I2C2 BUS PINS (FIXED CONFLICT) ===
-#define I2C2_SDA_PIN 18            // SDA2 bus on GPIO18 for 8x8 sensor and IMU
-#define I2C2_SCL_PIN 19            // SCL2 bus on GPIO19 for 8x8 sensor and IMU
+// === I2C2 BUS PINS ===
+// Schematic mapping: D6 -> SDA2, D7 -> SCL2
+#define I2C2_SDA_PIN 6             // Secondary SDA2 bus (D6)
+#define I2C2_SCL_PIN 7             // Secondary SCL2 bus (D7)
 #define BATTERY_R1 10000.0f    // Voltage divider resistor 1 (10k)
 #define BATTERY_R2 3300.0f     // Voltage divider resistor 2 (3.3k)
 #define BATTERY_VREF 3.3f      // ESP32 ADC reference voltage
@@ -41,10 +46,6 @@
 #define MUX_ADDR 0x70              // PCA9548A I2C multiplexer
 #define MATRIX_SENSOR_I2C_ADDR 0x33        // 8x8 matrix sensor on secondary I2C bus
 #define IMU_I2C_ADDR 0x6A          // LSM6DSOX IMU (primary address)
-
-// === I2C2 BUS PINS ===
-#define I2C2_SDA_PIN 6             // SDA2 bus on D6 for 8x8 LIDAR and IMU
-#define I2C2_SCL_PIN 7             // SCL2 bus on D7 for 8x8 LIDAR and IMU
 
 // === MUX CHANNEL ASSIGNMENTS ===
 #define MATRIX_SENSOR_CHANNEL 0
@@ -74,7 +75,6 @@
 #define ULTRASONIC_MAX_RANGE_MM 800      // Maximum reliable range
 
 // === HEART RATE MONITORING ===
-#define HEART_PIN A0
 #define HEART_THRESHOLD 2000             // PulseSensor threshold
 #define HEART_ABNORMAL_HIGH_BPM 120      // High heart rate threshold
 #define HEART_ABNORMAL_LOW_BPM 50        // Low heart rate threshold
@@ -84,13 +84,14 @@
 #define LIGHT_SENSOR_UPDATE_INTERVAL 1000 // ms - update light sensor reading
 
 // === LED ILLUMINATION ===
-#define LED_ILLUMINATION_PIN 11          // GPIO pin for high-power LED PWM
+#define BOOST_ENABLE_PIN 23              // Boost converter EN control (A6)
+#define LED_ILLUMINATION_PIN 24          // High-power LED PWM output (A7)
 #define LED_BRIGHTNESS_LOW_LIGHT 150     // Default brightness in low-light
 #define LED_BRIGHTNESS_OBSTACLE 200      // Brightness for obstacle warning
 #define LED_BRIGHTNESS_EMERGENCY 255     // Full brightness during emergency
 
 // === HAPTIC DRIVER (DRV2605L) ===
-#define HAPTIC_PIN 12                    // GPIO for haptic trigger (if PWM-only)
+#define HAPTIC_PIN 255                   // Unused in current DRV2605L I2C configuration
 #define HAPTIC_I2C_DRIVER true           // Use I2C driver vs GPIO PWM
 
 // === EMERGENCY SYSTEM ===
@@ -171,3 +172,4 @@
 // === SERIAL DEBUGGING ===
 #define SERIAL_BAUD_RATE 115200
 #define DEBUG_MODE true  // Set to false for production
+#define ENABLE_BLE true  // Set false for local serial-only validation without BLE

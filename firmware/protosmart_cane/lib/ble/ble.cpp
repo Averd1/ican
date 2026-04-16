@@ -4,6 +4,7 @@
  */
 
 #include "ble.h"
+#include <Arduino.h>
 #include <ArduinoBLE.h>
 
 // BLE service and characteristic
@@ -23,7 +24,7 @@ void bleInit() {
     BLE.addService(caneService);
 
     // Initialize telemetry packet
-    TelemetryPacket initialPacket = {BLE_TELEMETRY_VERSION, 0, 0, 100, 0x7FFF, 0};
+    TelemetryPacket initialPacket = {BLE_TELEMETRY_VERSION, 100, (uint8_t)NORMAL, 0, 0};
     telemetryCharacteristic.writeValue((uint8_t*)&initialPacket, sizeof(TelemetryPacket));
 
     BLE.advertise();
@@ -43,7 +44,7 @@ void updateBLETelemetry() {
     packet.batteryPercent = (uint8_t)currentSensors.batteryLevel;
     
     // Secondary: Current mode (app looks up power draw for this mode)
-    // NORMAL=0, LOW_POWER=1, EMERGENCY=2, CAUTIOUS_SLEEP=3, DEEP_SLEEP=4
+    // NORMAL=0, LOW_POWER=1, HIGH_STRESS=2, EMERGENCY=3
     packet.currentMode = (uint8_t)currentMode;
     
     // Health info: Heart rate
@@ -52,7 +53,7 @@ void updateBLETelemetry() {
     // Status flags
     packet.flags = 0;
     if (currentSituation == FALL_DETECTED) packet.flags |= 0x01;
-    if (currentSituation == HIGH_STRESS) packet.flags |= 0x02;
+    if (currentSituation == HIGH_STRESS_EVENT) packet.flags |= 0x02;
     if (obstacleNear) packet.flags |= 0x04;
     if (obstacleImminent) packet.flags |= 0x08;
     
@@ -66,14 +67,7 @@ void updateBLETelemetry() {
         Serial.println(packet.heartBPM);
     }
 }
-        Serial.print(packet.sequenceNumber);
-        Serial.print(" Flags: 0x");
-        Serial.print(packet.flags, HEX);
-        Serial.print(" BPM: ");
-        Serial.print(packet.heartBPM);
-        Serial.print(" Batt: ");
-        Serial.print(packet.batteryPercent);
-        Serial.print("% Dist: ");
-        Serial.println(packet.minDistanceMM);
-    }
+
+void blePoll() {
+    BLE.poll();
 }

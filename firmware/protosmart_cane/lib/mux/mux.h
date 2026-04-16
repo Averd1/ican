@@ -4,6 +4,7 @@
 
 #pragma once
 
+#include <Arduino.h>
 #include "../include/config.h"
 
 void muxInit();

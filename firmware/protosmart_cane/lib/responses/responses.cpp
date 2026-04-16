@@ -18,19 +18,36 @@ static bool headLEDState = false;
 static bool leftLEDState = false;
 static bool rightLEDState = false;
 
+static unsigned long lastFrontHapticLEDToggle = 0;
+static unsigned long lastLeftHapticLEDToggle = 0;
+static unsigned long lastRightHapticLEDToggle = 0;
+static bool frontHapticLEDState = false;
+static bool leftHapticLEDState = false;
+static bool rightHapticLEDState = false;
+
 void responsesInit() {
     pinMode(BUZZER_PIN, OUTPUT);
-    pinMode(LED_PIN, OUTPUT);
+    if (LED_PIN >= 0) {
+        pinMode(LED_PIN, OUTPUT);
+    }
     pinMode(LED_HEAD_PIN, OUTPUT);
     pinMode(LED_LEFT_PIN, OUTPUT);
     pinMode(LED_RIGHT_PIN, OUTPUT);
+    pinMode(LED_HAPTIC_FRONT_PIN, OUTPUT);
+    pinMode(LED_HAPTIC_LEFT_PIN, OUTPUT);
+    pinMode(LED_HAPTIC_RIGHT_PIN, OUTPUT);
 
     // Ensure actuators start in off state
     digitalWrite(BUZZER_PIN, LOW);
-    analogWrite(LED_PIN, LED_OFF);
+    if (LED_PIN >= 0) {
+        analogWrite(LED_PIN, LED_OFF);
+    }
     digitalWrite(LED_HEAD_PIN, LOW);
     digitalWrite(LED_LEFT_PIN, LOW);
     digitalWrite(LED_RIGHT_PIN, LOW);
+    digitalWrite(LED_HAPTIC_FRONT_PIN, LOW);
+    digitalWrite(LED_HAPTIC_LEFT_PIN, LOW);
+    digitalWrite(LED_HAPTIC_RIGHT_PIN, LOW);
 
     // Initialize LED driver for illumination
     ledDriverInit();
@@ -40,7 +57,7 @@ void responsesInit() {
 }
 
 void setLED(int brightness) {
-    analogWrite(LED_PIN, brightness);
+    analogWrite(LED_ILLUMINATION_PIN, brightness);
 }
 
 void buzzerPulse(unsigned long intervalMs) {
@@ -100,9 +117,9 @@ static void updateWaistLEDs() {
     bool leftDetected = false;
     bool rightDetected = false;
     
-    // Check LiDAR waist zone
-    if (currentSensors.lidarWaistDetected && currentSensors.lidarWaistDistance != SENSOR_ERROR_DISTANCE) {
-        closestDistance = currentSensors.lidarWaistDistance;
+    // Check matrix sensor waist zone
+    if (currentSensors.matrixSensorWaistDetected && currentSensors.matrixSensorWaistDistance != SENSOR_ERROR_DISTANCE) {
+        closestDistance = currentSensors.matrixSensorWaistDistance;
         frontDetected = true;
     }
     
@@ -153,6 +170,70 @@ static void updateWaistLEDs() {
     }
 }
 
+// === HAPTIC-LIKE LED FEEDBACK (mirrors haptic driver logic) ===
+static unsigned long lastHapticLEDUpdate = 0;
+
+static void updateHapticMimicLED(uint16_t distanceMm, uint8_t pin, unsigned long &lastToggle, bool &state) {
+    if (distanceMm == SENSOR_ERROR_DISTANCE || distanceMm >= MATRIX_SENSOR_MAX_DISTANCE_MM || distanceMm == 0) {
+        digitalWrite(pin, LOW);
+        state = false;
+        return;
+    }
+
+    unsigned long interval = getIntervalFromDistance(distanceMm);
+    if (interval == 0) {
+        digitalWrite(pin, LOW);
+        state = false;
+        return;
+    }
+
+    unsigned long now = millis();
+    if (now - lastToggle >= interval) {
+        lastToggle = now;
+        state = !state;
+        digitalWrite(pin, state);
+    }
+}
+
+static void updateHapticLikeLEDs() {
+    if (currentSituation == FALL_DETECTED) {
+        digitalWrite(LED_HAPTIC_FRONT_PIN, LOW);
+        digitalWrite(LED_HAPTIC_LEFT_PIN, LOW);
+        digitalWrite(LED_HAPTIC_RIGHT_PIN, LOW);
+        frontHapticLEDState = false;
+        leftHapticLEDState = false;
+        rightHapticLEDState = false;
+        return;
+    }
+
+    // 8x8 front matrix sensor drives the front haptic mimic LED
+    if (currentSensors.matrixSensorWaistDetected && currentSensors.matrixSensorWaistDistance != SENSOR_ERROR_DISTANCE) {
+        updateHapticMimicLED(currentSensors.matrixSensorWaistDistance, LED_HAPTIC_FRONT_PIN,
+                            lastFrontHapticLEDToggle, frontHapticLEDState);
+    } else {
+        digitalWrite(LED_HAPTIC_FRONT_PIN, LOW);
+        frontHapticLEDState = false;
+    }
+
+    // Left ultrasonic sensor drives the left haptic mimic LED
+    if (currentSensors.ultrasonicZones[0] != OBSTACLE_NONE && currentSensors.ultrasonicDistances[0] != SENSOR_ERROR_DISTANCE) {
+        updateHapticMimicLED(currentSensors.ultrasonicDistances[0], LED_HAPTIC_LEFT_PIN,
+                            lastLeftHapticLEDToggle, leftHapticLEDState);
+    } else {
+        digitalWrite(LED_HAPTIC_LEFT_PIN, LOW);
+        leftHapticLEDState = false;
+    }
+
+    // Right ultrasonic sensor drives the right haptic mimic LED
+    if (currentSensors.ultrasonicZones[1] != OBSTACLE_NONE && currentSensors.ultrasonicDistances[1] != SENSOR_ERROR_DISTANCE) {
+        updateHapticMimicLED(currentSensors.ultrasonicDistances[1], LED_HAPTIC_RIGHT_PIN,
+                            lastRightHapticLEDToggle, rightHapticLEDState);
+    } else {
+        digitalWrite(LED_HAPTIC_RIGHT_PIN, LOW);
+        rightHapticLEDState = false;
+    }
+}
+
 void handleResponses() {
     // OPTIMIZED Response handler for 8-hour continuous operation
     // Strategy: Independent spatial feedback + haptic for all events, buzzer ONLY for imminent collision
@@ -162,6 +243,7 @@ void handleResponses() {
     updateLEDIllumination();    // Auto-control LED based on light sensor (only when <100 lux)
     updateHeadLED();            // Independent head zone feedback
     updateWaistLEDs();          // Independent waist/front + ultrasonic feedback
+    updateHapticLikeLEDs();     // LED feedback mirroring haptic driver logic
     updateHapticFeedback();     // Distance-based haptic feedback (primary alert mechanism)
 
     // Determine overall obstacle response based on per-sensor zones
@@ -184,23 +266,13 @@ void handleResponses() {
     // Special cases for fall and high stress (handled separately from obstacle zones)
     if (currentSituation == FALL_DETECTED) {
         handleFallResponse();  // Haptic pulsed response only
-    } else if (currentSituation == HIGH_STRESS) {
+    } else if (currentSituation == HIGH_STRESS_EVENT) {
         // High stress: haptic feedback (no LED/buzzer)
         buzzerOff();
         emergencyActive = true;
         emergencyStartTime = millis();
     } else {
         emergencyActive = false;
-    }
-}
-            break;
-    }
-
-    // Emergency timeout protection - prevent indefinite alerts
-    if (emergencyActive && (millis() - emergencyStartTime > EMERGENCY_DURATION_MS)) {
-        emergencyActive = false;
-        buzzerOff();
-        if (DEBUG_MODE) Serial.println("Emergency timeout - continuing in normal mode");
     }
 }
 

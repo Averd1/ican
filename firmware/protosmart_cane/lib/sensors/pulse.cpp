@@ -4,6 +4,9 @@
  */
 
 #include "pulse.h"
+
+// PulseSensor library requires this macro to be defined in exactly one sketch/module file.
+#define USE_ARDUINO_INTERRUPTS false
 #include <PulseSensorPlayground.h>
 
 // PulseSensor instance

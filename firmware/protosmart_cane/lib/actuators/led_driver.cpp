@@ -7,27 +7,42 @@
 #include <Wire.h>
 
 // LED control - can use PWM on ESP32 GPIO or I2C LED driver (e.g., PCA9685)
-#define LED_ILLUMINATION_PIN 11  // PWM-capable GPIO for LED control
 #define LED_I2C_ADDR 0x40        // If using I2C LED driver (PCA9685)
 
 uint8_t ledBrightness = 0;
 bool ledEnabled = false;
+static bool boostEnabled = false;
+
+void setBoostConverterEnabled(bool enabled) {
+    boostEnabled = enabled;
+    digitalWrite(BOOST_ENABLE_PIN, enabled ? HIGH : LOW);
+
+    if (DEBUG_MODE) {
+        Serial.print("Boost converter: ");
+        Serial.println(enabled ? "ENABLED" : "DISABLED");
+    }
+}
 
 void ledDriverInit() {
-    // Initialize LED illumination driver
+    // Initialize boost converter gate and LED illumination driver.
+    pinMode(BOOST_ENABLE_PIN, OUTPUT);
+    digitalWrite(BOOST_ENABLE_PIN, LOW);
+
     pinMode(LED_ILLUMINATION_PIN, OUTPUT);
     digitalWrite(LED_ILLUMINATION_PIN, LOW);
 
     // If using I2C LED driver, initialize it here
     // For now, assuming direct GPIO PWM
 
-    if (DEBUG_MODE) Serial.println("LED driver initialized");
+    if (DEBUG_MODE) Serial.println("LED driver initialized (boost + PWM)");
 }
 
 void updateLEDIllumination() {
     // Automatically control LED based on ambient light and emergency state
 
     if (lowLightDetected) {
+        setBoostConverterEnabled(true);
+
         // Low light detected - turn on LED
         if (emergencyActive) {
             // During emergency, maximum brightness
@@ -43,6 +58,7 @@ void updateLEDIllumination() {
     } else {
         // Normal light conditions - LED off
         setLEDIlluminationBrightness(0);
+        setBoostConverterEnabled(false);
         ledEnabled = false;
     }
 }

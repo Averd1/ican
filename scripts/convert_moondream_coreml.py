@@ -54,6 +54,8 @@ def parse_args():
                    help="Only convert vision encoder (fast, good for testing)")
     p.add_argument("--skip-vision", action="store_true",
                    help="Skip vision encoder (already converted)")
+    p.add_argument("--skip-prefill", action="store_true",
+                   help="Skip prefill model (already converted)")
     return p.parse_args()
 
 def log(msg): print(f"[convert] {msg}", flush=True)
@@ -675,9 +677,9 @@ def main():
         revision=args.revision,
         trust_remote_code=True,
         device_map="cpu",
+        torch_dtype=torch.float16,  # half precision to keep peak RAM ~4 GB
     )
     md_model = md_hf.model
-    md_model = md_model.float()     # float32 for stable tracing
     md_model.use_flex_decoding = False   # disable flex_attention — use SDPA instead
     md_model.eval()
 
@@ -692,7 +694,10 @@ def main():
 
     if not args.vision_only:
         extract_token_embeddings(md_model, output_dir)
-        convert_prefill_model(md_model, output_dir)
+        if not args.skip_prefill:
+            convert_prefill_model(md_model, output_dir)
+        else:
+            log("Skipping prefill model (--skip-prefill)")
         convert_text_decoder(md_model, output_dir)
         convert_coord_head(md_model, output_dir)
         convert_size_head(md_model, output_dir)

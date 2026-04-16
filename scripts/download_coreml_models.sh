@@ -19,7 +19,7 @@ mkdir -p "$DEST"
 
 # ── Depth Anything V2 Small F16P6 (~19 MB) ───────────────────────────────────
 DEPTH_ZIP="DepthAnythingV2SmallF16P6.mlpackage.zip"
-DEPTH_URL="https://ml-assets.apple.com/coreml/models/Image/DepthEstimation/DepthAnythingV2SmallF16P6.mlpackage.zip"
+DEPTH_URL="https://ml-assets.apple.com/coreml/models/Image/DepthEstimation/DepthAnything/DepthAnythingV2SmallF16P6.mlpackage.zip"
 
 if [ -d "$DEST/DepthAnythingV2SmallF16P6.mlpackage" ]; then
   echo "[skip] Depth Anything V2 already present"
@@ -32,7 +32,7 @@ else
 fi
 
 # ── YOLOv3 Tiny (~35 MB) ─────────────────────────────────────────────────────
-YOLO_URL="https://ml-assets.apple.com/coreml/models/Image/ObjectDetection/YOLOv3Tiny.mlmodel"
+YOLO_URL="https://ml-assets.apple.com/coreml/models/Image/ObjectDetection/YOLOv3Tiny/YOLOv3Tiny.mlmodel"
 
 if [ -f "$DEST/YOLOv3Tiny.mlmodel" ]; then
   echo "[skip] YOLOv3 Tiny already present"

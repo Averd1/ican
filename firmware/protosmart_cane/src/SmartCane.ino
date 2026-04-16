@@ -72,49 +72,157 @@ unsigned long emergencyHistory[STATE_HISTORY_SIZE] = {0};
 uint8_t emergencyHistoryIndex = 0;
 
 static unsigned long lastLightUpdate = 0;
+static unsigned long lastSensorDebugPrint = 0;
+
+static void printIsolatedSensorDebug(unsigned long now) {
+    if (!DEBUG_MODE || now - lastSensorDebugPrint < SENSOR_DEBUG_PRINT_INTERVAL_MS) {
+        return;
+    }
+
+    lastSensorDebugPrint = now;
+
+    Serial.print("TEST | 8x8 head=");
+    Serial.print(currentSensors.matrixSensorHeadDetected ? currentSensors.matrixSensorHeadDistance : SENSOR_ERROR_DISTANCE);
+    Serial.print(" mm waist=");
+    Serial.print(currentSensors.matrixSensorWaistDetected ? currentSensors.matrixSensorWaistDistance : SENSOR_ERROR_DISTANCE);
+    Serial.print(" mm | ultraL=");
+    Serial.print(currentSensors.ultrasonicDistances[0]);
+    Serial.print(" mm ultraR=");
+    Serial.print(currentSensors.ultrasonicDistances[1]);
+    Serial.print(" mm | imu a=");
+    Serial.print(currentSensors.imu.ax, 2);
+    Serial.print(",");
+    Serial.print(currentSensors.imu.ay, 2);
+    Serial.print(",");
+    Serial.print(currentSensors.imu.az, 2);
+    Serial.print(" | faults M/U/I=");
+    Serial.print(systemFaults.matrixSensor_fail);
+    Serial.print("/");
+    Serial.print(systemFaults.ultrasonic_fail);
+    Serial.print("/");
+    Serial.println(systemFaults.imu_fail);
+}
 
 void setup() {
-    // Initialize serial for debugging
+    // === STEP 0: Bare minimum hardware check — runs before any sensor init ===
+    // If you see the LED flash and serial output, the board and USB serial are alive.
+    // Each subsequent step is gated so we can pinpoint any init that crashes.
+    pinMode(LED_HAPTIC_FRONT_PIN, OUTPUT);  // GPIO18 = D9
+    pinMode(LED_HAPTIC_LEFT_PIN,  OUTPUT);  // GPIO21 = D10
+    pinMode(LED_HAPTIC_RIGHT_PIN, OUTPUT);  // GPIO38 = D11
+
+    // Flash all three LEDs twice as "I am alive" signal — visible before serial opens
+    for (int i = 0; i < 2; i++) {
+        digitalWrite(LED_HAPTIC_FRONT_PIN, HIGH);
+        digitalWrite(LED_HAPTIC_LEFT_PIN,  HIGH);
+        digitalWrite(LED_HAPTIC_RIGHT_PIN, HIGH);
+        delay(250);
+        digitalWrite(LED_HAPTIC_FRONT_PIN, LOW);
+        digitalWrite(LED_HAPTIC_LEFT_PIN,  LOW);
+        digitalWrite(LED_HAPTIC_RIGHT_PIN, LOW);
+        delay(250);
+    }
+
     Serial.begin(SERIAL_BAUD_RATE);
-    delay(1000);
+    delay(1500);
+    Serial.println("=== BOOT OK: Serial alive ===");
+    Serial.flush();
 
-    if (DEBUG_MODE) {
-        Serial.println("=== ProtoSmartCane Firmware v1.0 ===");
-        Serial.println("Initializing system...");
-    }
+#if BOOT_MINIMAL_MODE
+    Serial.println("=== BOOT_MINIMAL_MODE active: skipping all module init ===");
+    Serial.flush();
+    return;
+#endif
 
-    // Initialize I2C multiplexer (critical for sensor communication)
+    // === STEP 1: I2C mux ===
+    Serial.println("[1] muxInit...");
+    Serial.flush();
     muxInit();
+    Serial.println("[1] muxInit OK");
+    Serial.flush();
 
-    // Set initial mode and configuration
+    // === STEP 2: Mode config ===
+    Serial.println("[2] setMode...");
+    Serial.flush();
     setMode(NORMAL);
+    Serial.println("[2] setMode OK");
+    Serial.flush();
 
-    // Initialize all sensor systems
+    // === STEP 3: Sensors (IMU + ultrasonic + 8x8) ===
+    Serial.println("[3] sensorsInit...");
+    Serial.flush();
     sensorsInit();
+    Serial.println("[3] sensorsInit OK");
+    Serial.flush();
 
-    // Initialize light sensor (ambient lux measurement)
-    lightSensorInit();
-
-    // Initialize battery monitor and sleep manager
-    batteryMonitorInit();
-    sleepManagerInit();
-
-    // Initialize actuators (buzzer, LED, haptic)
+    // === STEP 4: Actuators ===
+    Serial.println("[4] responsesInit...");
+    Serial.flush();
     responsesInit();
+    Serial.println("[4] responsesInit OK");
+    Serial.flush();
 
-    // Initialize BLE communication (optional for local serial-only validation)
+    // === STEP 5: BLE ===
     if (ENABLE_BLE) {
+        Serial.println("[5] bleInit...");
+        Serial.flush();
         bleInit();
+        Serial.println("[5] bleInit OK");
+        Serial.flush();
     }
 
-    if (DEBUG_MODE) {
-        Serial.println("System initialization complete!");
-        Serial.println("Mode: NORMAL | Battery: Monitoring | Sensors: Active");
-    }
+    Serial.println("=== Setup complete — entering loop ===");
+    Serial.flush();
 }
 
 void loop() {
     unsigned long now = millis();
+
+    if (ENABLE_BLE) {
+        // Keep BLE stack responsive even during heavy sensor/response activity.
+        blePoll();
+    }
+
+#if BOOT_MINIMAL_MODE
+    static unsigned long lastBlink = 0;
+    static bool blinkState = false;
+    if (now - lastBlink > 250) {
+        lastBlink = now;
+        blinkState = !blinkState;
+        digitalWrite(LED_HAPTIC_FRONT_PIN, blinkState ? HIGH : LOW);
+        digitalWrite(LED_HAPTIC_LEFT_PIN, blinkState ? HIGH : LOW);
+        digitalWrite(LED_HAPTIC_RIGHT_PIN, blinkState ? HIGH : LOW);
+        if (DEBUG_MODE) Serial.println("BOOT_MINIMAL_MODE loop alive");
+    }
+    return;
+#endif
+
+#if ISOLATED_SENSOR_TEST_MODE
+    if (now - lastIMUUpdate > modeConfig.imuInterval) {
+        updateIMU();
+        lastIMUUpdate = now;
+    }
+
+    if (now - lastUltrasonicUpdate > modeConfig.ultrasonicInterval) {
+        updateUltrasonic();
+        lastUltrasonicUpdate = now;
+    }
+
+    if (now - lastMatrixSensorUpdate > modeConfig.matrixSensorInterval) {
+        updateMatrixSensor();
+        lastMatrixSensorUpdate = now;
+    }
+
+    if (ENABLE_BLE && now - lastTelemetryUpdate > 200) {
+        updateBLETelemetry();
+        lastTelemetryUpdate = now;
+    }
+
+    fuseSituations();
+    handleResponses();
+    printIsolatedSensorDebug(now);
+    return;
+#endif
 
     // === BATTERY MONITORING (Power Management Core) ===
     if (now - lastBatteryCheck > modeConfig.batteryCheckInterval) {
@@ -226,12 +334,16 @@ void loop() {
     handleResponses();
 
     // === BLE TELEMETRY ===
-    // Adjust telemetry rate based on mode and emergency status
-    unsigned long telemetryInterval = (currentMode == EMERGENCY) ? 50 :  // 20 Hz in emergency
-                                     (currentMode == LOW_POWER) ? 1000 : // 1 Hz in low power
-                                     200; // 5 Hz normal
-    if (ENABLE_BLE && now - lastTelemetryUpdate > telemetryInterval) {
-        updateBLETelemetry();
-        lastTelemetryUpdate = now;
+    if (ENABLE_BLE) {
+        blePoll();  // BLE event polling
+        
+        // Adjust telemetry rate based on mode and emergency status
+        unsigned long telemetryInterval = (currentMode == EMERGENCY) ? 50 :  // 20 Hz in emergency
+                                         (currentMode == LOW_POWER) ? 1000 : // 1 Hz in low power
+                                         200; // 5 Hz normal
+        if (now - lastTelemetryUpdate > telemetryInterval) {
+            updateBLETelemetry();
+            lastTelemetryUpdate = now;
+        }
     }
 }

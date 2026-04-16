@@ -10,15 +10,16 @@
 #include <PulseSensorPlayground.h>
 
 // PulseSensor instance
-PulseSensorPlayground pulseSensor;
+static PulseSensorPlayground* pulseSensor = nullptr;
 
 void pulseInit() {
+    if (!pulseSensor) pulseSensor = new PulseSensorPlayground();
     // Configure the PulseSensor
-    pulseSensor.analogInput(HEART_PIN);
-    pulseSensor.blinkOnPulse(PULSE_LED);
-    pulseSensor.setThreshold(HEART_THRESHOLD);
+    pulseSensor->analogInput(HEART_PIN);
+    pulseSensor->blinkOnPulse(PULSE_LED);
+    pulseSensor->setThreshold(HEART_THRESHOLD);
 
-    if (pulseSensor.begin()) {
+    if (pulseSensor->begin()) {
         if (DEBUG_MODE) Serial.println("Pulse sensor initialized successfully");
         systemFaults.heart_fail = false;
     } else {
@@ -28,12 +29,13 @@ void pulseInit() {
 }
 
 void pulseUpdate() {
+    if (!pulseSensor) return;
     // Read the latest sample from the PulseSensor
-    currentSensors.heartRaw = pulseSensor.getLatestSample();
+    currentSensors.heartRaw = pulseSensor->getLatestSample();
 
     // Check for beat detection
-    if (pulseSensor.sawStartOfBeat()) {
-        currentSensors.heartBPM = pulseSensor.getBeatsPerMinute();
+    if (pulseSensor->sawStartOfBeat()) {
+        currentSensors.heartBPM = pulseSensor->getBeatsPerMinute();
         currentSensors.pulseDetected = true;
 
         // Check for abnormal heart rate

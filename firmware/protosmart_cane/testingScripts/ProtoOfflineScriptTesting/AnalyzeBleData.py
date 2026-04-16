@@ -5,7 +5,7 @@ from pathlib import Path
 import pandas as pd
 
 
-EXPECTED_VERSION = 2
+EXPECTED_VERSION = 4
 
 
 def summarize(csv_path: Path) -> dict:
@@ -51,10 +51,31 @@ def summarize(csv_path: Path) -> dict:
         "battery_max": int(df["battery_percent"].max()) if "battery_percent" in df.columns else None,
         "heart_min": int(df["heart_bpm"].min()) if "heart_bpm" in df.columns else None,
         "heart_max": int(df["heart_bpm"].max()) if "heart_bpm" in df.columns else None,
+        "heart_raw_min": int(df["heart_raw"].min()) if "heart_raw" in df.columns else None,
+        "heart_raw_max": int(df["heart_raw"].max()) if "heart_raw" in df.columns else None,
         "fall_count": int(df["fall"].astype(bool).sum()) if "fall" in df.columns else None,
         "high_stress_count": int(df["high_stress"].astype(bool).sum()) if "high_stress" in df.columns else None,
         "obstacle_near_count": int(df["obstacle_near"].astype(bool).sum()) if "obstacle_near" in df.columns else None,
         "obstacle_imminent_count": int(df["obstacle_imminent"].astype(bool).sum()) if "obstacle_imminent" in df.columns else None,
+        "imu_ax_min_ms2": float(df["imu_ax_ms2"].min()) if "imu_ax_ms2" in df.columns else None,
+        "imu_ax_max_ms2": float(df["imu_ax_ms2"].max()) if "imu_ax_ms2" in df.columns else None,
+        "imu_ay_min_ms2": float(df["imu_ay_ms2"].min()) if "imu_ay_ms2" in df.columns else None,
+        "imu_ay_max_ms2": float(df["imu_ay_ms2"].max()) if "imu_ay_ms2" in df.columns else None,
+        "imu_az_min_ms2": float(df["imu_az_ms2"].min()) if "imu_az_ms2" in df.columns else None,
+        "imu_az_max_ms2": float(df["imu_az_ms2"].max()) if "imu_az_ms2" in df.columns else None,
+        "ultra_left_min_mm": int(df["ultra_left_mm"].min()) if "ultra_left_mm" in df.columns else None,
+        "ultra_left_max_mm": int(df["ultra_left_mm"].max()) if "ultra_left_mm" in df.columns else None,
+        "ultra_right_min_mm": int(df["ultra_right_mm"].min()) if "ultra_right_mm" in df.columns else None,
+        "ultra_right_max_mm": int(df["ultra_right_mm"].max()) if "ultra_right_mm" in df.columns else None,
+        "matrix_head_valid_count": int((df["matrix_head_mm"] != 0xFFFF).sum()) if "matrix_head_mm" in df.columns else None,
+        "matrix_waist_valid_count": int((df["matrix_waist_mm"] != 0xFFFF).sum()) if "matrix_waist_mm" in df.columns else None,
+        "matrix_head_min_mm": int(df.loc[df["matrix_head_mm"] != 0xFFFF, "matrix_head_mm"].min()) if "matrix_head_mm" in df.columns and (df["matrix_head_mm"] != 0xFFFF).any() else None,
+        "matrix_head_max_mm": int(df.loc[df["matrix_head_mm"] != 0xFFFF, "matrix_head_mm"].max()) if "matrix_head_mm" in df.columns and (df["matrix_head_mm"] != 0xFFFF).any() else None,
+        "matrix_waist_min_mm": int(df.loc[df["matrix_waist_mm"] != 0xFFFF, "matrix_waist_mm"].min()) if "matrix_waist_mm" in df.columns and (df["matrix_waist_mm"] != 0xFFFF).any() else None,
+        "matrix_waist_max_mm": int(df.loc[df["matrix_waist_mm"] != 0xFFFF, "matrix_waist_mm"].max()) if "matrix_waist_mm" in df.columns and (df["matrix_waist_mm"] != 0xFFFF).any() else None,
+        "imu_valid_samples": int(df["imu_valid"].astype(bool).sum()) if "imu_valid" in df.columns else None,
+        "pulse_valid_samples": int(df["pulse_valid"].astype(bool).sum()) if "pulse_valid" in df.columns else None,
+        "battery_valid_samples": int(df["battery_valid"].astype(bool).sum()) if "battery_valid" in df.columns else None,
     }
 
     return summary

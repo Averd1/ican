@@ -9,7 +9,7 @@
 #include <math.h>
 
 // IMU instance
-Adafruit_LSM6DSOX lsm6dsox;
+static Adafruit_LSM6DSOX* lsm6dsox = nullptr;
 
 // Fall detection state variables
 static bool freeFallDetected = false;
@@ -18,11 +18,23 @@ static unsigned long lastMotionTime = 0;
 
 void imuInit() {
     // IMU is wired to the secondary I2C bus on D6/D7
-    if (!lsm6dsox.begin_I2C(IMU_I2C_ADDR, &Wire1)) {
+    if (!lsm6dsox) lsm6dsox = new Adafruit_LSM6DSOX();
+    if (!lsm6dsox->begin_I2C(IMU_I2C_ADDR, &Wire1)) {
         if (DEBUG_MODE) Serial.println("IMU initialization failed!");
         systemFaults.imu_fail = true;
+        currentSensors.imu.ax = NAN;
+        currentSensors.imu.ay = NAN;
+        currentSensors.imu.az = NAN;
+        currentSensors.imu.gx = NAN;
+        currentSensors.imu.gy = NAN;
+        currentSensors.imu.gz = NAN;
         return;
     }
+
+    lsm6dsox->setAccelRange(LSM6DS_ACCEL_RANGE_8_G);
+    lsm6dsox->setGyroRange(LSM6DS_GYRO_RANGE_500_DPS);
+    lsm6dsox->setAccelDataRate(LSM6DS_RATE_52_HZ);
+    lsm6dsox->setGyroDataRate(LSM6DS_RATE_52_HZ);
 
     if (DEBUG_MODE) Serial.println("IMU initialized successfully");
     systemFaults.imu_fail = false;
@@ -30,9 +42,15 @@ void imuInit() {
 
 void imuUpdate() {
     sensors_event_t accel, gyro, temp;
-    if (!lsm6dsox.getEvent(&accel, &gyro, &temp)) {
+    if (!lsm6dsox || !lsm6dsox->getEvent(&accel, &gyro, &temp)) {
         // Sensor read failed
         systemFaults.imu_fail = true;
+        currentSensors.imu.ax = NAN;
+        currentSensors.imu.ay = NAN;
+        currentSensors.imu.az = NAN;
+        currentSensors.imu.gx = NAN;
+        currentSensors.imu.gy = NAN;
+        currentSensors.imu.gz = NAN;
         return;
     }
 

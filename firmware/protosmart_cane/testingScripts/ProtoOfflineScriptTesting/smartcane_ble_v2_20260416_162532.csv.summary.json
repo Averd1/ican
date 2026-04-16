@@ -1,0 +1,23 @@
+{
+  "packet_count": 95,
+  "elapsed_seconds": 19.694,
+  "packet_rate_hz": 4.823804204326191,
+  "packet_interval_mean_s": 0.20951063829787228,
+  "packet_interval_min_s": 0.12,
+  "packet_interval_max_s": 0.361,
+  "versions_seen": [
+    2
+  ],
+  "version_ok": true,
+  "modes_seen": [
+    0
+  ],
+  "battery_min": 0,
+  "battery_max": 0,
+  "heart_min": 0,
+  "heart_max": 0,
+  "fall_count": 0,
+  "high_stress_count": 0,
+  "obstacle_near_count": 0,
+  "obstacle_imminent_count": 0
+}

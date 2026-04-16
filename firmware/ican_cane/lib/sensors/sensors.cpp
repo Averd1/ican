@@ -5,6 +5,7 @@
 #include "sensors.h"
 #include <Adafruit_LSM6DSOX.h>
 #include <Arduino.h>
+#include <DFRobot_MatrixLidar.h>
 #include <PulseSensorPlayground.h>
 #include <Wire.h>
 
@@ -16,8 +17,9 @@ static uint8_t pinRightTrig, pinRightEcho;
 static Adafruit_LSM6DSOX imu;
 static bool imuReady = false;
 
-// TF Luna I²C address (default)
-constexpr uint8_t TF_LUNA_ADDR = 0x10;
+// DFRobot SEN0628 Matrix LiDAR on Wire1 (D6=SDA, D7=SCL), default addr 0x33
+static DFRobot_MatrixLidar_I2C matrixLidar(0x33, &Wire1);
+static bool lidarReady = false;
 
 // ---------------------------------------------------------------------------
 // Fall detection — two-phase state machine
@@ -73,8 +75,16 @@ void initSensors(uint8_t leftTrig, uint8_t leftEcho, uint8_t rightTrig,
 
   Serial.println("[Sensors] Ultrasonic pins configured.");
 
-  // IMU init (I²C mux must be on IMU channel before calling)
-  if (imu.begin_I2C()) {
+  // LiDAR init on Wire1
+  if (matrixLidar.begin() == 0) {
+    lidarReady = true;
+    Serial.println("[Sensors] SEN0628 Matrix LiDAR initialized.");
+  } else {
+    Serial.println("[Sensors] WARNING: SEN0628 Matrix LiDAR not found.");
+  }
+
+  // IMU init on Wire1 (D6=SDA, D7=SCL)
+  if (imu.begin_I2C(LSM6DS_I2CADDR_DEFAULT, &Wire1)) {
     imuReady = true;
     imu.setAccelRange(LSM6DS_ACCEL_RANGE_4_G);
     imu.setGyroRange(LSM6DS_GYRO_RANGE_250_DPS);
@@ -95,21 +105,24 @@ float readUltrasonicRight() {
 }
 
 float readLidar() {
-  // TF Luna I²C read: request 2 bytes (distance low, distance high)
-  Wire.beginTransmission(TF_LUNA_ADDR);
-  Wire.write(0x01); // Register: distance low byte
-  Wire.write(0x02); // + distance high byte
-  if (Wire.endTransmission(false) != 0) {
+  if (!lidarReady)
     return -1.0f;
+
+  // SEN0628 returns an 8x8 grid of distances in mm.
+  // Scan all 64 points and return the minimum (closest obstacle) in cm.
+  uint16_t minMm = 0xFFFF;
+  for (uint8_t x = 0; x < 8; x++) {
+    for (uint8_t y = 0; y < 8; y++) {
+      uint16_t d = matrixLidar.getFixedPointData(x, y);
+      if (d > 0 && d < minMm)
+        minMm = d;
+    }
   }
 
-  Wire.requestFrom(TF_LUNA_ADDR, (uint8_t)2);
-  if (Wire.available() < 2)
+  if (minMm == 0xFFFF)
     return -1.0f;
 
-  uint8_t low = Wire.read();
-  uint8_t high = Wire.read();
-  return static_cast<float>((high << 8) | low); // cm
+  return minMm / 10.0f; // mm → cm
 }
 
 // ===========================================================================

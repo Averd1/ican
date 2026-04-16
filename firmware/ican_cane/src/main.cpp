@@ -8,9 +8,10 @@
  * Each subsystem is modular — see lib/ for individual driver wrappers.
  *
  * Subsystems:
- *   - I²C Multiplexer (TCA9548A / PCA9546) for multi-device I²C bus
- *   - Sensors: TF Luna LiDAR, 2x Ultrasonic, LSM6DSOX IMU
- *   - Haptics: DRV2605L via I²C mux
+ *   - I²C Bus 0 (Wire,  A4/A5): PCA9548A MUX → DRV2605L haptics
+ *   - I²C Bus 1 (Wire1, D6/D7): DFRobot SEN0628 Matrix LiDAR + LSM6DSOX IMU (direct)
+ *   - Sensors: SEN0628 Matrix LiDAR, 2x Ultrasonic, LSM6DSOX IMU
+ *   - Haptics: DRV2605L via I²C mux on Bus 0
  *   - BLE: NimBLE peripheral (receives nav commands, sends telemetry)
  *   - GPS: Adafruit Mini GPS (future — Guided Nav)
  * ============================================================================
@@ -69,8 +70,9 @@ void setup() {
   Serial.begin(115200);
   Serial.println("[iCan Cane] Booting...");
 
-  // Initialize I²C
-  Wire.begin();
+  // Initialize I²C buses
+  Wire.begin();        // Bus 0 (A4/A5) — MUX only → DRV2605L haptics
+  Wire1.begin(D6, D7); // Bus 1 (D6=SDA, D7=SCL) — SEN0628 LiDAR + LSM6DSOX IMU
 
   // Initialize subsystems
   selectMuxChannel(MUX_CH_DRV2605);
@@ -110,12 +112,10 @@ void loop() {
     float distLeft = readUltrasonicLeft();
     float distRight = readUltrasonicRight();
 
-    // Read LiDAR (head-height)
-    selectMuxChannel(MUX_CH_LIDAR);
+    // Read LiDAR (head-height) — SEN0628 on Wire1, no mux needed
     float distHead = readLidar();
 
-    // Read IMU
-    selectMuxChannel(MUX_CH_IMU);
+    // Read IMU — LSM6DSOX on Wire1, no mux needed
     ImuData imu = readIMU();
 
     // --- Free Nav: Obstacle detection → Haptic feedback ---
@@ -166,7 +166,6 @@ void loop() {
   if (now - lastTelemetrySend >= TELEMETRY_SEND_INTERVAL_MS) {
     lastTelemetrySend = now;
 
-    selectMuxChannel(MUX_CH_IMU);
     ImuData imu = readIMU();
 
     TelemetryPacket pkt = {};

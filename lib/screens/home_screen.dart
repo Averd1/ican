@@ -7,6 +7,9 @@ import 'package:image/image.dart' as img;
 import 'package:shared_preferences/shared_preferences.dart';
 import '../core/app_router.dart';
 import '../services/ble_service.dart';
+import '../services/model_download_service.dart';
+import '../services/on_device_vision_service.dart';
+import '../services/scene_description_service.dart';
 import '../services/vertex_ai_service.dart';
 import '../services/tts_service.dart';
 
@@ -41,6 +44,9 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   final VertexAiService _aiService = VertexAiService();
+  final OnDeviceVisionService _onDeviceService = OnDeviceVisionService();
+  late final SceneDescriptionService _sceneService;
+  late final ModelDownloadService _downloadService;
   final TtsService _ttsService = TtsService();
 
   String _aiStatusMessage = '';
@@ -60,6 +66,17 @@ class _HomeScreenState extends State<HomeScreen> {
     _ttsService.init();
     _aiService.loadSavedModel();
     _aiService.addListener(_onModelChanged);
+    _sceneService = SceneDescriptionService(
+      cloudService: _aiService,
+      onDeviceService: _onDeviceService,
+    );
+    _sceneService.loadSavedMode();
+    _sceneService.addListener(_onModeChanged);
+    _downloadService = ModelDownloadService(
+      visionService: _onDeviceService,
+      ttsService: _ttsService,
+    );
+    _downloadService.addListener(_onDownloadChanged);
     _loadCameraProfile();
 
     // Listen to BLE Connection State Changes
@@ -106,6 +123,9 @@ class _HomeScreenState extends State<HomeScreen> {
     _imageSub?.cancel();
     BleService.instance.removeListener(_onBleStateChanged);
     _aiService.removeListener(_onModelChanged);
+    _sceneService.removeListener(_onModeChanged);
+    _downloadService.removeListener(_onDownloadChanged);
+    _downloadService.dispose();
     super.dispose();
   }
 
@@ -114,6 +134,14 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   void _onModelChanged() {
+    if (mounted) setState(() {});
+  }
+
+  void _onModeChanged() {
+    if (mounted) setState(() {});
+  }
+
+  void _onDownloadChanged() {
     if (mounted) setState(() {});
   }
 
@@ -189,10 +217,6 @@ class _HomeScreenState extends State<HomeScreen> {
       debugPrint('[AI] Failed to save images: $e');
     }
 
-    setState(() {
-      _aiStatusMessage = 'Analyzing with ${_aiService.model.label}...';
-    });
-
     const systemPrompt =
         'You are the vision system for a blind person wearing a chest camera. '
         'Speak in plain, conversational English — no markdown, no bullet points, no lists — '
@@ -207,16 +231,21 @@ class _HomeScreenState extends State<HomeScreen> {
         'Be specific and spatial. Never say "I see" — describe as if you are the person\'s eyes.';
 
     try {
-      // Stream API response and start TTS as soon as first sentence arrives.
+      // Stream response (cloud or local) and start TTS as soon as first sentence arrives.
       // Regex matches punctuation followed by whitespace (mid-stream) OR
       // punctuation at end-of-string (last sentence in final chunk).
       final textBuffer = StringBuffer();
       final sentenceEnd = RegExp(r'[.!?](?:\s|$)');
       int chunkCount = 0;
 
-      await for (final chunk in _aiService.streamContentFromImage(
+      await for (final chunk in _sceneService.describeScene(
         enhancedBytes,
         systemPrompt: systemPrompt,
+        onStatusUpdate: (status, backend) {
+          if (mounted) {
+            setState(() => _aiStatusMessage = status);
+          }
+        },
       )) {
         chunkCount++;
         debugPrint('[AI] Stream chunk #$chunkCount (${chunk.length} chars): "$chunk"');
@@ -294,6 +323,8 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final isConnected = BleService.instance.state == BleConnectionState.connected;
+    final isDisabled = !isConnected || _isProcessing;
 
     return Scaffold(
       backgroundColor: theme.scaffoldBackgroundColor,
@@ -310,159 +341,340 @@ class _HomeScreenState extends State<HomeScreen> {
         elevation: 0,
       ),
       body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              // --- Connection Status ---
-              _buildStatusCard(context),
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final isWide = constraints.maxWidth > 600;
+            final maxW = isWide ? 500.0 : constraints.maxWidth;
 
-              const SizedBox(height: 12),
+            return Center(
+              child: ConstrainedBox(
+                constraints: BoxConstraints(maxWidth: maxW),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      // --- Connection Status ---
+                      _buildStatusCard(context),
 
-              // --- AI Model Picker ---
-              _buildModelPicker(context),
+                      const SizedBox(height: 12),
 
-              const SizedBox(height: 8),
+                      // --- Vision Mode Picker (Auto / Offline / Cloud) ---
+                      _buildModePicker(context),
 
-              // --- Camera Profile Picker ---
-              _buildCameraProfilePicker(context),
+                      const SizedBox(height: 8),
 
-              const SizedBox(height: 12),
+                      // --- AI Model Picker (only relevant when cloud is possible) ---
+                      if (_sceneService.mode != VisionMode.offlineOnly)
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 8),
+                          child: _buildModelPicker(context),
+                        ),
 
-              // --- AI Feedback Status ---
-              if (_aiStatusMessage.isNotEmpty)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 20.0),
-                  child: Text(
-                    _aiStatusMessage,
-                    style: theme.textTheme.bodyMedium?.copyWith(
-                      color: _isProcessing ? theme.colorScheme.secondary : Colors.green,
-                      fontWeight: FontWeight.w600,
-                    ),
-                    textAlign: TextAlign.center,
-                  ),
-                ),
+                      // --- Camera Profile Picker ---
+                      _buildCameraProfilePicker(context),
 
-              // --- Primary Action: Take Picture ---
-              Expanded(
-                child: Semantics(
-                  button: true,
-                  label: 'Take picture and describe scene',
-                  child: GestureDetector(
-                    onTap: _isProcessing
-                        ? null
-                        : () {
-                            if (BleService.instance.state != BleConnectionState.connected) {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(content: Text('Please connect device first')),
-                              );
-                              return;
-                            }
+                      const SizedBox(height: 8),
 
-                            setState(() {
-                              _isProcessing = true;
-                              _aiStatusMessage = 'Capturing photo...';
-                            });
-                            BleService.instance.triggerEyeCapture();
-                          },
-                    child: AnimatedContainer(
-                      duration: const Duration(milliseconds: 200),
-                      curve: Curves.easeInOut,
-                      decoration: BoxDecoration(
-                        color: _isProcessing
-                            ? theme.colorScheme.surface
-                            : theme.colorScheme.primary,
-                        borderRadius: BorderRadius.circular(36),
-                        boxShadow: [
-                          if (!_isProcessing)
-                            BoxShadow(
-                              color: theme.colorScheme.primary.withAlpha(77),
-                              blurRadius: 24,
-                              offset: const Offset(0, 12),
-                            )
-                        ],
-                        border: _isProcessing
-                            ? Border.all(color: theme.colorScheme.onSurface.withAlpha(26), width: 1)
-                            : null,
-                      ),
-                      child: Center(
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(
-                              Icons.camera_alt_rounded,
-                              size: 48,
-                              color: _isProcessing
-                                  ? theme.colorScheme.onSurface.withAlpha(128)
-                                  : theme.colorScheme.onPrimary,
+                      // --- Offline Model Download Card ---
+                      if (_sceneService.mode != VisionMode.cloudOnly)
+                        _buildOfflineModelCard(context),
+
+                      const SizedBox(height: 12),
+
+                      // --- AI Feedback Status ---
+                      if (_aiStatusMessage.isNotEmpty)
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 20.0),
+                          child: Text(
+                            _aiStatusMessage,
+                            style: theme.textTheme.bodyMedium?.copyWith(
+                              color: _isProcessing ? theme.colorScheme.secondary : Colors.green,
+                              fontWeight: FontWeight.w600,
                             ),
-                            const SizedBox(height: 12),
-                            Text(
-                              'Describe Scene',
-                              style: theme.textTheme.titleLarge?.copyWith(
-                                color: _isProcessing
-                                    ? theme.colorScheme.onSurface.withAlpha(128)
-                                    : theme.colorScheme.onPrimary,
-                                fontWeight: FontWeight.w600,
+                            textAlign: TextAlign.center,
+                          ),
+                        ),
+
+                      // --- Primary Action: Take Picture ---
+                      Expanded(
+                        child: Semantics(
+                          button: true,
+                          label: 'Take picture and describe scene',
+                          child: GestureDetector(
+                            onTap: isDisabled
+                                ? null
+                                : () {
+                                    setState(() {
+                                      _isProcessing = true;
+                                      _aiStatusMessage = 'Capturing photo...';
+                                    });
+                                    BleService.instance.triggerEyeCapture();
+                                  },
+                            child: AnimatedContainer(
+                              duration: const Duration(milliseconds: 200),
+                              curve: Curves.easeInOut,
+                              decoration: BoxDecoration(
+                                color: isDisabled
+                                    ? theme.colorScheme.surface
+                                    : theme.colorScheme.primary,
+                                borderRadius: BorderRadius.circular(36),
+                                boxShadow: [
+                                  if (!isDisabled)
+                                    BoxShadow(
+                                      color: theme.colorScheme.primary.withAlpha(77),
+                                      blurRadius: 24,
+                                      offset: const Offset(0, 12),
+                                    )
+                                ],
+                                border: isDisabled
+                                    ? Border.all(color: theme.colorScheme.onSurface.withAlpha(26), width: 1)
+                                    : null,
+                              ),
+                              child: Center(
+                                child: Column(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(
+                                      Icons.camera_alt_rounded,
+                                      size: 48,
+                                      color: isDisabled
+                                          ? theme.colorScheme.onSurface.withAlpha(128)
+                                          : theme.colorScheme.onPrimary,
+                                    ),
+                                    const SizedBox(height: 12),
+                                    Text(
+                                      'Describe Scene',
+                                      style: theme.textTheme.titleLarge?.copyWith(
+                                        color: isDisabled
+                                            ? theme.colorScheme.onSurface.withAlpha(128)
+                                            : theme.colorScheme.onPrimary,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                  ],
+                                ),
                               ),
                             ),
-                          ],
+                          ),
                         ),
                       ),
-                    ),
-                  ),
-                ),
-              ),
 
-              const SizedBox(height: 24),
+                      const SizedBox(height: 24),
 
-              // --- Secondary: Connection Control ---
-              Semantics(
-                button: true,
-                label: _getConnectionButtonLabel(),
-                child: _buildConnectionButton(context, theme),
-              ),
-              
-              // --- GPS Monitor shortcut ---
-              Padding(
-                padding: const EdgeInsets.only(top: 12.0),
-                child: Semantics(
-                  button: true,
-                  label: 'View GPS data from iCan Cane',
-                  child: OutlinedButton.icon(
-                    onPressed: () => Navigator.of(context).pushNamed(AppRouter.gps),
-                    icon: const Icon(Icons.gps_fixed_rounded),
-                    label: const Text('View GPS'),
-                    style: OutlinedButton.styleFrom(
-                      minimumSize: const Size.fromHeight(52),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(16),
+                      // --- Secondary: Connection Control ---
+                      Semantics(
+                        button: true,
+                        label: _getConnectionButtonLabel(),
+                        child: _buildConnectionButton(context, theme),
                       ),
-                    ),
+                      
+                      // --- GPS Monitor shortcut ---
+                      Padding(
+                        padding: const EdgeInsets.only(top: 12),
+                        child: Semantics(
+                          button: true,
+                          label: 'View GPS data from iCan Cane',
+                          child: OutlinedButton.icon(
+                            onPressed: () => Navigator.of(context).pushNamed(AppRouter.gps),
+                            icon: const Icon(Icons.gps_fixed_rounded),
+                            label: const Text('View GPS'),
+                            style: OutlinedButton.styleFrom(
+                              minimumSize: const Size.fromHeight(52),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(16),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+
+                      // --- Tertiary: Disconnect and Forget (only when connected) ---
+                      if (BleService.instance.state == BleConnectionState.connected)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 12.0),
+                          child: Semantics(
+                            button: true,
+                            label: 'Disconnect from device and forget it for next startup',
+                            child: TextButton.icon(
+                              onPressed: _handleDisconnectAndForget,
+                              icon: Icon(Icons.bluetooth_disabled_rounded, color: theme.colorScheme.error),
+                              label: Text('Forget Device', style: TextStyle(color: theme.colorScheme.error)),
+                            ),
+                          ),
+                        ),
+                    ],
                   ),
                 ),
               ),
-
-              // --- Tertiary: Disconnect and Forget (only when connected) ---
-              if (BleService.instance.state == BleConnectionState.connected)
-                Padding(
-                  padding: const EdgeInsets.only(top: 12.0),
-                  child: Semantics(
-                    button: true,
-                    label: 'Disconnect from device and forget it for next startup',
-                    child: TextButton.icon(
-                      onPressed: _handleDisconnectAndForget,
-                      icon: Icon(Icons.bluetooth_disabled_rounded, color: theme.colorScheme.error),
-                      label: Text('Forget Device', style: TextStyle(color: theme.colorScheme.error)),
-                    ),
-                  ),
-                ),
-            ],
-          ),
+            );
+          },
         ),
       ),
+    );
+  }
+
+  Widget _buildModePicker(BuildContext context) {
+    final theme = Theme.of(context);
+    return Semantics(
+      label: 'Vision mode. Current: ${_sceneService.mode.label}',
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        decoration: BoxDecoration(
+          color: theme.colorScheme.surface,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+            color: theme.colorScheme.onSurface.withAlpha(13),
+          ),
+        ),
+        child: Row(
+          children: [
+            Icon(Icons.wifi_off_rounded, size: 18, color: theme.colorScheme.secondary),
+            const SizedBox(width: 8),
+            Text('Mode:', style: theme.textTheme.bodySmall?.copyWith(fontWeight: FontWeight.w600)),
+            const SizedBox(width: 8),
+            Expanded(
+              child: SegmentedButton<VisionMode>(
+                segments: VisionMode.values.map((m) => ButtonSegment<VisionMode>(
+                  value: m,
+                  label: Text(m.label, style: const TextStyle(fontSize: 12)),
+                  tooltip: m.description,
+                )).toList(),
+                selected: {_sceneService.mode},
+                onSelectionChanged: _isProcessing ? null : (selected) {
+                  _sceneService.setMode(selected.first);
+                },
+                style: const ButtonStyle(
+                  visualDensity: VisualDensity.compact,
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildOfflineModelCard(BuildContext context) {
+    final theme = Theme.of(context);
+
+    if (_downloadService.isDownloading) {
+      // Download in progress — show progress bar
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        decoration: BoxDecoration(
+          color: theme.colorScheme.surface,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: theme.colorScheme.onSurface.withAlpha(13)),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.downloading_rounded, size: 18, color: theme.colorScheme.secondary),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'Downloading offline model... ${(_downloadService.progress * 100).round()}%',
+                    style: theme.textTheme.bodySmall?.copyWith(fontWeight: FontWeight.w600),
+                  ),
+                ),
+                SizedBox(
+                  height: 28,
+                  child: TextButton(
+                    onPressed: () => _downloadService.cancelDownload(),
+                    style: TextButton.styleFrom(padding: EdgeInsets.zero),
+                    child: Text('Cancel', style: TextStyle(fontSize: 12, color: theme.colorScheme.error)),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(4),
+              child: LinearProgressIndicator(
+                value: _downloadService.progress,
+                minHeight: 6,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    // Check model status and show appropriate card
+    return FutureBuilder<ModelStatus>(
+      future: _onDeviceService.getModelStatus(),
+      builder: (context, snapshot) {
+        final status = snapshot.data ?? ModelStatus.notDownloaded;
+
+        if (status == ModelStatus.loaded || status == ModelStatus.ready) {
+          // Model available — show compact status
+          return Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            decoration: BoxDecoration(
+              color: theme.colorScheme.surface,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: Colors.green.withAlpha(40)),
+            ),
+            child: Row(
+              children: [
+                const Icon(Icons.check_circle_outline, size: 18, color: Colors.green),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    status == ModelStatus.loaded
+                        ? 'Offline AI model loaded'
+                        : 'Offline AI model ready',
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      fontWeight: FontWeight.w600,
+                      color: Colors.green,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          );
+        }
+
+        // Model not downloaded — show download prompt
+        return Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+          decoration: BoxDecoration(
+            color: theme.colorScheme.surface,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: theme.colorScheme.secondary.withAlpha(40)),
+          ),
+          child: Row(
+            children: [
+              Icon(Icons.cloud_download_outlined, size: 18, color: theme.colorScheme.secondary),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'Download AI model for offline use (546 MB)',
+                  style: theme.textTheme.bodySmall,
+                ),
+              ),
+              const SizedBox(width: 8),
+              SizedBox(
+                height: 32,
+                child: ElevatedButton(
+                  onPressed: _isProcessing ? null : () => _downloadService.startDownload(),
+                  style: ElevatedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                    textStyle: const TextStyle(fontSize: 12),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                  ),
+                  child: const Text('Download'),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
     );
   }
 
@@ -481,7 +693,7 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
         child: Row(
           children: [
-            Icon(Icons.auto_awesome, size: 18, color: theme.colorScheme.secondary),
+            Icon(Icons.auto_awesome, size: 20, color: theme.colorScheme.secondary),
             const SizedBox(width: 8),
             Text('AI Model:', style: theme.textTheme.bodySmall?.copyWith(fontWeight: FontWeight.w600)),
             const SizedBox(width: 8),

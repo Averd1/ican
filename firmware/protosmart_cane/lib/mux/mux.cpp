@@ -7,8 +7,8 @@
 #include <Wire.h>
 
 void muxInit() {
-    Wire.begin(I2C_SDA_PIN, I2C_SCL_PIN);   // Primary I2C on SDA/A4 and SCL/A5
-    Wire1.begin(I2C2_SDA_PIN, I2C2_SCL_PIN); // Secondary I2C on D6 / D7
+    Wire.begin(I2C_SDA_PIN, I2C_SCL_PIN);     // Primary I2C: GPIO11(SDA) / GPIO12(SCL)
+    Wire1.begin(I2C2_SDA_PIN, I2C2_SCL_PIN);  // Secondary I2C: GPIO9(SDA) / GPIO10(SCL) — IMU + 8x8
     // Disable all channels initially for safety
     selectMuxChannel(0xFF);  // 0xFF disables all channels
 }

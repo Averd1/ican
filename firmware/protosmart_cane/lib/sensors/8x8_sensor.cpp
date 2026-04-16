@@ -13,8 +13,8 @@
 #include <Wire.h>
 #include <DFRobot_matrixLidarDistanceSensor.h>
 
-TwoWire I2C_2 = TwoWire(1);
-DFRobot_matrixLidarDistanceSensor tof(MATRIX_SENSOR_I2C_ADDR, &I2C_2);
+// Use Wire1 directly — avoids static TwoWire(1) construction crashing before setup()
+static DFRobot_matrixLidarDistanceSensor* tof = nullptr;
 static uint16_t matrixSensorBuffer[64];
 
 // === HYSTERESIS THRESHOLDS (prevent zone flickering) ===
@@ -96,16 +96,34 @@ static uint16_t smoothDistance(uint16_t rawDistance, uint16_t previousSmoothed) 
 }
 
 void matrixSensorInit() {
-    // 8x8 matrix sensor is wired directly to the secondary I2C bus on D6/D7
-    I2C_2.begin(I2C2_SDA_PIN, I2C2_SCL_PIN);
+    // Wire1 already begun in muxInit() before sensorsInit() is called
+    delay(100);
 
-    if (tof.begin() != 0) {
+    if (!tof) {
+        tof = new DFRobot_matrixLidarDistanceSensor(MATRIX_SENSOR_I2C_ADDR, &Wire1);
+    }
+
+    uint8_t beginAttempts = 0;
+    while (tof->begin() != 0 && beginAttempts < 5) {
+        beginAttempts++;
+        if (DEBUG_MODE) Serial.println("8x8 Matrix Sensor begin retry");
+        delay(1000);
+    }
+
+    if (beginAttempts >= 5) {
         if (DEBUG_MODE) Serial.println("8x8 Matrix Sensor initialization failed!");
         systemFaults.matrixSensor_fail = true;
         return;
     }
 
-    if (tof.getAllDataConfig(eMatrix_8X8) != 0) {
+    uint8_t configAttempts = 0;
+    while (tof->getAllDataConfig(eMatrix_8X8) != 0 && configAttempts < 5) {
+        configAttempts++;
+        if (DEBUG_MODE) Serial.println("8x8 Matrix Sensor config retry");
+        delay(1000);
+    }
+
+    if (configAttempts >= 5) {
         if (DEBUG_MODE) Serial.println("8x8 Matrix Sensor matrix configuration failed!");
         systemFaults.matrixSensor_fail = true;
         return;
@@ -122,7 +140,7 @@ void matrixSensorUpdate() {
     uint16_t closestWaist = SENSOR_ERROR_DISTANCE;
     uint16_t closestOverall = SENSOR_ERROR_DISTANCE;
 
-    if (tof.getAllData(matrixSensorBuffer) != 0) {
+    if (!tof || tof->getAllData(matrixSensorBuffer) != 0) {
         if (DEBUG_MODE) Serial.println("8x8 Matrix Sensor data read failed");
         currentSensors.matrixSensorDistance = SENSOR_ERROR_DISTANCE;
         currentSensors.matrixSensorHeadDetected = false;

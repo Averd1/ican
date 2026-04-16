@@ -8,17 +8,16 @@
 
 static uint16_t triggerUltrasonic(uint8_t trigPin, uint8_t echoPin) {
     digitalWrite(trigPin, LOW);
-    delayMicroseconds(2);
+    delayMicroseconds(5);
     digitalWrite(trigPin, HIGH);
     delayMicroseconds(10);
-    digitalWrite(trigPin, LOW);
 
-    unsigned long duration = pulseIn(echoPin, HIGH, 30000);  // 30ms timeout
-    if (duration == 0) {
+    unsigned long duration = pulseIn(echoPin, LOW, 50000);
+    if (duration == 0 || duration >= 50000) {
         return SENSOR_ERROR_DISTANCE;
     }
 
-    float distanceMm = duration / 5.0f;  // URM37: duration_us / 5 = distance_mm
+    float distanceMm = (duration / 50.0f) * 10.0f;
     if (distanceMm <= 0.0f || distanceMm > ULTRASONIC_MAX_RANGE_MM) {
         return SENSOR_ERROR_DISTANCE;
     }
@@ -32,8 +31,8 @@ void ultrasonicInit() {
     pinMode(ULTRASONIC_RIGHT_TRIG_PIN, OUTPUT);
     pinMode(ULTRASONIC_RIGHT_ECHO_PIN, INPUT);
 
-    digitalWrite(ULTRASONIC_LEFT_TRIG_PIN, LOW);
-    digitalWrite(ULTRASONIC_RIGHT_TRIG_PIN, LOW);
+    digitalWrite(ULTRASONIC_LEFT_TRIG_PIN, HIGH);
+    digitalWrite(ULTRASONIC_RIGHT_TRIG_PIN, HIGH);
     delay(50);
 
     systemFaults.ultrasonic_fail = false;

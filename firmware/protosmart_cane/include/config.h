@@ -5,35 +5,35 @@
 
 #pragma once
 
-// === HARDWARE PIN DEFINITIONS ===
-#define BUZZER_PIN A2           // Buzzer output (A2)
-#define LED_PIN -1              // Legacy LED output disabled to avoid overlap with SDA2 bus
-#define LED_HEAD_PIN 9          // NEW: Head zone LED (D9)
-#define LED_LEFT_PIN 10         // NEW: Left zone LED (D10)
-#define LED_RIGHT_PIN 11        // NEW: Right zone LED (D11)
-#define LED_HAPTIC_FRONT_PIN 12 // Haptic mimic LED for 8x8 matrix front detection
-#define LED_HAPTIC_LEFT_PIN 13  // Haptic mimic LED for left ultrasonic sensor
-#define LED_HAPTIC_RIGHT_PIN A3 // Haptic mimic LED for right ultrasonic sensor (A3)
-#define BATTERY_PIN A1          // Battery monitor on separate analog input from pulse sensor
-#define HEART_PIN A0            // Pulse sensor input
-#define PULSE_LED -1            // Optional pulse blink LED disabled for external wiring cleanup
-#define LOW_BATTERY_PIN 8       // LB0 from PowerBoost low battery signal (D8)
+// === HARDWARE PIN DEFINITIONS (GPIO MODE) ===
+// BOARD_USES_HW_GPIO_NUMBERS is enabled in platformio.ini.
+// Values below are raw ESP32-S3 GPIO numbers, mapped to same Nano header locations.
+#define BUZZER_PIN 45          // Nano LED_BLUE pin location (previous pin ID 16)
+#define LED_PIN -1             // Legacy LED disabled
+#define LED_HEAD_PIN 47        // Nano D12
+#define LED_LEFT_PIN 48        // Nano D13
+#define LED_RIGHT_PIN 46       // Nano LED_RED pin location (previous pin ID 14)
+#define LED_HAPTIC_FRONT_PIN 18  // Nano D9
+#define LED_HAPTIC_LEFT_PIN 21   // Nano D10
+#define LED_HAPTIC_RIGHT_PIN 38  // Nano D11
+#define BATTERY_PIN 2          // Nano A1
+#define HEART_PIN 1            // Nano A0
+#define PULSE_LED 25           // Raw GPIO25 (optional pulse blink)
+#define LOW_BATTERY_PIN 17     // Nano D8
 
-// === SPI / I2C BUS PINS ===
-// Nano ESP32 remapped pin API: A4=21, A5=22
-#define I2C_SDA_PIN 21          // Primary SDA bus (A4)
-#define I2C_SCL_PIN 22          // Primary SCL bus (A5)
+// === SPI / I2C BUS PINS (GPIO MODE) ===
+#define I2C_SDA_PIN 11         // Nano A4 / SDA
+#define I2C_SCL_PIN 12         // Nano A5 / SCL
 
-// === ULTRASONIC PIN DEFINITIONS ===
-#define ULTRASONIC_LEFT_ECHO_PIN 4   // Left ultrasonic ECHO (D4)
-#define ULTRASONIC_LEFT_TRIG_PIN 5   // Left ultrasonic TRIG (D5)
-#define ULTRASONIC_RIGHT_ECHO_PIN 2  // Right ultrasonic ECHO (D2)
-#define ULTRASONIC_RIGHT_TRIG_PIN 3  // Right ultrasonic TRIG (D3)
+// === ULTRASONIC PIN DEFINITIONS (GPIO MODE) ===
+#define ULTRASONIC_LEFT_ECHO_PIN 7   // Nano D4
+#define ULTRASONIC_LEFT_TRIG_PIN 8   // Nano D5
+#define ULTRASONIC_RIGHT_ECHO_PIN 5  // Nano D2
+#define ULTRASONIC_RIGHT_TRIG_PIN 6  // Nano D3
 
-// === I2C2 BUS PINS ===
-// Schematic mapping: D6 -> SDA2, D7 -> SCL2
-#define I2C2_SDA_PIN 6             // Secondary SDA2 bus (D6)
-#define I2C2_SCL_PIN 7             // Secondary SCL2 bus (D7)
+// === I2C2 BUS PINS (GPIO MODE) ===
+#define I2C2_SDA_PIN 9          // Nano D6
+#define I2C2_SCL_PIN 10         // Nano D7 for 8x8 sensor and IMU
 #define BATTERY_R1 10000.0f    // Voltage divider resistor 1 (10k)
 #define BATTERY_R2 3300.0f     // Voltage divider resistor 2 (3.3k)
 #define BATTERY_VREF 3.3f      // ESP32 ADC reference voltage
@@ -83,9 +83,9 @@
 #define LOW_LIGHT_THRESHOLD_LUX 100      // lux - brightness below which LED enables
 #define LIGHT_SENSOR_UPDATE_INTERVAL 1000 // ms - update light sensor reading
 
-// === LED ILLUMINATION ===
-#define BOOST_ENABLE_PIN 23              // Boost converter EN control (A6)
-#define LED_ILLUMINATION_PIN 24          // High-power LED PWM output (A7)
+// === LED ILLUMINATION (GPIO MODE) ===
+#define LED_ILLUMINATION_PIN 13          // Nano A6 high-power LED PWM output
+#define BOOST_ENABLE_PIN 14              // Nano A7 boost converter EN control
 #define LED_BRIGHTNESS_LOW_LIGHT 150     // Default brightness in low-light
 #define LED_BRIGHTNESS_OBSTACLE 200      // Brightness for obstacle warning
 #define LED_BRIGHTNESS_EMERGENCY 255     // Full brightness during emergency
@@ -153,7 +153,7 @@
 #define BLE_DEVICE_NAME "ProtoSmartCane"
 #define BLE_SERVICE_UUID "12345678-1234-1234-1234-123456789abc"
 #define BLE_CHARACTERISTIC_UUID "abcd1234-5678-5678-5678-abcd12345678"
-#define BLE_TELEMETRY_VERSION 0x02    // v2: Simplified for battery calc on app
+#define BLE_TELEMETRY_VERSION 0x04    // v4: full offline telemetry with validity bits and pulse raw/BPM
 
 // === BLE TELEMETRY OPTIMIZATION ===
 // The cane sends minimal data; the app calculates battery lifetime using this power profile:
@@ -163,8 +163,12 @@
 //   CAUTIOUS_SLEEP: 30 mA → ~198 hours @ 6600mAh
 //   DEEP_SLEEP: 10 mA → ~594 hours @ 6600mAh
 //
-// App telemetry input (5 bytes):
-//   [battery_percent] [current_mode] [heart_rate] [flags] [reserved]
+// App telemetry input (22 bytes, v4):
+//   [version][battery_percent][current_mode][heart_rate][flags][sensor_status]
+//   [imu_ax_cms2:int16][imu_ay_cms2:int16][imu_az_cms2:int16]
+//   [ultra_left_mm:uint16][ultra_right_mm:uint16]
+//   [matrix_head_mm:uint16][matrix_waist_mm:uint16]
+//   [heart_raw:uint16]
 // App output:
 //   Estimated runtime = 4400mAh / current_power_in_mode × battery_percent / 100
 //   Example: 85% battery in NORMAL mode → 85 / 100 × 47.6 hours = 40.46 hours remaining
@@ -172,4 +176,20 @@
 // === SERIAL DEBUGGING ===
 #define SERIAL_BAUD_RATE 115200
 #define DEBUG_MODE true  // Set to false for production
-#define ENABLE_BLE true  // Set false for local serial-only validation without BLE
+#ifndef ENABLE_BLE
+#define ENABLE_BLE true  // Set true or pass -DENABLE_BLE=true to restore BLE telemetry
+#endif
+
+#define DEBUG_WAIT_FOR_SERIAL_MS 3000
+#define BOOT_LED_SELF_TEST true
+#define BOOT_MINIMAL_MODE false
+
+// === ISOLATED SENSOR TEST MODE ===
+// Keeps only IMU, ultrasonic, and 8x8 active for bring-up testing.
+#define ISOLATED_SENSOR_TEST_MODE false
+#define SENSOR_DEBUG_PRINT_INTERVAL_MS 250
+
+// Three currently wired indicator LEDs.
+#define TEST_LED_TOP_PIN LED_HAPTIC_FRONT_PIN
+#define TEST_LED_RIGHT_PIN LED_HAPTIC_LEFT_PIN
+#define TEST_LED_LEFT_PIN LED_HAPTIC_RIGHT_PIN

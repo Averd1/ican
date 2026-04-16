@@ -25,35 +25,145 @@ static bool frontHapticLEDState = false;
 static bool leftHapticLEDState = false;
 static bool rightHapticLEDState = false;
 
+static unsigned long isolatedHeadTimer = 0;
+static unsigned long isolatedWaistTimer = 0;
+static bool isolatedHeadState = false;
+static bool isolatedWaistState = false;
+
+static void runBootLEDTest() {
+    if (!BOOT_LED_SELF_TEST) {
+        return;
+    }
+
+#if ISOLATED_SENSOR_TEST_MODE
+    const uint8_t ledPins[] = {
+        TEST_LED_TOP_PIN,
+        TEST_LED_RIGHT_PIN,
+        TEST_LED_LEFT_PIN,
+    };
+#else
+    const uint8_t ledPins[] = {
+        LED_HEAD_PIN,
+        LED_LEFT_PIN,
+        LED_RIGHT_PIN,
+        LED_HAPTIC_FRONT_PIN,
+        LED_HAPTIC_LEFT_PIN,
+        LED_HAPTIC_RIGHT_PIN,
+    };
+#endif
+
+    for (uint8_t index = 0; index < sizeof(ledPins) / sizeof(ledPins[0]); index++) {
+        digitalWrite(ledPins[index], HIGH);
+        delay(120);
+        digitalWrite(ledPins[index], LOW);
+    }
+}
+
+static void updateIsolatedTestLEDs() {
+    uint16_t frontMm = currentSensors.matrixSensorWaistDetected ? currentSensors.matrixSensorWaistDistance : SENSOR_ERROR_DISTANCE;
+    uint16_t leftMm = currentSensors.ultrasonicDistances[0];
+    uint16_t rightMm = currentSensors.ultrasonicDistances[1];
+
+    uint16_t closest = frontMm;
+    if (leftMm < closest) {
+        closest = leftMm;
+    }
+    if (rightMm < closest) {
+        closest = rightMm;
+    }
+
+    unsigned long interval = 500;
+    if (closest != SENSOR_ERROR_DISTANCE) {
+        uint16_t constrainedDistance = max<uint16_t>(closest, 400);
+        interval = map(constrainedDistance, 400, MATRIX_SENSOR_MAX_DISTANCE_MM, 50, 500);
+    }
+
+    unsigned long now = millis();
+
+    if (currentSensors.matrixSensorHeadDetected) {
+        if (now - isolatedHeadTimer >= interval) {
+            isolatedHeadTimer = now;
+            isolatedHeadState = !isolatedHeadState;
+            digitalWrite(TEST_LED_TOP_PIN, isolatedHeadState);
+        }
+    } else {
+        digitalWrite(TEST_LED_TOP_PIN, LOW);
+        isolatedHeadState = false;
+    }
+
+    if (closest != SENSOR_ERROR_DISTANCE) {
+        if (now - isolatedWaistTimer >= interval) {
+            isolatedWaistTimer = now;
+            isolatedWaistState = !isolatedWaistState;
+
+            digitalWrite(TEST_LED_LEFT_PIN, LOW);
+            digitalWrite(TEST_LED_RIGHT_PIN, LOW);
+
+            if (closest == frontMm) {
+                digitalWrite(TEST_LED_LEFT_PIN, isolatedWaistState);
+                digitalWrite(TEST_LED_RIGHT_PIN, isolatedWaistState);
+            } else if (closest == leftMm) {
+                digitalWrite(TEST_LED_LEFT_PIN, isolatedWaistState);
+            } else if (closest == rightMm) {
+                digitalWrite(TEST_LED_RIGHT_PIN, isolatedWaistState);
+            }
+        }
+    } else {
+        digitalWrite(TEST_LED_LEFT_PIN, LOW);
+        digitalWrite(TEST_LED_RIGHT_PIN, LOW);
+        isolatedWaistState = false;
+    }
+}
+
 void responsesInit() {
     pinMode(BUZZER_PIN, OUTPUT);
     if (LED_PIN >= 0) {
         pinMode(LED_PIN, OUTPUT);
     }
+#if ISOLATED_SENSOR_TEST_MODE
+    pinMode(TEST_LED_TOP_PIN, OUTPUT);
+    pinMode(TEST_LED_RIGHT_PIN, OUTPUT);
+    pinMode(TEST_LED_LEFT_PIN, OUTPUT);
+#else
     pinMode(LED_HEAD_PIN, OUTPUT);
     pinMode(LED_LEFT_PIN, OUTPUT);
     pinMode(LED_RIGHT_PIN, OUTPUT);
     pinMode(LED_HAPTIC_FRONT_PIN, OUTPUT);
     pinMode(LED_HAPTIC_LEFT_PIN, OUTPUT);
     pinMode(LED_HAPTIC_RIGHT_PIN, OUTPUT);
+#endif
 
     // Ensure actuators start in off state
     digitalWrite(BUZZER_PIN, LOW);
     if (LED_PIN >= 0) {
         analogWrite(LED_PIN, LED_OFF);
     }
+#if ISOLATED_SENSOR_TEST_MODE
+    digitalWrite(TEST_LED_TOP_PIN, LOW);
+    digitalWrite(TEST_LED_RIGHT_PIN, LOW);
+    digitalWrite(TEST_LED_LEFT_PIN, LOW);
+#else
     digitalWrite(LED_HEAD_PIN, LOW);
     digitalWrite(LED_LEFT_PIN, LOW);
     digitalWrite(LED_RIGHT_PIN, LOW);
     digitalWrite(LED_HAPTIC_FRONT_PIN, LOW);
     digitalWrite(LED_HAPTIC_LEFT_PIN, LOW);
     digitalWrite(LED_HAPTIC_RIGHT_PIN, LOW);
+#endif
 
+    runBootLEDTest();
+
+#if !ISOLATED_SENSOR_TEST_MODE
     // Initialize LED driver for illumination
     ledDriverInit();
 
     // Initialize haptic driver
     hapticDriverInit();
+#endif
+
+    if (DEBUG_MODE) {
+        Serial.println("responsesInit complete");
+    }
 }
 
 void setLED(int brightness) {
@@ -235,6 +345,12 @@ static void updateHapticLikeLEDs() {
 }
 
 void handleResponses() {
+#if ISOLATED_SENSOR_TEST_MODE
+    buzzerOff();
+    updateIsolatedTestLEDs();
+    return;
+#endif
+
     // OPTIMIZED Response handler for 8-hour continuous operation
     // Strategy: Independent spatial feedback + haptic for all events, buzzer ONLY for imminent collision
     // Power savings: Multi-modal feedback with spatial awareness

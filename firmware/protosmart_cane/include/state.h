@@ -81,20 +81,25 @@ struct FaultState {
     unsigned long lastRecoveryAttempt;
 };
 
-// === BLE TELEMETRY PACKET (v2: Optimized for app-side battery calculation) ===
-// Simplified packet - App handles runtime estimation based on mode + battery %
+// === BLE TELEMETRY PACKET (v4: full offline sensor validation) ===
+// Includes battery, mode, pulse BPM/raw, IMU acceleration, and distance channels.
 struct __attribute__((packed)) TelemetryPacket {
-    uint8_t version;           // Protocol version = 2
-    uint8_t batteryPercent;    // Battery level (0-100) - primary input for app
-    uint8_t currentMode;       // Operating mode (NORMAL=0, LOW_POWER=1, EMERGENCY=2, etc)
+    uint8_t version;           // Protocol version = 4
+    uint8_t batteryPercent;    // Battery level (0-100)
+    uint8_t currentMode;       // NORMAL=0, LOW_POWER=1, HIGH_STRESS=2, EMERGENCY=3
     uint8_t heartBPM;          // Heart rate (0-255)
-    uint8_t flags;             // Bit flags: bit0=fall, bit1=high_stress, bit2=obstacle_near, bit3=obstacle_imminent
+    uint8_t flags;             // bit0=fall, bit1=high_stress, bit2=obstacle_near, bit3=obstacle_imminent
+    uint8_t sensorStatus;      // bit0=imu_valid, bit1=ultra_left_valid, bit2=ultra_right_valid, bit3=matrix_head_valid, bit4=matrix_waist_valid, bit5=pulse_valid, bit6=battery_valid
+    int16_t imuAxCms2;         // IMU accel X scaled by 100 (m/s^2 -> centi-m/s^2)
+    int16_t imuAyCms2;         // IMU accel Y scaled by 100
+    int16_t imuAzCms2;         // IMU accel Z scaled by 100
+    uint16_t ultrasonicLeftMm; // Left ultrasonic distance (mm)
+    uint16_t ultrasonicRightMm;// Right ultrasonic distance (mm)
+    uint16_t matrixHeadMm;     // 8x8 head-zone distance (mm), 0xFFFF when unavailable
+    uint16_t matrixWaistMm;    // 8x8 waist-zone distance (mm), 0xFFFF when unavailable
+    uint16_t heartRaw;         // Raw pulse analog sample
 };
-// Total: 5 bytes (vs 9 bytes in v1) - 44% smaller = less BLE power
-//
-// App calculation for battery lifetime:
-//   PowerProfile[currentMode] = lookup table (NORMAL: 85mA, etc)
-//   EstimatedHours = (6600mAh / PowerProfile[mode]) × (battery_percent / 100)
+// Total: 22 bytes
 
 // === LIGHT SENSOR STATUS (NEW) ===
 struct LightStatus {

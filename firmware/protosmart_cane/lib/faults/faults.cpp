@@ -44,18 +44,12 @@ void checkFaults() {
     }
     systemFaults.matrixSensor_fail = (matrixSensorFailCount >= SENSOR_FAIL_THRESHOLD);
 
-    // Heart sensor fault detection - check for valid BPM readings
-    static uint8_t heartFailCount = 0;
-    static unsigned long lastHeartBeat = 0;
-
-    if (currentSensors.pulseDetected) {
-        lastHeartBeat = millis();
-        heartFailCount = 0;
-    } else if (millis() - lastHeartBeat > 10000) {  // No beat for 10 seconds
-        heartFailCount++;
+    // Heart sensor fault detection
+    // Bench testing often has no finger on the pulse sensor, so lack of beat detection
+    // is not considered a hardware fault. pulseInit() sets heart_fail if init fails.
+    if (currentSensors.heartRaw > 0 || currentSensors.pulseDetected) {
+        systemFaults.heart_fail = false;
     }
-
-    systemFaults.heart_fail = (heartFailCount >= SENSOR_FAIL_THRESHOLD);
 
     // Attempt recovery for failed sensors
     if ((systemFaults.imu_fail || systemFaults.ultrasonic_fail ||

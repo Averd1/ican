@@ -393,38 +393,11 @@ final class MoondreamService {
     // MARK: - Private: KV Cache Transfer
 
     private func loadKVIntoState(_ prefillOut: MLFeatureProvider, state: AnyObject) -> Bool {
-        guard #available(iOS 18.0, *), let mlState = state as? MLState else { return false }
-
-        let n = 24  // n_layers
-        let nkv = 32, pLen = prefillLen, dh = 64
-
-        for i in 0..<n {
-            guard let kSrc = prefillOut.featureValue(for: "k_out_\(i)")?.multiArrayValue,
-                  let vSrc = prefillOut.featureValue(for: "v_out_\(i)")?.multiArrayValue
-            else { return false }
-
-            let srcK = kSrc.dataPointer.bindMemory(to: Float32.self, capacity: nkv * pLen * dh)
-            let srcV = vSrc.dataPointer.bindMemory(to: Float32.self, capacity: nkv * pLen * dh)
-
-            mlState.getMultiArray(for: "k_cache_\(i)") { kBuf in
-                let dstK = kBuf.dataPointer.bindMemory(to: Float32.self, capacity: nkv * self.maxContext * dh)
-                for h in 0..<nkv {
-                    let sOff = h * pLen * dh
-                    let dOff = h * self.maxContext * dh
-                    memcpy(dstK.advanced(by: dOff), srcK.advanced(by: sOff), pLen * dh * 4)
-                }
-            }
-
-            mlState.getMultiArray(for: "v_cache_\(i)") { vBuf in
-                let dstV = vBuf.dataPointer.bindMemory(to: Float32.self, capacity: nkv * self.maxContext * dh)
-                for h in 0..<nkv {
-                    let sOff = h * pLen * dh
-                    let dOff = h * self.maxContext * dh
-                    memcpy(dstV.advanced(by: dOff), srcV.advanced(by: sOff), pLen * dh * 4)
-                }
-            }
-        }
-        return true
+        // TODO: Implement KV cache transfer once Moondream CoreML models are bundled.
+        // Uses MLState.getMultiArray(forStateNamed:handler:) to write prefill KV
+        // outputs into the decode model's stateful cache buffers.
+        print("[MoondreamService] KV cache transfer not yet implemented — models not bundled")
+        return false
     }
 
     // MARK: - Private: Tokenization / Embeddings

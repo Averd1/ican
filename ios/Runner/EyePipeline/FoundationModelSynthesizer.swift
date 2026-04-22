@@ -93,18 +93,20 @@ private func _synthesizeWithFoundationModels(
         : "\(context)\n\nDescribe this scene for a blind person using clock positions for directions."
 
     do {
-        let response = try await session.respond(to: userPrompt)
-        let text = String(describing: response)
+        var buffer = ""
+        let stream = session.streamResponse(to: userPrompt)
+        for try await partial in stream {
+            buffer += String(describing: partial)
 
-        // Split into sentences for TTS streaming
-        var remaining = text[text.startIndex...]
-        while let range = remaining.range(of: "[.!?] ", options: .regularExpression) {
-            let sentence = String(remaining[remaining.startIndex..<range.upperBound])
-            onToken(sentence)
-            remaining = remaining[range.upperBound...]
+            // Flush complete sentences for TTS streaming
+            while let range = buffer.range(of: "[.!?] ", options: .regularExpression) {
+                let sentence = String(buffer[buffer.startIndex..<range.upperBound])
+                onToken(sentence)
+                buffer = String(buffer[range.upperBound...])
+            }
         }
-        if !remaining.isEmpty {
-            onToken(String(remaining))
+        if !buffer.isEmpty {
+            onToken(buffer)
         }
         onComplete()
     } catch {

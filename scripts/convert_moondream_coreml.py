@@ -681,6 +681,7 @@ def main():
     )
     md_model = md_hf.model
     md_model.use_flex_decoding = False   # disable flex_attention — use SDPA instead
+    md_model.float()                     # cast to float32 for CoreML tracing
     md_model.eval()
 
     log(f"Loaded. Config: text.dim={md_model.config.text.dim}, "

@@ -406,9 +406,8 @@ def convert_prefill_model(md_model, output_dir: Path):
         out = wrapper(sample)
     log(f"  Forward OK — {len(out)} outputs, last_hidden {tuple(out[0].shape)}")
 
-    log("  Exporting with torch.export.export...")
-    exported = torch.export.export(wrapper, args=(sample,), strict=False)
-    exported = exported.run_decompositions({})
+    log("  Tracing with torch.jit.trace...")
+    traced = torch.jit.trace(wrapper, sample, strict=False)
 
     outputs = [ct.TensorType(name="last_hidden")]
     for i in range(n):
@@ -416,13 +415,14 @@ def convert_prefill_model(md_model, output_dir: Path):
     for i in range(n):
         outputs.append(ct.TensorType(name=f"v_out_{i}"))
 
-    log("  Converting to CoreML (iOS 17)...")
+    log("  Converting to CoreML (iOS 17, float32 precision)...")
     mlmodel = ct.convert(
-        exported,
+        traced,
         inputs=[ct.TensorType(name="embeds", shape=(1, 730, dim))],
         outputs=outputs,
         minimum_deployment_target=ct.target.iOS17,
         compute_units=ct.ComputeUnit.ALL,
+        compute_precision=ct.precision.FLOAT32,
     )
     mlmodel = palettize_4bit_bulk_8bit_output(mlmodel, "Prefill")
 
@@ -677,7 +677,7 @@ def main():
         revision=args.revision,
         trust_remote_code=True,
         device_map="cpu",
-        torch_dtype=torch.float16,  # half precision to keep peak RAM ~4 GB
+        dtype=torch.float16,  # half precision to keep peak RAM ~4 GB
     )
     md_model = md_hf.model
     md_model.use_flex_decoding = False   # disable flex_attention — use SDPA instead

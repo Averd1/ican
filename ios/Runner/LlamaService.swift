@@ -10,11 +10,6 @@ import Foundation
 /// This entire file is conditionally compiled: when llama.h is not available
 /// (no xcframework linked), a no-op stub is compiled instead.
 
-#if __has_include("llama.h") || canImport(llama)
-// Real implementation requires llama.xcframework linked into the project.
-// When the framework is available, uncomment and use the full implementation.
-#endif
-
 // MARK: - Stub (no llama.xcframework)
 
 /// Stub implementation when llama.cpp is not linked.

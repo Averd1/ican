@@ -40,7 +40,8 @@ final class MoondreamService {
     // MARK: - Token data
 
     private var tokenIndex:     [Int: Int] = [:]   // token_id → row in embedding matrix
-    private var embeddings:     UnsafeMutablePointer<Float16>?  // (N, 2048) float16
+    private var embeddings:     UnsafeMutableRawPointer?  // (N, 2048) float16 bytes
+    private var embeddingsF16:  Bool = false
     private var nTokens:        Int = 0
     private var tokenTemplates: [String: [Int]] = [:]
     private var objectTokens:   [String: [Int]] = [:]
@@ -134,11 +135,11 @@ final class MoondreamService {
             print("[MoondreamService] Embedding binary size mismatch")
             return
         }
-        embeddings = UnsafeMutablePointer<Float16>.allocate(capacity: nTokens * dim)
+        embeddings = UnsafeMutableRawPointer.allocate(byteCount: nTokens * dim * 2, alignment: 2)
         binData.withUnsafeBytes { ptr in
-            embeddings!.initialize(from: ptr.baseAddress!.assumingMemoryBound(to: Float16.self),
-                                   count: nTokens * dim)
+            embeddings!.copyMemory(from: ptr.baseAddress!, byteCount: nTokens * dim * 2)
         }
+        embeddingsF16 = true
         print("[MoondreamService] Token data loaded: \(nTokens) embeddings")
     }
 
@@ -233,7 +234,7 @@ final class MoondreamService {
         for tokenId in promptIds {
             guard let embed = tokenEmbedding(tokenId) else { continue }
             lastHidden = runDecodeStep(embed: embed, pos: pos, mask: attnMask, state: state)
-            attnMask[0, 0, 0, pos as NSNumber] = 0.0
+            attnMask[[0, 0, 0, pos] as [NSNumber]] = 0.0
             pos += 1
         }
 
@@ -251,7 +252,7 @@ final class MoondreamService {
             guard let xEnc = runCoordEncode(coord: xCoord),
                   let xHidden = runDecodeStep(embed: xEnc, pos: pos, mask: attnMask, state: state)
             else { break }
-            attnMask[0, 0, 0, pos as NSNumber] = 0.0
+            attnMask[[0, 0, 0, pos] as [NSNumber]] = 0.0
             pos += 1
 
             guard let yLogits = runCoordDecode(hidden: xHidden, model: coordDec) else { break }
@@ -263,7 +264,7 @@ final class MoondreamService {
             guard let yEnc = runCoordEncode(coord: yCoord),
                   let (nextLogits, _) = runDecodeStepFull(embed: yEnc, pos: pos, mask: attnMask, state: state)
             else { break }
-            attnMask[0, 0, 0, pos as NSNumber] = 0.0
+            attnMask[[0, 0, 0, pos] as [NSNumber]] = 0.0
             pos += 1
 
             let nextToken = argmaxInt(nextLogits)
@@ -294,7 +295,7 @@ final class MoondreamService {
             guard let embed = tokenEmbedding(tokenId) else { continue }
             guard let (logits, _) = runDecodeStepFull(
                 embed: embed, pos: pos, mask: attnMask, state: mlState) else { continue }
-            attnMask[0, 0, 0, pos as NSNumber] = 0.0
+            attnMask[[0, 0, 0, pos] as [NSNumber]] = 0.0
             pos += 1
             lastLogits = logits
         }
@@ -316,7 +317,7 @@ final class MoondreamService {
             guard let embed = tokenEmbedding(nextId) else { break }
             guard let (nextLogits, _) = runDecodeStepFull(
                 embed: embed, pos: pos, mask: attnMask, state: mlState) else { break }
-            attnMask[0, 0, 0, pos as NSNumber] = 0.0
+            attnMask[[0, 0, 0, pos] as [NSNumber]] = 0.0
             pos += 1
             logits = nextLogits
         }
@@ -397,35 +398,30 @@ final class MoondreamService {
         let n = 24  // n_layers
         let nkv = 32, pLen = prefillLen, dh = 64
 
-        do {
-            for i in 0..<n {
-                guard let kSrc = prefillOut.featureValue(for: "k_out_\(i)")?.multiArrayValue,
-                      let vSrc = prefillOut.featureValue(for: "v_out_\(i)")?.multiArrayValue
-                else { return false }
+        for i in 0..<n {
+            guard let kSrc = prefillOut.featureValue(for: "k_out_\(i)")?.multiArrayValue,
+                  let vSrc = prefillOut.featureValue(for: "v_out_\(i)")?.multiArrayValue
+            else { return false }
 
-                // Allocate full-context (1, nkv, max_ctx, dh) arrays for state
-                let kDst = try MLMultiArray(shape: [1, nkv, maxContext, dh] as [NSNumber], dataType: .float32)
-                let vDst = try MLMultiArray(shape: [1, nkv, maxContext, dh] as [NSNumber], dataType: .float32)
+            let srcK = kSrc.dataPointer.bindMemory(to: Float32.self, capacity: nkv * pLen * dh)
+            let srcV = vSrc.dataPointer.bindMemory(to: Float32.self, capacity: nkv * pLen * dh)
 
-                // Fast copy: for each head, copy pLen×dh floats from source (1,nkv,pLen,dh)
-                let srcK = kSrc.dataPointer.bindMemory(to: Float32.self, capacity: nkv * pLen * dh)
-                let srcV = vSrc.dataPointer.bindMemory(to: Float32.self, capacity: nkv * pLen * dh)
-                let dstK = kDst.dataPointer.bindMemory(to: Float32.self, capacity: nkv * maxContext * dh)
-                let dstV = vDst.dataPointer.bindMemory(to: Float32.self, capacity: nkv * maxContext * dh)
-
+            mlState.withMutableMultiArray(forKey: "k_cache_\(i)") { kArr, _ in
+                let dstPtr = kArr.dataPointer.bindMemory(to: Float32.self, capacity: nkv * self.maxContext * dh)
                 for h in 0..<nkv {
-                    let srcOff = h * pLen * dh
-                    let dstOff = h * maxContext * dh
-                    memcpy(dstK.advanced(by: dstOff), srcK.advanced(by: srcOff), pLen * dh * 4)
-                    memcpy(dstV.advanced(by: dstOff), srcV.advanced(by: srcOff), pLen * dh * 4)
+                    let sOff = h * pLen * dh
+                    let dOff = h * self.maxContext * dh
+                    memcpy(dstPtr.advanced(by: dOff), srcK.advanced(by: sOff), pLen * dh * 4)
                 }
-
-                try mlState.setValue(MLFeatureValue(multiArray: kDst), forName: "k_cache_\(i)")
-                try mlState.setValue(MLFeatureValue(multiArray: vDst), forName: "v_cache_\(i)")
             }
-        } catch {
-            print("[MoondreamService] KV transfer failed: \(error)")
-            return false
+            mlState.withMutableMultiArray(forKey: "v_cache_\(i)") { vArr, _ in
+                let dstPtr = vArr.dataPointer.bindMemory(to: Float32.self, capacity: nkv * self.maxContext * dh)
+                for h in 0..<nkv {
+                    let sOff = h * pLen * dh
+                    let dOff = h * self.maxContext * dh
+                    memcpy(dstPtr.advanced(by: dOff), srcV.advanced(by: sOff), pLen * dh * 4)
+                }
+            }
         }
         return true
     }
@@ -438,9 +434,35 @@ final class MoondreamService {
             return nil
         }
         let dst = arr.dataPointer.bindMemory(to: Float32.self, capacity: dim)
-        let src = embs.advanced(by: idx * dim)
-        for j in 0..<dim { dst[j] = Float(src[j]) }
+        let src = embs.advanced(by: idx * dim * 2).bindMemory(to: UInt16.self, capacity: dim)
+        for j in 0..<dim {
+            let bits = src[j]
+            dst[j] = float16BitsToFloat(bits)
+        }
         return arr
+    }
+
+    private func float16BitsToFloat(_ bits: UInt16) -> Float {
+        let sign     = UInt32((bits >> 15) & 0x1)
+        let exponent = UInt32((bits >> 10) & 0x1F)
+        let mantissa = UInt32(bits & 0x3FF)
+
+        var result: UInt32
+        if exponent == 0 {
+            if mantissa == 0 { result = sign << 31 }
+            else {
+                var e = exponent
+                var m = mantissa
+                while (m & 0x400) == 0 { m <<= 1; e -= 1 }
+                e += 1; m &= ~UInt32(0x400)
+                result = (sign << 31) | ((e + 112) << 23) | (m << 13)
+            }
+        } else if exponent == 31 {
+            result = (sign << 31) | (0xFF << 23) | (mantissa << 13)
+        } else {
+            result = (sign << 31) | ((exponent + 112) << 23) | (mantissa << 13)
+        }
+        return Float(bitPattern: result)
     }
 
     // Minimal GPT-2 style detokenizer: handles Ġ → space, Ċ → newline

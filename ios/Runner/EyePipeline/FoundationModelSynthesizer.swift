@@ -93,39 +93,22 @@ private func _synthesizeWithFoundationModels(
         : "\(context)\n\nDescribe this scene for a blind person using clock positions for directions."
 
     do {
-        // Use streaming response for low-latency TTS sentence delivery.
-        // streamResponse yields partial Strings as the model generates tokens.
-        let stream = session.streamResponse(to: userPrompt)
-        var buffer = ""
+        let response = try await session.respond(to: userPrompt)
+        let text = String(describing: response)
 
-        for try await partial in stream {
-            // `partial` is the accumulated response so far — compute the new delta.
-            let delta = String(partial.dropFirst(buffer.count))
-            buffer = partial
-
-            // Yield complete sentences immediately so TTS can start early.
-            var remaining = delta
-            while let range = remaining.range(of: #"[.!?](?:\s|$)"#,
-                                               options: .regularExpression) {
-                let sentence = String(remaining[remaining.startIndex...range.upperIndex])
-                onToken(sentence)
-                remaining = String(remaining[range.upperIndex...])
-            }
-            // Partial sentence accumulated in buffer — yielded when completed.
-            if !remaining.isEmpty {
-                onToken(remaining)
-            }
+        // Split into sentences for TTS streaming
+        var remaining = text[text.startIndex...]
+        while let range = remaining.range(of: "[.!?] ", options: .regularExpression) {
+            let sentence = String(remaining[remaining.startIndex..<range.upperBound])
+            onToken(sentence)
+            remaining = remaining[range.upperBound...]
+        }
+        if !remaining.isEmpty {
+            onToken(String(remaining))
         }
         onComplete()
     } catch {
         onError(error.localizedDescription)
-    }
-}
-
-// Extension to bridge String range upper bound
-private extension StringProtocol {
-    var upperIndex: String.Index {
-        endIndex
     }
 }
 

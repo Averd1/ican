@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
-import '../core/app_router.dart';
+import 'package:go_router/go_router.dart';
+import '../core/route_constants.dart';
 import '../services/ble_service.dart';
 import '../services/device_prefs_service.dart';
 
@@ -90,7 +91,7 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
 
   void _navigateToHome() {
     if (mounted) {
-      Navigator.of(context).pushReplacementNamed(AppRouter.roleSelection);
+      context.goNamed(Routes.homeName);
     }
   }
 
@@ -136,7 +137,7 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
               const SizedBox(height: 48),
               
               // Loading Indicator
-              const SizedBox(
+              SizedBox(
                 width: 48,
                 height: 48,
                 child: CircularProgressIndicator(

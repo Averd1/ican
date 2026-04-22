@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 /// Service for persisting iCan Eye device information across app sessions.
@@ -18,7 +19,7 @@ class DevicePrefsService {
       final prefs = await SharedPreferences.getInstance();
       return prefs.getString(_lastEyeDeviceIdKey);
     } catch (e) {
-      print('[DevicePrefs] Error loading last device ID: $e');
+      debugPrint('[DevicePrefs] Error loading last device ID: $e');
       return null;
     }
   }
@@ -29,11 +30,11 @@ class DevicePrefsService {
       final prefs = await SharedPreferences.getInstance();
       final success = await prefs.setString(_lastEyeDeviceIdKey, deviceId);
       if (success) {
-        print('[DevicePrefs] Saved last device ID: $deviceId');
+        debugPrint('[DevicePrefs] Saved last device ID: $deviceId');
       }
       return success;
     } catch (e) {
-      print('[DevicePrefs] Error saving device ID: $e');
+      debugPrint('[DevicePrefs] Error saving device ID: $e');
       return false;
     }
   }
@@ -44,7 +45,7 @@ class DevicePrefsService {
       final prefs = await SharedPreferences.getInstance();
       return prefs.getString(_lastCaneDeviceIdKey);
     } catch (e) {
-      print('[DevicePrefs] Error loading last cane device ID: $e');
+      debugPrint('[DevicePrefs] Error loading last cane device ID: $e');
       return null;
     }
   }
@@ -55,11 +56,11 @@ class DevicePrefsService {
       final prefs = await SharedPreferences.getInstance();
       final success = await prefs.setString(_lastCaneDeviceIdKey, deviceId);
       if (success) {
-        print('[DevicePrefs] Saved last cane device ID: $deviceId');
+        debugPrint('[DevicePrefs] Saved last cane device ID: $deviceId');
       }
       return success;
     } catch (e) {
-      print('[DevicePrefs] Error saving cane device ID: $e');
+      debugPrint('[DevicePrefs] Error saving cane device ID: $e');
       return false;
     }
   }
@@ -70,11 +71,11 @@ class DevicePrefsService {
       final prefs = await SharedPreferences.getInstance();
       final success = await prefs.remove(_lastEyeDeviceIdKey);
       if (success) {
-        print('[DevicePrefs] Cleared last device ID');
+        debugPrint('[DevicePrefs] Cleared last device ID');
       }
       return success;
     } catch (e) {
-      print('[DevicePrefs] Error clearing device ID: $e');
+      debugPrint('[DevicePrefs] Error clearing device ID: $e');
       return false;
     }
   }

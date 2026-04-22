@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
+import '../core/route_constants.dart';
 import '../services/ble_service.dart';
-import '../core/app_router.dart';
 
 /// Connection Error Screen — Displayed when auto-connect fails on startup.
 ///
@@ -126,47 +127,36 @@ class _ConnectionErrorScreenState extends State<ConnectionErrorScreen> {
   Future<void> _handleRetry() async {
     setState(() => _isRetrying = true);
 
-    try {
-      final success = await BleService.instance.autoConnectToLastDevice(
-        timeout: const Duration(seconds: 10),
-        fallbackToScan: false,
-      );
+    BleService.instance.startScan();
+    BleService.instance.startScanForCane();
 
-      if (mounted) {
-        if (success) {
-          // Connection succeeded, navigate to home
-          Navigator.of(context).pushReplacementNamed(AppRouter.home);
-        } else {
-          setState(() => _isRetrying = false);
-          // Show snackbar that connection still failed
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Still unable to connect. Try scanning for devices.'),
-              duration: Duration(seconds: 3),
-            ),
-          );
-        }
-      }
-    } catch (e) {
-      if (mounted) {
-        setState(() => _isRetrying = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error during reconnect: $e'),
-            duration: const Duration(seconds: 3),
-          ),
-        );
-      }
+    await Future.delayed(const Duration(seconds: 10));
+
+    if (!mounted) return;
+
+    final eyeConnected =
+        BleService.instance.state == BleConnectionState.connected;
+    final caneConnected =
+        BleService.instance.caneState == BleConnectionState.connected;
+
+    if (eyeConnected || caneConnected) {
+      context.goNamed(Routes.homeName);
+    } else {
+      setState(() => _isRetrying = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Still unable to connect. Try scanning for devices.'),
+          duration: Duration(seconds: 3),
+        ),
+      );
     }
   }
 
   void _handleManualScan() {
-    // Navigate to home screen where user can manually scan
-    Navigator.of(context).pushReplacementNamed(AppRouter.home);
+    context.goNamed(Routes.homeName);
   }
 
   void _handleContinueOffline() {
-    // Navigate to home screen without waiting for connection
-    Navigator.of(context).pushReplacementNamed(AppRouter.home);
+    context.goNamed(Routes.homeName);
   }
 }

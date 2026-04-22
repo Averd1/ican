@@ -131,4 +131,10 @@ class TtsService extends ChangeNotifier {
     _pitch = pitch;
     _flutterTts.setPitch(pitch);
   }
+
+  @override
+  void dispose() {
+    _flutterTts.stop();
+    super.dispose();
+  }
 }

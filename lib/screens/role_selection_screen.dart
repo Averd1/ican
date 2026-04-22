@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/cupertino.dart';
-import '../core/app_router.dart';
+import 'package:go_router/go_router.dart';
+import '../core/route_constants.dart';
 
 class RoleSelectionScreen extends StatelessWidget {
   const RoleSelectionScreen({super.key});
@@ -54,8 +55,7 @@ class RoleSelectionScreen extends StatelessWidget {
                         subtitle:
                             'Navigate, describe scenes, and stay safe.',
                         icon: CupertinoIcons.person_crop_circle,
-                        onTap: () => Navigator.pushReplacementNamed(
-                            context, AppRouter.home),
+                        onTap: () => context.goNamed(Routes.homeName),
                       ),
                       const SizedBox(height: 20),
                       _buildRoleCard(
@@ -63,8 +63,7 @@ class RoleSelectionScreen extends StatelessWidget {
                         title: 'I am a Caretaker',
                         subtitle: 'Monitor vitals and location remotely.',
                         icon: CupertinoIcons.heart_circle,
-                        onTap: () => Navigator.pushReplacementNamed(
-                            context, AppRouter.caretakerDashboard),
+                        onTap: () => context.goNamed('caretaker-dashboard'),
                       ),
                     ],
                   ),

@@ -1,7 +1,8 @@
 import 'dart:async';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
-import '../core/app_router.dart';
+import 'package:go_router/go_router.dart';
+import '../core/route_constants.dart';
 import '../core/theme.dart';
 import '../protocol/ble_protocol.dart';
 import '../services/ble_service.dart';
@@ -203,7 +204,7 @@ class _CaretakerDashboardScreenState extends State<CaretakerDashboardScreen>
         leading: IconButton(
           icon: const Icon(CupertinoIcons.back),
           onPressed: () =>
-              Navigator.pushReplacementNamed(context, AppRouter.roleSelection),
+              context.goNamed(Routes.homeName),
           tooltip: 'Back',
         ),
       ),

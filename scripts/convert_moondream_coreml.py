@@ -131,12 +131,12 @@ class VisionEncoderWrapper(nn.Module):
         x = w.patch_emb(x)                         # (1, 729, enc_dim)
         x = x + w.pos_emb
 
-        # Transformer blocks
+        # Transformer blocks — cast to float32 for layer_norm, back to float16 after
         for block in w.blocks:
-            x = x + attn(layer_norm(x, block.ln1), block.attn,
-                         n_heads=cfg.enc_n_heads)
-            x = x + mlp(layer_norm(x, block.ln2), block.mlp)
-        x = layer_norm(x, w.post_ln)               # (1, 729, enc_dim)
+            x = x + attn(layer_norm(x.float(), block.ln1), block.attn,
+                         n_heads=cfg.enc_n_heads).to(x.dtype)
+            x = x + mlp(layer_norm(x.float(), block.ln2), block.mlp).to(x.dtype)
+        x = layer_norm(x.float(), w.post_ln).to(x.dtype)  # (1, 729, enc_dim)
 
         global_features = x[0]                     # (729, enc_dim)
 
@@ -245,10 +245,10 @@ class SingleStepTextDecoder(nn.Module):
         return torch.cat([xq_out.to(x.dtype), x_pass], dim=-1)
 
     def _ln(self, x: torch.Tensor, w) -> torch.Tensor:
-        """Layer norm with hardcoded dim — avoids w.bias.shape in graph."""
+        """Layer norm — cast to float32 locally (layer_norm doesn't support fp16 on CPU)."""
         return torch.nn.functional.layer_norm(
-            x, [self.cfg.dim], w.weight, w.bias
-        )
+            x.float(), [self.cfg.dim], w.weight.float(), w.bias.float()
+        ).to(x.dtype)
 
     def _mlp(self, x: torch.Tensor, w) -> torch.Tensor:
         """Two-layer MLP with GeLU — fully inlined, no shape ops."""
@@ -259,10 +259,10 @@ class SingleStepTextDecoder(nn.Module):
         """LM head: layer_norm last token → linear projection."""
         h = x[:, -1, :]   # (1, dim)
         h = torch.nn.functional.layer_norm(
-            h, [self.cfg.dim],
-            self.text.post_ln.weight,
-            self.text.post_ln.bias,
-        )
+            h.float(), [self.cfg.dim],
+            self.text.post_ln.weight.float(),
+            self.text.post_ln.bias.float(),
+        ).to(x.dtype)
         return self.text.lm_head(h)  # (1, vocab_size)
 
     def forward(
@@ -361,8 +361,8 @@ class MoondreamPrefill(nn.Module):
 
         for block in self.text.blocks:
             l_in = torch.nn.functional.layer_norm(
-                x, [dim], block.ln.weight, block.ln.bias
-            )
+                x.float(), [dim], block.ln.weight.float(), block.ln.bias.float()
+            ).to(x.dtype)
             qkv = block.attn.qkv(l_in)
             q_dim, kv_dim = nh * dh, nkv * dh
             q, k, v = qkv.split([q_dim, kv_dim, kv_dim], dim=-1)
@@ -680,7 +680,7 @@ def main():
     )
     md_model = md_hf.model
     md_model.use_flex_decoding = False   # disable flex_attention — use SDPA instead
-    md_model.float()                     # cast to float32 for CoreML tracing
+    # Keep float16 — avoids 2× RAM spike (~4 GB vs ~8 GB). Layer norms cast locally.
     md_model.eval()
 
     log(f"Loaded. Config: text.dim={md_model.config.text.dim}, "

@@ -1,0 +1,588 @@
+import 'dart:async';
+
+import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter/semantics.dart';
+import 'package:flutter_screenutil/flutter_screenutil.dart';
+import 'package:provider/provider.dart';
+
+import '../core/theme.dart';
+import '../models/settings_provider.dart';
+import '../services/ble_service.dart';
+import '../services/on_device_vision_service.dart';
+import '../services/tts_service.dart';
+import '../widgets/accessible_button.dart';
+
+class _DetectionEvent {
+  final String label;
+  final String position;
+  final double confidence;
+  final DateTime timestamp;
+
+  _DetectionEvent({
+    required this.label,
+    required this.position,
+    required this.confidence,
+    required this.timestamp,
+  });
+}
+
+class LiveDetectionScreen extends StatefulWidget {
+  const LiveDetectionScreen({super.key});
+
+  @override
+  State<LiveDetectionScreen> createState() => _LiveDetectionScreenState();
+}
+
+class _LiveDetectionScreenState extends State<LiveDetectionScreen> {
+  final OnDeviceVisionService _vision = OnDeviceVisionService();
+  final TtsService _tts = TtsService();
+
+  bool _checkingPrereqs = true;
+  String? _errorMessage;
+  String? _errorHint;
+
+  Timer? _captureTimer;
+  StreamSubscription<Uint8List>? _imageSub;
+  bool _processing = false;
+
+  Uint8List? _latestImage;
+  List<SpatialObjectData> _detections = [];
+  final List<_DetectionEvent> _log = [];
+  final Map<String, DateTime> _lastAnnounced = {};
+
+  @override
+  void initState() {
+    super.initState();
+    _tts.init().then((_) => _checkPrerequisites());
+  }
+
+  Future<void> _checkPrerequisites() async {
+    final modelAvailable = await _vision.isObjectDetectionAvailable();
+    if (!modelAvailable) {
+      setState(() {
+        _checkingPrereqs = false;
+        _errorMessage = 'Object detection model not loaded.';
+        _errorHint =
+            'On your Mac, run download_coreml_models.sh and add '
+            'YOLOv3Tiny.mlmodel to the Xcode Runner target.';
+      });
+      return;
+    }
+
+    if (BleService.instance.state != BleConnectionState.connected) {
+      setState(() {
+        _checkingPrereqs = false;
+        _errorMessage = 'iCan Eye is not connected.';
+        _errorHint =
+            'Please pair or reconnect the Eye before using Live Detection.';
+      });
+      return;
+    }
+
+    setState(() => _checkingPrereqs = false);
+    _startCaptureLoop();
+  }
+
+  void _startCaptureLoop() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      SemanticsService.announce(
+        'Live detection started. Objects will be announced as they are detected.',
+        TextDirection.ltr,
+      );
+    });
+
+    _imageSub = BleService.instance.imageStream.listen(
+      _handleImage,
+      onError: (e) {
+        debugPrint('[LiveDetection] imageStream error: $e');
+      },
+    );
+
+    _captureTimer = Timer.periodic(
+      const Duration(milliseconds: 1500),
+      (_) => _triggerCapture(),
+    );
+    _triggerCapture();
+  }
+
+  void _triggerCapture() {
+    if (BleService.instance.state != BleConnectionState.connected) {
+      debugPrint('[LiveDetection] Eye disconnected mid-session');
+      _stopLoop();
+      if (mounted) {
+        setState(() {
+          _errorMessage = 'iCan Eye disconnected.';
+          _errorHint =
+              'Please reconnect the Eye to resume live detection.';
+        });
+      }
+      return;
+    }
+    try {
+      BleService.instance.triggerEyeCapture();
+    } catch (e) {
+      debugPrint('[LiveDetection] triggerEyeCapture failed: $e');
+      _stopLoop();
+      if (mounted) {
+        setState(() {
+          _errorMessage = 'iCan Eye disconnected.';
+          _errorHint =
+              'Please reconnect the Eye to resume live detection.';
+        });
+      }
+    }
+  }
+
+  Future<void> _handleImage(Uint8List imageBytes) async {
+    if (_processing || !mounted) return;
+    _processing = true;
+
+    setState(() => _latestImage = imageBytes);
+
+    try {
+      final result = await _vision.analyzeScene(imageBytes);
+      if (!mounted) return;
+
+      final filtered = result.detectedObjects
+          .where((o) => o.confidence >= 0.5)
+          .toList()
+        ..sort((a, b) => b.confidence.compareTo(a.confidence));
+
+      setState(() => _detections = filtered);
+
+      if (filtered.isNotEmpty) {
+        final verbosity = context.read<SettingsProvider>().liveDetectionVerbosity;
+        final now = DateTime.now();
+
+        switch (verbosity) {
+          case LiveDetectionVerbosity.minimal:
+            final top = filtered.first;
+            final lastTime = _lastAnnounced[top.label];
+            if (lastTime == null ||
+                now.difference(lastTime) >= const Duration(seconds: 3)) {
+              _lastAnnounced[top.label] = now;
+              _tts.speak(top.label);
+            }
+            _addLogEntry(top.label, '', top.confidence, now);
+
+          case LiveDetectionVerbosity.positional:
+            final top = filtered.first;
+            final position = _positionFromCenterX(top.centerX);
+            final lastTime = _lastAnnounced[top.label];
+            if (lastTime == null ||
+                now.difference(lastTime) >= const Duration(seconds: 3)) {
+              _lastAnnounced[top.label] = now;
+              _tts.speak('${top.label} $position');
+            }
+            _addLogEntry(top.label, position, top.confidence, now);
+
+          case LiveDetectionVerbosity.full:
+            final topN = filtered.take(3).toList();
+            final anyRecentlyAnnounced = topN.any((d) {
+              final t = _lastAnnounced[d.label];
+              return t != null && now.difference(t) < const Duration(seconds: 3);
+            });
+            if (!anyRecentlyAnnounced) {
+              final parts = topN.map((d) {
+                final pos = _positionFromCenterX(d.centerX);
+                return '${d.label} $pos';
+              }).join(', ');
+              _tts.speak(parts);
+              for (final d in topN) {
+                _lastAnnounced[d.label] = now;
+              }
+            }
+            for (final d in topN) {
+              _addLogEntry(
+                d.label,
+                _positionFromCenterX(d.centerX),
+                d.confidence,
+                now,
+              );
+            }
+        }
+      }
+    } catch (e) {
+      debugPrint('[LiveDetection] analyzeScene failed: $e');
+    }
+
+    _processing = false;
+  }
+
+  static String _positionFromCenterX(double cx) {
+    if (cx < 0.33) return 'on your left';
+    if (cx < 0.66) return 'ahead';
+    return 'on your right';
+  }
+
+  void _addLogEntry(String label, String position, double confidence, DateTime ts) {
+    setState(() {
+      _log.insert(
+        0,
+        _DetectionEvent(
+          label: label,
+          position: position,
+          confidence: confidence,
+          timestamp: ts,
+        ),
+      );
+      if (_log.length > 50) _log.removeLast();
+    });
+  }
+
+  void _stopLoop() {
+    _captureTimer?.cancel();
+    _captureTimer = null;
+    _imageSub?.cancel();
+    _imageSub = null;
+  }
+
+  @override
+  void dispose() {
+    _stopLoop();
+    _tts.stop();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_checkingPrereqs) {
+      return Scaffold(
+        backgroundColor: AppColors.backgroundLight,
+        body: const Center(child: CircularProgressIndicator()),
+      );
+    }
+
+    if (_errorMessage != null) {
+      return _buildErrorView();
+    }
+
+    return _buildDetectionView();
+  }
+
+  Widget _buildErrorView() {
+    return Scaffold(
+      backgroundColor: AppColors.backgroundLight,
+      body: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(AppSpacing.md),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(
+                Icons.error_outline,
+                size: 64,
+                color: AppColors.textOnLight,
+              ),
+              const SizedBox(height: AppSpacing.md),
+              Semantics(
+                header: true,
+                label: _errorMessage,
+                child: Text(
+                  _errorMessage!,
+                  style: TextStyle(
+                    fontSize: 22.sp,
+                    fontWeight: FontWeight.bold,
+                    color: AppColors.textOnLight,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+              ),
+              if (_errorHint != null) ...[
+                const SizedBox(height: AppSpacing.sm),
+                Semantics(
+                  label: _errorHint,
+                  child: Text(
+                    _errorHint!,
+                    style: TextStyle(
+                      fontSize: 16.sp,
+                      color: AppColors.textSecondaryOnLight,
+                      height: 1.5,
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                ),
+              ],
+              const SizedBox(height: AppSpacing.lg),
+              AccessibleButton(
+                label: 'Back',
+                hint: 'Returns to the previous screen',
+                onPressed: () => Navigator.of(context).pop(),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildDetectionView() {
+    return Scaffold(
+      backgroundColor: AppColors.backgroundLight,
+      body: SafeArea(
+        child: Column(
+          children: [
+            // Image + bounding box overlay
+            Expanded(
+              flex: 3,
+              child: _buildImageArea(),
+            ),
+
+            // Detection log
+            Expanded(
+              flex: 2,
+              child: _buildLogArea(),
+            ),
+
+            // Stop button
+            Padding(
+              padding: const EdgeInsets.all(AppSpacing.sm),
+              child: AccessibleButton(
+                label: 'Stop',
+                hint: 'Stops live detection and returns to the previous screen',
+                onPressed: () {
+                  _stopLoop();
+                  _tts.stop();
+                  Navigator.of(context).pop();
+                },
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildImageArea() {
+    return Semantics(
+      label: _detections.isEmpty
+          ? 'Camera feed. No objects detected.'
+          : 'Camera feed. ${_detections.length} objects detected.',
+      image: true,
+      child: Container(
+        width: double.infinity,
+        color: Colors.black,
+        child: _latestImage == null
+            ? Center(
+                child: Text(
+                  'Waiting for camera…',
+                  style: TextStyle(
+                    color: Colors.white70,
+                    fontSize: 16.sp,
+                  ),
+                ),
+              )
+            : LayoutBuilder(
+                builder: (context, constraints) {
+                  return Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      Image.memory(
+                        _latestImage!,
+                        fit: BoxFit.contain,
+                        gaplessPlayback: true,
+                      ),
+                      if (_detections.isNotEmpty)
+                        CustomPaint(
+                          painter: _BoundingBoxPainter(
+                            detections: _detections,
+                            imageBytes: _latestImage!,
+                            containerSize: Size(
+                              constraints.maxWidth,
+                              constraints.maxHeight,
+                            ),
+                          ),
+                        ),
+                    ],
+                  );
+                },
+              ),
+      ),
+    );
+  }
+
+  Widget _buildLogArea() {
+    return Container(
+      width: double.infinity,
+      constraints: const BoxConstraints(minHeight: 150),
+      decoration: BoxDecoration(
+        color: AppColors.surfaceCardLight,
+        border: Border(
+          top: BorderSide(color: AppColors.borderLight, width: 1),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(
+              AppSpacing.sm, AppSpacing.xs, AppSpacing.sm, 0,
+            ),
+            child: ExcludeSemantics(
+              child: Text(
+                'Detection Log',
+                style: TextStyle(
+                  fontSize: 14.sp,
+                  fontWeight: FontWeight.w600,
+                  color: AppColors.textSecondaryOnLight,
+                ),
+              ),
+            ),
+          ),
+          Expanded(
+            child: _log.isEmpty
+                ? Center(
+                    child: Semantics(
+                      label: 'No detections yet',
+                      child: Text(
+                        'No detections yet',
+                        style: TextStyle(
+                          fontSize: 14.sp,
+                          color: AppColors.disabledOnLight,
+                          fontStyle: FontStyle.italic,
+                        ),
+                      ),
+                    ),
+                  )
+                : ListView.builder(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: AppSpacing.sm,
+                      vertical: AppSpacing.xs,
+                    ),
+                    itemCount: _log.length,
+                    itemBuilder: (context, index) {
+                      final event = _log[index];
+                      final time =
+                          '${event.timestamp.hour.toString().padLeft(2, '0')}:'
+                          '${event.timestamp.minute.toString().padLeft(2, '0')}:'
+                          '${event.timestamp.second.toString().padLeft(2, '0')}';
+                      final pct = (event.confidence * 100).round();
+                      final desc = event.position.isEmpty
+                          ? event.label
+                          : '${event.label} ${event.position}';
+                      return Semantics(
+                        label: '$desc, $pct percent confidence, at $time',
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 2),
+                          child: Text(
+                            '$time  $desc ($pct%)',
+                            style: TextStyle(
+                              fontSize: 14.sp,
+                              color: AppColors.textOnLight,
+                              fontFamily: 'monospace',
+                            ),
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _BoundingBoxPainter extends CustomPainter {
+  final List<SpatialObjectData> detections;
+  final Uint8List imageBytes;
+  final Size containerSize;
+
+  _BoundingBoxPainter({
+    required this.detections,
+    required this.imageBytes,
+    required this.containerSize,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final image = _decodeImageSize(imageBytes);
+    if (image == null) return;
+
+    final imageW = image.width.toDouble();
+    final imageH = image.height.toDouble();
+
+    final scaleX = containerSize.width / imageW;
+    final scaleY = containerSize.height / imageH;
+    final scale = scaleX < scaleY ? scaleX : scaleY;
+
+    final renderedW = imageW * scale;
+    final renderedH = imageH * scale;
+    final offsetX = (containerSize.width - renderedW) / 2;
+    final offsetY = (containerSize.height - renderedH) / 2;
+
+    final boxPaint = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2.0
+      ..color = const Color(0xFF00E676);
+
+    final fillPaint = Paint()
+      ..style = PaintingStyle.fill
+      ..color = const Color(0x3300E676);
+
+    final textStyle = TextStyle(
+      color: const Color(0xFF00E676),
+      fontSize: 13,
+      fontWeight: FontWeight.bold,
+      backgroundColor: const Color(0xCC000000),
+    );
+
+    for (final det in detections) {
+      if (det.bboxX == null || det.bboxY == null ||
+          det.bboxW == null || det.bboxH == null) {
+        continue;
+      }
+
+      final left = offsetX + det.bboxX! * renderedW;
+      final top = offsetY + det.bboxY! * renderedH;
+      final width = det.bboxW! * renderedW;
+      final height = det.bboxH! * renderedH;
+      final rect = Rect.fromLTWH(left, top, width, height);
+
+      canvas.drawRect(rect, fillPaint);
+      canvas.drawRect(rect, boxPaint);
+
+      final tp = TextPainter(
+        text: TextSpan(
+          text: ' ${det.label} ${(det.confidence * 100).round()}% ',
+          style: textStyle,
+        ),
+        textDirection: TextDirection.ltr,
+      )..layout();
+
+      final labelY = top - tp.height - 2;
+      tp.paint(canvas, Offset(left, labelY < offsetY ? top : labelY));
+    }
+  }
+
+  @override
+  bool shouldRepaint(_BoundingBoxPainter oldDelegate) =>
+      !listEquals(oldDelegate.detections, detections) ||
+      !identical(oldDelegate.imageBytes, imageBytes);
+
+  static _ImageSize? _decodeImageSize(Uint8List data) {
+    if (data.length < 4) return null;
+    if (data[0] == 0xFF && data[1] == 0xD8) {
+      int i = 2;
+      while (i < data.length - 9) {
+        if (data[i] != 0xFF) break;
+        final marker = data[i + 1];
+        if (marker == 0xC0 || marker == 0xC2) {
+          final h = (data[i + 5] << 8) | data[i + 6];
+          final w = (data[i + 7] << 8) | data[i + 8];
+          if (w > 0 && h > 0) return _ImageSize(w, h);
+        }
+        final segLen = (data[i + 2] << 8) | data[i + 3];
+        i += 2 + segLen;
+      }
+    }
+    return null;
+  }
+}
+
+class _ImageSize {
+  final int width;
+  final int height;
+  const _ImageSize(this.width, this.height);
+}

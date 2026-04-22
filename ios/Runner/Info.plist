@@ -59,6 +59,8 @@
 	<string>iCan uses your location to provide turn-by-turn navigation assistance.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
 	<string>iCan uses speech recognition to process your voice commands for hands-free navigation control.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>iCan needs photo library access to select test images for the vision diagnostic tool.</string>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>bluetooth-central</string>

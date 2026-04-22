@@ -72,6 +72,10 @@ class SpatialObjectData {
   final double? relativeDepth; // 0.0=closest, 1.0=farthest; null if depth unavailable
   final double centerX;
   final double centerY;
+  final double? bboxX;         // image-space bounding box (top-left origin, normalised 0–1)
+  final double? bboxY;
+  final double? bboxW;
+  final double? bboxH;
 
   const SpatialObjectData({
     required this.label,
@@ -80,6 +84,10 @@ class SpatialObjectData {
     this.relativeDepth,
     required this.centerX,
     required this.centerY,
+    this.bboxX,
+    this.bboxY,
+    this.bboxW,
+    this.bboxH,
   });
 
   factory SpatialObjectData.fromMap(Map<dynamic, dynamic> map) {
@@ -90,6 +98,10 @@ class SpatialObjectData {
       relativeDepth: (map['relative_depth'] as num?)?.toDouble(),
       centerX:       (map['center_x'] as num?)?.toDouble() ?? 0.5,
       centerY:       (map['center_y'] as num?)?.toDouble() ?? 0.5,
+      bboxX:         (map['bbox_x'] as num?)?.toDouble(),
+      bboxY:         (map['bbox_y'] as num?)?.toDouble(),
+      bboxW:         (map['bbox_w'] as num?)?.toDouble(),
+      bboxH:         (map['bbox_h'] as num?)?.toDouble(),
     );
   }
 
@@ -251,6 +263,17 @@ class OnDeviceVisionService {
     } on PlatformException catch (e) {
       debugPrint('[OnDeviceVision] Platform error: ${e.message}');
       return _emptySceneResult();
+    }
+  }
+
+  // ── Object detection availability ─────────────────────────────────────────
+
+  Future<bool> isObjectDetectionAvailable() async {
+    try {
+      final result = await _method.invokeMethod<bool>('isObjectDetectionAvailable');
+      return result ?? false;
+    } catch (_) {
+      return false;
     }
   }
 

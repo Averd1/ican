@@ -74,7 +74,7 @@ class SceneDescriptionService extends ChangeNotifier {
   // ── Main entry point ────────────────────────────────────────────────────
 
   /// Describe a scene from a JPEG image.
-  /// Yields text chunks for the sentence-splitting TTS loop in HomeScreen.
+  /// Yields text chunks for the sentence-splitting TTS loop in AccessibleHomeScreen.
   Stream<String> describeScene(
     Uint8List imageBytes, {
     required String systemPrompt,
@@ -105,6 +105,37 @@ class SceneDescriptionService extends ChangeNotifier {
         onStatusUpdate?.call('Reading scene...', backend);
         yield* _describeWithVisionOnly(imageBytes);
     }
+  }
+
+  // ── Single-backend entry points (for diagnostics) ──────────────────────
+
+  Stream<String> describeWithGemini(
+    Uint8List imageBytes, {
+    required String systemPrompt,
+  }) {
+    return _describeWithCloud(imageBytes, systemPrompt: systemPrompt);
+  }
+
+  Stream<String> describeWithFoundationModels(
+    Uint8List imageBytes, {
+    required String systemPrompt,
+  }) {
+    return _describeWithFoundationModels(imageBytes, systemPrompt: systemPrompt);
+  }
+
+  Stream<String> describeWithMoondream(Uint8List imageBytes) {
+    return _describeWithMoondream(imageBytes);
+  }
+
+  Stream<String> describeWithSmolVLM(
+    Uint8List imageBytes, {
+    required String systemPrompt,
+  }) {
+    return _describeWithVlm(imageBytes, systemPrompt: systemPrompt);
+  }
+
+  Stream<String> describeWithVisionTemplate(Uint8List imageBytes) {
+    return _describeWithVisionOnly(imageBytes);
   }
 
   // ── Backend selection ───────────────────────────────────────────────────

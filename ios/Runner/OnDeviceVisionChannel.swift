@@ -61,6 +61,10 @@ final class OnDeviceVisionChannel: NSObject {
                 DispatchQueue.main.async { result(perception.toChannelMap()) }
             }
 
+        // ── YOLOv3 object detection availability ──────────────────────────────
+        case "isObjectDetectionAvailable":
+            result(ObjectDetector.shared.isAvailable)
+
         // ── Moondream CoreML availability ─────────────────────────────────────
         case "isMoondreamAvailable":
             MoondreamService.shared.loadModels()

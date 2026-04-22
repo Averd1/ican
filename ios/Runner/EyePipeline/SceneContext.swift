@@ -9,6 +9,10 @@ struct SpatialObject {
     let normalizedCenterY: Float   // 0.0 (top)  → 1.0 (bottom)
     let clockPosition: Int         // 9=hard-left, 12=center, 3=hard-right
     let relativeDepth: Float?      // nil if depth unavailable; 0.0=closest, 1.0=farthest
+    let bboxX: Float               // image-space bounding box (top-left origin, normalised 0–1)
+    let bboxY: Float
+    let bboxW: Float
+    let bboxH: Float
 
     /// Human-readable distance tier derived from relative depth.
     var distanceTier: String? {
@@ -96,6 +100,10 @@ struct PerceptionResult {
                     "clock_position": obj.clockPosition,
                     "center_x": obj.normalizedCenterX,
                     "center_y": obj.normalizedCenterY,
+                    "bbox_x": obj.bboxX,
+                    "bbox_y": obj.bboxY,
+                    "bbox_w": obj.bboxW,
+                    "bbox_h": obj.bboxH,
                 ]
                 if let d = obj.relativeDepth { entry["relative_depth"] = d }
                 return entry

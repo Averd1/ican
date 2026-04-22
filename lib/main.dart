@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_screenutil/flutter_screenutil.dart';
+import 'core/router.dart';
 import 'core/theme.dart';
-import 'core/app_router.dart';
 import 'services/notification_service.dart';
 
 Future<void> main() async {
@@ -15,19 +16,24 @@ Future<void> main() async {
   runApp(const ICanApp());
 }
 
-/// iCan App — Assistive navigation and awareness for the visually impaired.
 class ICanApp extends StatelessWidget {
   const ICanApp({super.key});
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'iCan',
-      debugShowCheckedModeBanner: false,
-      theme: ICanTheme.darkTheme,
-      initialRoute: AppRouter.splash,
-      routes: AppRouter.routes,
+    final router = buildRouter();
+
+    return ScreenUtilInit(
+      designSize: const Size(375, 812),
+      minTextAdapt: true,
+      builder: (_, __) => MaterialApp.router(
+        title: 'iCan',
+        debugShowCheckedModeBanner: false,
+        theme: ICanTheme.lightTheme,
+        darkTheme: ICanTheme.darkTheme,
+        themeMode: ThemeMode.system,
+        routerConfig: router,
+      ),
     );
   }
 }
-

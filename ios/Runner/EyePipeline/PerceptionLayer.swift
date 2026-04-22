@@ -33,6 +33,7 @@ final class PerceptionLayer {
         // Fuse YOLO detections with depth map samples
         let spatialObjects: [SpatialObject] = objects.map { obj in
             let center   = obj.normalizedCenter
+            let bbox     = obj.imageSpaceBoundingBox
             let clock    = clockHour(from: center.x)
             let relDepth = depth.map {
                 DepthEstimator.shared.sampleDepth($0, at: center)
@@ -43,7 +44,11 @@ final class PerceptionLayer {
                 normalizedCenterX:  Float(center.x),
                 normalizedCenterY:  Float(center.y),
                 clockPosition:      clock,
-                relativeDepth:      relDepth
+                relativeDepth:      relDepth,
+                bboxX:              Float(bbox.origin.x),
+                bboxY:              Float(bbox.origin.y),
+                bboxW:              Float(bbox.width),
+                bboxH:              Float(bbox.height)
             )
         }
         // Closest obstacles first

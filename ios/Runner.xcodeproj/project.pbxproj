@@ -15,6 +15,16 @@
 		97C146FC1CF9000F007C117D /* Main.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 97C146FA1CF9000F007C117D /* Main.storyboard */; };
 		97C146FE1CF9000F007C117D /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 97C146FD1CF9000F007C117D /* Assets.xcassets */; };
 		97C147011CF9000F007C117D /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 97C146FF1CF9000F007C117D /* LaunchScreen.storyboard */; };
+		AA000102000000000A010000 /* OnDeviceVisionChannel.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000101000000000A010000 /* OnDeviceVisionChannel.swift */; };
+		AA000102000000000A020000 /* LlamaService.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000101000000000A020000 /* LlamaService.swift */; };
+		AA000102000000000A030000 /* VisionService.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000101000000000A030000 /* VisionService.swift */; };
+		AA000102000000000A040000 /* ModelDownloadManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000101000000000A040000 /* ModelDownloadManager.swift */; };
+		AA000102000000000A050000 /* DepthEstimator.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000101000000000A050000 /* DepthEstimator.swift */; };
+		AA000102000000000A060000 /* FoundationModelSynthesizer.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000101000000000A060000 /* FoundationModelSynthesizer.swift */; };
+		AA000102000000000A070000 /* MoondreamService.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000101000000000A070000 /* MoondreamService.swift */; };
+		AA000102000000000A080000 /* ObjectDetector.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000101000000000A080000 /* ObjectDetector.swift */; };
+		AA000102000000000A090000 /* PerceptionLayer.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000101000000000A090000 /* PerceptionLayer.swift */; };
+		AA000102000000000A0A0000 /* SceneContext.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000101000000000A0A0000 /* SceneContext.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -57,6 +67,16 @@
 		97C146FD1CF9000F007C117D /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		97C147001CF9000F007C117D /* Base */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; name = Base; path = Base.lproj/LaunchScreen.storyboard; sourceTree = "<group>"; };
 		97C147021CF9000F007C117D /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		AA000101000000000A010000 /* OnDeviceVisionChannel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnDeviceVisionChannel.swift; sourceTree = "<group>"; };
+		AA000101000000000A020000 /* LlamaService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LlamaService.swift; sourceTree = "<group>"; };
+		AA000101000000000A030000 /* VisionService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VisionService.swift; sourceTree = "<group>"; };
+		AA000101000000000A040000 /* ModelDownloadManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelDownloadManager.swift; sourceTree = "<group>"; };
+		AA000101000000000A050000 /* DepthEstimator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DepthEstimator.swift; sourceTree = "<group>"; };
+		AA000101000000000A060000 /* FoundationModelSynthesizer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FoundationModelSynthesizer.swift; sourceTree = "<group>"; };
+		AA000101000000000A070000 /* MoondreamService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MoondreamService.swift; sourceTree = "<group>"; };
+		AA000101000000000A080000 /* ObjectDetector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ObjectDetector.swift; sourceTree = "<group>"; };
+		AA000101000000000A090000 /* PerceptionLayer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PerceptionLayer.swift; sourceTree = "<group>"; };
+		AA000101000000000A0A0000 /* SceneContext.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SceneContext.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -119,9 +139,27 @@
 				1498D2331E8E89220040F4C2 /* GeneratedPluginRegistrant.m */,
 				74858FAE1ED2DC5600515810 /* AppDelegate.swift */,
 				7884E8672EC3CC0400C636F2 /* SceneDelegate.swift */,
+				AA000101000000000A010000 /* OnDeviceVisionChannel.swift */,
+				AA000101000000000A020000 /* LlamaService.swift */,
+				AA000101000000000A030000 /* VisionService.swift */,
+				AA000101000000000A040000 /* ModelDownloadManager.swift */,
+				AA00010300000000AAAA0000 /* EyePipeline */,
 				74858FAD1ED2DC5600515810 /* Runner-Bridging-Header.h */,
 			);
 			path = Runner;
+			sourceTree = "<group>";
+		};
+		AA00010300000000AAAA0000 /* EyePipeline */ = {
+			isa = PBXGroup;
+			children = (
+				AA000101000000000A050000 /* DepthEstimator.swift */,
+				AA000101000000000A060000 /* FoundationModelSynthesizer.swift */,
+				AA000101000000000A070000 /* MoondreamService.swift */,
+				AA000101000000000A080000 /* ObjectDetector.swift */,
+				AA000101000000000A090000 /* PerceptionLayer.swift */,
+				AA000101000000000A0A0000 /* SceneContext.swift */,
+			);
+			path = EyePipeline;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -274,6 +312,16 @@
 				74858FAF1ED2DC5600515810 /* AppDelegate.swift in Sources */,
 				1498D2341E8E89220040F4C2 /* GeneratedPluginRegistrant.m in Sources */,
 				7884E8682EC3CC0700C636F2 /* SceneDelegate.swift in Sources */,
+				AA000102000000000A010000 /* OnDeviceVisionChannel.swift in Sources */,
+				AA000102000000000A020000 /* LlamaService.swift in Sources */,
+				AA000102000000000A030000 /* VisionService.swift in Sources */,
+				AA000102000000000A040000 /* ModelDownloadManager.swift in Sources */,
+				AA000102000000000A050000 /* DepthEstimator.swift in Sources */,
+				AA000102000000000A060000 /* FoundationModelSynthesizer.swift in Sources */,
+				AA000102000000000A070000 /* MoondreamService.swift in Sources */,
+				AA000102000000000A080000 /* ObjectDetector.swift in Sources */,
+				AA000102000000000A090000 /* PerceptionLayer.swift in Sources */,
+				AA000102000000000A0A0000 /* SceneContext.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

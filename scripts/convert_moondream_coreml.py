@@ -415,14 +415,13 @@ def convert_prefill_model(md_model, output_dir: Path):
     for i in range(n):
         outputs.append(ct.TensorType(name=f"v_out_{i}"))
 
-    log("  Converting to CoreML (iOS 17, float32 precision)...")
+    log("  Converting to CoreML (iOS 18 — needed for large model blob support)...")
     mlmodel = ct.convert(
         traced,
         inputs=[ct.TensorType(name="embeds", shape=(1, 730, dim))],
         outputs=outputs,
-        minimum_deployment_target=ct.target.iOS17,
+        minimum_deployment_target=ct.target.iOS18,
         compute_units=ct.ComputeUnit.ALL,
-        compute_precision=ct.precision.FLOAT32,
     )
     mlmodel = palettize_4bit_bulk_8bit_output(mlmodel, "Prefill")
 

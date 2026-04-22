@@ -16,7 +16,8 @@ void pulseInit() {
     if (!pulseSensor) pulseSensor = new PulseSensorPlayground();
     // Configure the PulseSensor
     pulseSensor->analogInput(HEART_PIN);
-    pulseSensor->blinkOnPulse(PULSE_LED);
+    // INT is not wired in this project; keep pulse sampling in polled mode only.
+    // Also disable pulse-linked LED output because all user feedback is haptic-only.
     pulseSensor->setThreshold(HEART_THRESHOLD);
 
     if (pulseSensor->begin()) {

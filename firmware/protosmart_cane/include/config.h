@@ -8,7 +8,8 @@
 // === HARDWARE PIN DEFINITIONS (GPIO MODE) ===
 // BOARD_USES_HW_GPIO_NUMBERS is enabled in platformio.ini.
 // Values below are raw ESP32-S3 GPIO numbers, mapped to same Nano header locations.
-#define BUZZER_PIN 45          // Nano LED_BLUE pin location (previous pin ID 16)
+#define HAPTIC_DISK_PIN 45     // Center vibration disk motor (legacy name: BUZZER_PIN)
+#define BUZZER_PIN HAPTIC_DISK_PIN
 #define LED_PIN -1             // Legacy LED disabled
 #define LED_HEAD_PIN 47        // Nano D12
 #define LED_LEFT_PIN 48        // Nano D13
@@ -16,6 +17,9 @@
 #define LED_HAPTIC_FRONT_PIN 18  // Nano D9
 #define LED_HAPTIC_LEFT_PIN 21   // Nano D10
 #define LED_HAPTIC_RIGHT_PIN 38  // Nano D11
+#define HAPTIC_TOP_PIN LED_HAPTIC_FRONT_PIN
+#define HAPTIC_LEFT_PIN LED_HAPTIC_LEFT_PIN
+#define HAPTIC_RIGHT_PIN LED_HAPTIC_RIGHT_PIN
 #define BATTERY_PIN 2          // Nano A1
 #define HEART_PIN 1            // Nano A0
 #define PULSE_LED 25           // Raw GPIO25 (optional pulse blink)
@@ -153,7 +157,7 @@
 #define BLE_DEVICE_NAME "ProtoSmartCane"
 #define BLE_SERVICE_UUID "12345678-1234-1234-1234-123456789abc"
 #define BLE_CHARACTERISTIC_UUID "abcd1234-5678-5678-5678-abcd12345678"
-#define BLE_TELEMETRY_VERSION 0x04    // v4: full offline telemetry with validity bits and pulse raw/BPM
+#define BLE_TELEMETRY_VERSION 0x02    // v2: Simplified for battery calc on app
 
 // === BLE TELEMETRY OPTIMIZATION ===
 // The cane sends minimal data; the app calculates battery lifetime using this power profile:
@@ -163,12 +167,8 @@
 //   CAUTIOUS_SLEEP: 30 mA → ~198 hours @ 6600mAh
 //   DEEP_SLEEP: 10 mA → ~594 hours @ 6600mAh
 //
-// App telemetry input (22 bytes, v4):
-//   [version][battery_percent][current_mode][heart_rate][flags][sensor_status]
-//   [imu_ax_cms2:int16][imu_ay_cms2:int16][imu_az_cms2:int16]
-//   [ultra_left_mm:uint16][ultra_right_mm:uint16]
-//   [matrix_head_mm:uint16][matrix_waist_mm:uint16]
-//   [heart_raw:uint16]
+// App telemetry input (5 bytes):
+//   [battery_percent] [current_mode] [heart_rate] [flags] [reserved]
 // App output:
 //   Estimated runtime = 4400mAh / current_power_in_mode × battery_percent / 100
 //   Example: 85% battery in NORMAL mode → 85 / 100 × 47.6 hours = 40.46 hours remaining
@@ -177,7 +177,7 @@
 #define SERIAL_BAUD_RATE 115200
 #define DEBUG_MODE true  // Set to false for production
 #ifndef ENABLE_BLE
-#define ENABLE_BLE true  // Set true or pass -DENABLE_BLE=true to restore BLE telemetry
+#define ENABLE_BLE false  // Set true or pass -DENABLE_BLE=true to restore BLE telemetry
 #endif
 
 #define DEBUG_WAIT_FOR_SERIAL_MS 3000
@@ -186,10 +186,11 @@
 
 // === ISOLATED SENSOR TEST MODE ===
 // Keeps only IMU, ultrasonic, and 8x8 active for bring-up testing.
-#define ISOLATED_SENSOR_TEST_MODE false
+#define ISOLATED_SENSOR_TEST_MODE true
 #define SENSOR_DEBUG_PRINT_INTERVAL_MS 250
 
 // Three currently wired indicator LEDs.
-#define TEST_LED_TOP_PIN LED_HAPTIC_FRONT_PIN
-#define TEST_LED_RIGHT_PIN LED_HAPTIC_LEFT_PIN
-#define TEST_LED_LEFT_PIN LED_HAPTIC_RIGHT_PIN
+// These names are kept for compatibility with isolated-test logic, but they are haptic outputs.
+#define TEST_LED_TOP_PIN HAPTIC_TOP_PIN
+#define TEST_LED_RIGHT_PIN HAPTIC_LEFT_PIN
+#define TEST_LED_LEFT_PIN HAPTIC_RIGHT_PIN

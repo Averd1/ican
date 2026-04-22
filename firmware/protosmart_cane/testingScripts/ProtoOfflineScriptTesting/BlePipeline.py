@@ -12,9 +12,7 @@ from bleak import BleakClient, BleakScanner
 
 DEVICE_NAME = "ProtoSmartCane"
 CHAR_UUID = "abcd1234-5678-5678-5678-abcd12345678"
-EXPECTED_VERSION = 3
-V2_PACKET_LEN = 5
-V3_PACKET_LEN = 19
+EXPECTED_VERSION = 2
 
 MODE_MAP = {
     0: "NORMAL",
@@ -51,37 +49,25 @@ async def capture_packets(address: str, char_uuid: str, duration_s: float) -> li
     rows: list[dict] = []
 
     def on_notify(_sender, data_bytes: bytearray) -> None:
-        if len(data_bytes) < V2_PACKET_LEN:
+        if len(data_bytes) < 5:
             return
-        version, battery_percent, mode, heart_bpm, flags = struct.unpack("<BBBBB", data_bytes[:V2_PACKET_LEN])
+        version, battery_percent, mode, heart_bpm, flags = struct.unpack("<BBBBB", data_bytes[:5])
         decoded_flags = decode_flags(flags)
-        row = {
-            "ts": datetime.datetime.now().isoformat(timespec="milliseconds"),
-            "version": int(version),
-            "battery_percent": int(battery_percent),
-            "mode": int(mode),
-            "mode_name": MODE_MAP.get(int(mode), f"UNKNOWN_{int(mode)}"),
-            "heart_bpm": int(heart_bpm),
-            "flags": int(flags),
-            "fall": decoded_flags["fall"],
-            "high_stress": decoded_flags["high_stress"],
-            "obstacle_near": decoded_flags["obstacle_near"],
-            "obstacle_imminent": decoded_flags["obstacle_imminent"],
-        }
-        if version >= 3 and len(data_bytes) >= V3_PACKET_LEN:
-            imu_ax_cms2, imu_ay_cms2, imu_az_cms2, ultra_left_mm, ultra_right_mm, matrix_head_mm, matrix_waist_mm = struct.unpack(
-                "<hhhHHHH", data_bytes[V2_PACKET_LEN:V3_PACKET_LEN]
-            )
-            row["imu_ax_ms2"] = float(imu_ax_cms2) / 100.0
-            row["imu_ay_ms2"] = float(imu_ay_cms2) / 100.0
-            row["imu_az_ms2"] = float(imu_az_cms2) / 100.0
-            row["ultra_left_mm"] = int(ultra_left_mm)
-            row["ultra_right_mm"] = int(ultra_right_mm)
-            row["matrix_head_mm"] = int(matrix_head_mm)
-            row["matrix_waist_mm"] = int(matrix_waist_mm)
-            row["matrix_head_valid"] = int(matrix_head_mm) != 0xFFFF
-            row["matrix_waist_valid"] = int(matrix_waist_mm) != 0xFFFF
-        rows.append(row)
+        rows.append(
+            {
+                "ts": datetime.datetime.now().isoformat(timespec="milliseconds"),
+                "version": int(version),
+                "battery_percent": int(battery_percent),
+                "mode": int(mode),
+                "mode_name": MODE_MAP.get(int(mode), f"UNKNOWN_{int(mode)}"),
+                "heart_bpm": int(heart_bpm),
+                "flags": int(flags),
+                "fall": decoded_flags["fall"],
+                "high_stress": decoded_flags["high_stress"],
+                "obstacle_near": decoded_flags["obstacle_near"],
+                "obstacle_imminent": decoded_flags["obstacle_imminent"],
+            }
+        )
 
     async with BleakClient(address) as client:
         if not client.is_connected:
@@ -126,14 +112,6 @@ def build_summary(rows: list[dict], duration_s: float, min_packets: int) -> dict
         "any_high_stress_flag": any(bool(r["high_stress"]) for r in rows),
         "any_obstacle_near_flag": any(bool(r["obstacle_near"]) for r in rows),
         "any_obstacle_imminent_flag": any(bool(r["obstacle_imminent"]) for r in rows),
-        "ultra_left_min_mm": min((int(r["ultra_left_mm"]) for r in rows if "ultra_left_mm" in r), default=None),
-        "ultra_left_max_mm": max((int(r["ultra_left_mm"]) for r in rows if "ultra_left_mm" in r), default=None),
-        "ultra_right_min_mm": min((int(r["ultra_right_mm"]) for r in rows if "ultra_right_mm" in r), default=None),
-        "ultra_right_max_mm": max((int(r["ultra_right_mm"]) for r in rows if "ultra_right_mm" in r), default=None),
-        "matrix_head_min_mm": min((int(r["matrix_head_mm"]) for r in rows if "matrix_head_mm" in r and int(r["matrix_head_mm"]) != 0xFFFF), default=None),
-        "matrix_head_max_mm": max((int(r["matrix_head_mm"]) for r in rows if "matrix_head_mm" in r and int(r["matrix_head_mm"]) != 0xFFFF), default=None),
-        "matrix_waist_min_mm": min((int(r["matrix_waist_mm"]) for r in rows if "matrix_waist_mm" in r and int(r["matrix_waist_mm"]) != 0xFFFF), default=None),
-        "matrix_waist_max_mm": max((int(r["matrix_waist_mm"]) for r in rows if "matrix_waist_mm" in r and int(r["matrix_waist_mm"]) != 0xFFFF), default=None),
     }
 
     return summary

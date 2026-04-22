@@ -12,9 +12,9 @@
 // === SYSTEM MODES ===
 enum SystemMode {
     NORMAL,        // 8-hour target: balanced responsive operation (20-30 Hz sensors)
-    LOW_POWER,     // 15-hour target: battery fallback when <20% (5 Hz sensors, no LED)
+    LOW_POWER,     // 15-hour target: battery fallback when <20% (5 Hz sensors, reduced haptics)
     HIGH_STRESS,   // 4-hour peak: close obstacle + abnormal HR (30-50 Hz sensors, max haptics)
-    EMERGENCY      // Fall/critical: <60s duration, 100+ Hz sensors, max telemetry, NO haptic
+    EMERGENCY      // Fall/critical: <60s duration, 100+ Hz sensors, max telemetry, max haptics
 };
 
 enum EmergencyType {
@@ -81,15 +81,14 @@ struct FaultState {
     unsigned long lastRecoveryAttempt;
 };
 
-// === BLE TELEMETRY PACKET (v4: full offline sensor validation) ===
-// Includes battery, mode, pulse BPM/raw, IMU acceleration, and distance channels.
+// === BLE TELEMETRY PACKET (v3: offline testing + richer telemetry) ===
+// Includes IMU acceleration and distance channels for laptop-side analysis.
 struct __attribute__((packed)) TelemetryPacket {
-    uint8_t version;           // Protocol version = 4
+    uint8_t version;           // Protocol version = 3
     uint8_t batteryPercent;    // Battery level (0-100)
     uint8_t currentMode;       // NORMAL=0, LOW_POWER=1, HIGH_STRESS=2, EMERGENCY=3
     uint8_t heartBPM;          // Heart rate (0-255)
     uint8_t flags;             // bit0=fall, bit1=high_stress, bit2=obstacle_near, bit3=obstacle_imminent
-    uint8_t sensorStatus;      // bit0=imu_valid, bit1=ultra_left_valid, bit2=ultra_right_valid, bit3=matrix_head_valid, bit4=matrix_waist_valid, bit5=pulse_valid, bit6=battery_valid
     int16_t imuAxCms2;         // IMU accel X scaled by 100 (m/s^2 -> centi-m/s^2)
     int16_t imuAyCms2;         // IMU accel Y scaled by 100
     int16_t imuAzCms2;         // IMU accel Z scaled by 100
@@ -97,9 +96,8 @@ struct __attribute__((packed)) TelemetryPacket {
     uint16_t ultrasonicRightMm;// Right ultrasonic distance (mm)
     uint16_t matrixHeadMm;     // 8x8 head-zone distance (mm), 0xFFFF when unavailable
     uint16_t matrixWaistMm;    // 8x8 waist-zone distance (mm), 0xFFFF when unavailable
-    uint16_t heartRaw;         // Raw pulse analog sample
 };
-// Total: 22 bytes
+// Total: 19 bytes
 
 // === LIGHT SENSOR STATUS (NEW) ===
 struct LightStatus {

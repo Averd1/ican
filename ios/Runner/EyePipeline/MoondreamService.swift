@@ -398,30 +398,34 @@ final class MoondreamService {
         let n = 24  // n_layers
         let nkv = 32, pLen = prefillLen, dh = 64
 
-        for i in 0..<n {
-            guard let kSrc = prefillOut.featureValue(for: "k_out_\(i)")?.multiArrayValue,
-                  let vSrc = prefillOut.featureValue(for: "v_out_\(i)")?.multiArrayValue
-            else { return false }
+        do {
+            for i in 0..<n {
+                guard let kSrc = prefillOut.featureValue(for: "k_out_\(i)")?.multiArrayValue,
+                      let vSrc = prefillOut.featureValue(for: "v_out_\(i)")?.multiArrayValue
+                else { return false }
 
-            let srcK = kSrc.dataPointer.bindMemory(to: Float32.self, capacity: nkv * pLen * dh)
-            let srcV = vSrc.dataPointer.bindMemory(to: Float32.self, capacity: nkv * pLen * dh)
+                let srcK = kSrc.dataPointer.bindMemory(to: Float32.self, capacity: nkv * pLen * dh)
+                let srcV = vSrc.dataPointer.bindMemory(to: Float32.self, capacity: nkv * pLen * dh)
 
-            mlState.withMutableMultiArray(forKey: "k_cache_\(i)") { kArr, _ in
-                let dstPtr = kArr.dataPointer.bindMemory(to: Float32.self, capacity: nkv * self.maxContext * dh)
+                let kDst = try MLMultiArray(shape: [1, nkv, maxContext, dh] as [NSNumber], dataType: .float32)
+                let vDst = try MLMultiArray(shape: [1, nkv, maxContext, dh] as [NSNumber], dataType: .float32)
+
+                let dstK = kDst.dataPointer.bindMemory(to: Float32.self, capacity: nkv * maxContext * dh)
+                let dstV = vDst.dataPointer.bindMemory(to: Float32.self, capacity: nkv * maxContext * dh)
+
                 for h in 0..<nkv {
                     let sOff = h * pLen * dh
-                    let dOff = h * self.maxContext * dh
-                    memcpy(dstPtr.advanced(by: dOff), srcK.advanced(by: sOff), pLen * dh * 4)
+                    let dOff = h * maxContext * dh
+                    memcpy(dstK.advanced(by: dOff), srcK.advanced(by: sOff), pLen * dh * 4)
+                    memcpy(dstV.advanced(by: dOff), srcV.advanced(by: sOff), pLen * dh * 4)
                 }
+
+                mlState.setMultiArray(kDst, forKey: "k_cache_\(i)")
+                mlState.setMultiArray(vDst, forKey: "v_cache_\(i)")
             }
-            mlState.withMutableMultiArray(forKey: "v_cache_\(i)") { vArr, _ in
-                let dstPtr = vArr.dataPointer.bindMemory(to: Float32.self, capacity: nkv * self.maxContext * dh)
-                for h in 0..<nkv {
-                    let sOff = h * pLen * dh
-                    let dOff = h * self.maxContext * dh
-                    memcpy(dstPtr.advanced(by: dOff), srcV.advanced(by: sOff), pLen * dh * 4)
-                }
-            }
+        } catch {
+            print("[MoondreamService] KV transfer failed: \(error)")
+            return false
         }
         return true
     }

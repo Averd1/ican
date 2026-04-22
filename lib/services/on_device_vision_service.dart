@@ -1,0 +1,441 @@
+import 'dart:async';
+import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Data models
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Results from Apple Vision framework analysis (legacy — still used by VLM path).
+class VisionAnalysis {
+  final List<String> ocrTexts;
+  final String sceneClassification;
+  final double sceneConfidence;
+  final int personCount;
+  final List<Map<String, double>> personRects;
+
+  const VisionAnalysis({
+    required this.ocrTexts,
+    required this.sceneClassification,
+    required this.sceneConfidence,
+    required this.personCount,
+    required this.personRects,
+  });
+
+  factory VisionAnalysis.fromMap(Map<dynamic, dynamic> map) {
+    return VisionAnalysis(
+      ocrTexts: (map['ocr_texts'] as List<dynamic>?)
+              ?.map((e) => e.toString())
+              .toList() ??
+          [],
+      sceneClassification:
+          (map['scene_classification'] as String?) ?? 'unknown',
+      sceneConfidence: (map['scene_confidence'] as num?)?.toDouble() ?? 0.0,
+      personCount: (map['person_count'] as int?) ?? 0,
+      personRects: (map['person_rects'] as List<dynamic>?)
+              ?.map((r) => (r as Map<dynamic, dynamic>)
+                  .map((k, v) => MapEntry(k.toString(), (v as num).toDouble())))
+              .toList() ??
+          [],
+    );
+  }
+
+  /// Build a human-readable context string for injecting into the VLM prompt.
+  String toPromptContext() {
+    final parts = <String>[];
+
+    if (sceneClassification != 'unknown' && sceneConfidence > 0.15) {
+      final label = sceneClassification.replaceAll('_', ' ');
+      final pct = (sceneConfidence * 100).round();
+      parts.add('- Scene type: $label ($pct% confidence)');
+    }
+
+    if (personCount > 0) {
+      parts.add('- People detected: $personCount');
+    }
+
+    if (ocrTexts.isNotEmpty) {
+      final quoted = ocrTexts.map((t) => '"$t"').join(', ');
+      parts.add('- Text visible: $quoted');
+    }
+
+    if (parts.isEmpty) return '';
+    return 'Context from device sensors:\n${parts.join('\n')}';
+  }
+}
+
+/// A spatially-located object from Layer 1 (YOLOv3 + Depth Anything V2 fusion).
+class SpatialObjectData {
+  final String label;
+  final double confidence;
+  final int clockPosition;     // 9=left, 12=center, 3=right
+  final double? relativeDepth; // 0.0=closest, 1.0=farthest; null if depth unavailable
+  final double centerX;
+  final double centerY;
+
+  const SpatialObjectData({
+    required this.label,
+    required this.confidence,
+    required this.clockPosition,
+    this.relativeDepth,
+    required this.centerX,
+    required this.centerY,
+  });
+
+  factory SpatialObjectData.fromMap(Map<dynamic, dynamic> map) {
+    return SpatialObjectData(
+      label:         (map['label'] as String?) ?? 'object',
+      confidence:    (map['confidence'] as num?)?.toDouble() ?? 0.0,
+      clockPosition: (map['clock_position'] as int?) ?? 12,
+      relativeDepth: (map['relative_depth'] as num?)?.toDouble(),
+      centerX:       (map['center_x'] as num?)?.toDouble() ?? 0.5,
+      centerY:       (map['center_y'] as num?)?.toDouble() ?? 0.5,
+    );
+  }
+
+  String? get distanceTier {
+    final d = relativeDepth;
+    if (d == null) return null;
+    if (d < 0.30) return 'very close';
+    if (d < 0.50) return 'close';
+    if (d < 0.70) return 'ahead';
+    return 'far';
+  }
+
+  String get spatialLabel {
+    final tier = distanceTier;
+    return tier != null ? '$label at $clockPosition o\'clock, $tier' : '$label at $clockPosition o\'clock';
+  }
+}
+
+/// Full output from Layer 1 — Vision + Depth Anything V2 + YOLOv3 fused.
+class ScenePerceptionResult extends VisionAnalysis {
+  final List<SpatialObjectData> detectedObjects;
+  final bool hasDepthMap;
+
+  const ScenePerceptionResult({
+    required super.ocrTexts,
+    required super.sceneClassification,
+    required super.sceneConfidence,
+    required super.personCount,
+    required super.personRects,
+    required this.detectedObjects,
+    required this.hasDepthMap,
+  });
+
+  factory ScenePerceptionResult.fromMap(Map<dynamic, dynamic> map) {
+    return ScenePerceptionResult(
+      ocrTexts: (map['ocr_texts'] as List<dynamic>?)
+              ?.map((e) => e.toString())
+              .toList() ??
+          [],
+      sceneClassification: (map['scene_classification'] as String?) ?? 'unknown',
+      sceneConfidence:     (map['scene_confidence'] as num?)?.toDouble() ?? 0.0,
+      personCount:         (map['person_count'] as int?) ?? 0,
+      personRects:         (map['person_rects'] as List<dynamic>?)
+              ?.map((r) => (r as Map<dynamic, dynamic>)
+                  .map((k, v) => MapEntry(k.toString(), (v as num).toDouble())))
+              .toList() ??
+          [],
+      detectedObjects: (map['detected_objects'] as List<dynamic>?)
+              ?.map((o) => SpatialObjectData.fromMap(o as Map<dynamic, dynamic>))
+              .toList() ??
+          [],
+      hasDepthMap: (map['has_depth_map'] as bool?) ?? false,
+    );
+  }
+
+  /// Rich context string — includes spatial objects and depth tiers.
+  @override
+  String toPromptContext() {
+    final lines = <String>[];
+
+    if (sceneClassification != 'unknown' && sceneConfidence > 0.15) {
+      final label = sceneClassification.replaceAll('_', ' ');
+      lines.add('- Scene type: $label (${(sceneConfidence * 100).round()}% confidence)');
+    }
+
+    if (personCount > 0) {
+      lines.add('- People detected: $personCount');
+    }
+
+    final close = detectedObjects.where((o) => (o.relativeDepth ?? 1.0) < 0.50).toList();
+    if (close.isNotEmpty) {
+      lines.add('- Close obstacles: ${close.map((o) => o.spatialLabel).join('; ')}');
+    }
+
+    final others = detectedObjects.where((o) => (o.relativeDepth ?? 0.0) >= 0.50).take(6);
+    if (others.isNotEmpty) {
+      lines.add('- Nearby objects: ${others.map((o) => o.spatialLabel).join('; ')}');
+    }
+
+    if (ocrTexts.isNotEmpty) {
+      final quoted = ocrTexts.take(4).map((t) => '"$t"').join(', ');
+      lines.add('- Text visible: $quoted');
+    }
+
+    if (lines.isEmpty) return '';
+    return 'Context from on-device sensors:\n${lines.join('\n')}';
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Model status
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Status of the on-device VLM (SmolVLM) model.
+enum ModelStatus {
+  notDownloaded,
+  downloading,
+  ready,   // downloaded but not loaded into memory
+  loaded,  // in memory, ready for inference
+}
+
+ModelStatus _parseModelStatus(String raw) {
+  switch (raw) {
+    case 'loaded':      return ModelStatus.loaded;
+    case 'ready':       return ModelStatus.ready;
+    case 'downloading': return ModelStatus.downloading;
+    default:            return ModelStatus.notDownloaded;
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Service
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Dart-side client for the native on-device vision MethodChannel.
+/// Handles all three pipeline layers exposed by OnDeviceVisionChannel.swift.
+class OnDeviceVisionService {
+  static const _method         = MethodChannel('com.ican/on_device_vision');
+  static const _vlmStream      = EventChannel('com.ican/vlm_stream');
+  static const _fmStream       = EventChannel('com.ican/fm_stream');
+  static const _downloadStream = EventChannel('com.ican/model_download_progress');
+
+  // ── Layer 1 (legacy) ────────────────────────────────────────────────────
+
+  /// Run Apple Vision framework only (OCR + scene + people).
+  /// Kept for backward-compat; prefer [analyzeScene] for new code.
+  Future<VisionAnalysis> analyzeWithVision(Uint8List jpegBytes) async {
+    try {
+      final result = await _method.invokeMethod<Map<dynamic, dynamic>>(
+        'analyzeWithVision',
+        {'imageBytes': jpegBytes},
+      );
+      if (result == null || result.containsKey('error')) {
+        debugPrint('[OnDeviceVision] analyzeWithVision error: ${result?['error']}');
+        return _emptyVisionAnalysis();
+      }
+      return VisionAnalysis.fromMap(result);
+    } on PlatformException catch (e) {
+      debugPrint('[OnDeviceVision] Platform error: ${e.message}');
+      return _emptyVisionAnalysis();
+    }
+  }
+
+  // ── Layer 1 (full) ───────────────────────────────────────────────────────
+
+  /// Run the full Layer 1 pipeline: Apple Vision + Depth Anything V2 + YOLOv3.
+  /// Returns a [ScenePerceptionResult] with spatial objects and depth tiers.
+  Future<ScenePerceptionResult> analyzeScene(Uint8List jpegBytes) async {
+    try {
+      final result = await _method.invokeMethod<Map<dynamic, dynamic>>(
+        'analyzeScene',
+        {'imageBytes': jpegBytes},
+      );
+      if (result == null || result.containsKey('error')) {
+        debugPrint('[OnDeviceVision] analyzeScene error: ${result?['error']}');
+        return _emptySceneResult();
+      }
+      return ScenePerceptionResult.fromMap(result);
+    } on PlatformException catch (e) {
+      debugPrint('[OnDeviceVision] Platform error: ${e.message}');
+      return _emptySceneResult();
+    }
+  }
+
+  // ── Moondream CoreML ─────────────────────────────────────────────────────
+
+  /// Returns true if all Moondream CoreML models are bundled and loadable.
+  Future<bool> isMoondreamAvailable() async {
+    try {
+      final result = await _method.invokeMethod<bool>('isMoondreamAvailable');
+      return result ?? false;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// Encode the image and run the 730-token prefill into the KV cache.
+  /// Must be called before [captionWithMoondream] or [pointWithMoondream].
+  Future<bool> moondreamEncodeAndPrefill(Uint8List jpegBytes) async {
+    try {
+      final result = await _method.invokeMethod<bool>('moondreamEncodeAndPrefill', {
+        'imageBytes': jpegBytes,
+      });
+      return result ?? false;
+    } catch (e) {
+      debugPrint('[OnDeviceVision] Moondream prefill error: $e');
+      return false;
+    }
+  }
+
+  /// Generate a scene caption with Moondream. Streams token chunks via fm_stream.
+  /// Call [moondreamEncodeAndPrefill] first.
+  Stream<String> captionWithMoondream() async* {
+    try {
+      await _method.invokeMethod<bool>('moondreamCaption');
+      await for (final event in _fmStream.receiveBroadcastStream()) {
+        if (event is String) yield event;
+      }
+    } on PlatformException catch (e) {
+      debugPrint('[OnDeviceVision] Moondream caption error: ${e.message}');
+    }
+  }
+
+  /// Point to a named object. Returns list of {x, y} normalised coordinates.
+  /// Call [moondreamEncodeAndPrefill] first.
+  Future<List<Map<String, double>>> pointWithMoondream(String objectName) async {
+    try {
+      final result = await _method.invokeMethod<List<dynamic>>('moondreamPoint', {
+        'object': objectName,
+      });
+      return result
+              ?.map((e) => (e as Map<dynamic, dynamic>)
+                  .map((k, v) => MapEntry(k.toString(), (v as num).toDouble())))
+              .toList() ??
+          [];
+    } catch (e) {
+      debugPrint('[OnDeviceVision] Moondream point error: $e');
+      return [];
+    }
+  }
+
+  // ── Layer 3: Foundation Models ───────────────────────────────────────────
+
+  /// Returns true if Apple Foundation Models is available on this device (iOS 26+).
+  Future<bool> isFoundationModelsAvailable() async {
+    try {
+      final result = await _method.invokeMethod<bool>('isFoundationModelsAvailable');
+      return result ?? false;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// Synthesize a scene description using Apple Foundation Models.
+  /// Streams text chunks (sentences) via EventChannel.
+  Stream<String> synthesizeWithFoundationModels(
+    String context, {
+    required String systemPrompt,
+  }) async* {
+    try {
+      await _method.invokeMethod<bool>('synthesizeDescription', {
+        'context':      context,
+        'systemPrompt': systemPrompt,
+      });
+
+      await for (final event in _fmStream.receiveBroadcastStream()) {
+        if (event is String) yield event;
+      }
+    } on PlatformException catch (e) {
+      debugPrint('[OnDeviceVision] Foundation Models error: ${e.message}');
+    }
+  }
+
+  // ── Layer 2: SmolVLM ────────────────────────────────────────────────────
+
+  Future<ModelStatus> getModelStatus() async {
+    try {
+      final raw = await _method.invokeMethod<String>('getModelStatus');
+      return _parseModelStatus(raw ?? 'not_downloaded');
+    } catch (_) {
+      return ModelStatus.notDownloaded;
+    }
+  }
+
+  Future<bool> loadVlmModel() async {
+    try {
+      final result = await _method.invokeMethod<bool>('loadModel');
+      return result ?? false;
+    } catch (e) {
+      debugPrint('[OnDeviceVision] Failed to load VLM: $e');
+      return false;
+    }
+  }
+
+  Future<void> unloadVlmModel() async {
+    try {
+      await _method.invokeMethod<bool>('unloadModel');
+    } catch (e) {
+      debugPrint('[OnDeviceVision] Failed to unload VLM: $e');
+    }
+  }
+
+  /// Run VLM inference and stream tokens back.
+  Stream<String> describeWithVlm(
+    Uint8List jpegBytes, {
+    required String systemPrompt,
+    String? visionContext,
+  }) async* {
+    try {
+      await _method.invokeMethod<bool>('describeImage', {
+        'imageBytes':    jpegBytes,
+        'systemPrompt':  systemPrompt,
+        'visionContext': visionContext,
+      });
+
+      await for (final event in _vlmStream.receiveBroadcastStream()) {
+        if (event is String) yield event;
+      }
+    } on PlatformException catch (e) {
+      debugPrint('[OnDeviceVision] VLM inference error: ${e.message}');
+    }
+  }
+
+  // ── Download management ──────────────────────────────────────────────────
+
+  Stream<dynamic> startModelDownload() async* {
+    try {
+      await _method.invokeMethod<bool>('downloadModel');
+      await for (final event in _downloadStream.receiveBroadcastStream()) {
+        yield event;
+      }
+    } on PlatformException catch (e) {
+      debugPrint('[OnDeviceVision] Download error: ${e.message}');
+    }
+  }
+
+  Future<void> cancelModelDownload() async {
+    try { await _method.invokeMethod<bool>('cancelDownload'); } catch (_) {}
+  }
+
+  Future<bool> deleteModel() async {
+    try {
+      final result = await _method.invokeMethod<bool>('deleteModel');
+      return result ?? false;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Future<Map<String, dynamic>> getModelInfo() async {
+    try {
+      final result = await _method.invokeMethod<Map<dynamic, dynamic>>('getModelInfo');
+      return result?.map((k, v) => MapEntry(k.toString(), v)) ?? {};
+    } catch (_) {
+      return {};
+    }
+  }
+
+  // ── Private helpers ──────────────────────────────────────────────────────
+
+  VisionAnalysis _emptyVisionAnalysis() => const VisionAnalysis(
+        ocrTexts: [], sceneClassification: 'unknown',
+        sceneConfidence: 0, personCount: 0, personRects: []);
+
+  ScenePerceptionResult _emptySceneResult() => const ScenePerceptionResult(
+        ocrTexts: [], sceneClassification: 'unknown',
+        sceneConfidence: 0, personCount: 0, personRects: [],
+        detectedObjects: [], hasDepthMap: false);
+}

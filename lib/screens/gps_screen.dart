@@ -326,7 +326,7 @@ class _GpsScreenState extends State<GpsScreen> {
               // --- Last updated ---
               if (_lastUpdated != null)
                 Padding(
-                  padding: const EdgeInsets.only(top: 20.0),
+                  padding: const EdgeInsets.only(top: 20),
                   child: Text(
                     'Last updated: ${_lastUpdated!.toLocal().toString().substring(11, 19)}',
                     style: theme.textTheme.bodySmall?.copyWith(

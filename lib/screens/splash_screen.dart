@@ -4,6 +4,7 @@ import '../core/app_router.dart';
 import '../services/ble_service.dart';
 import '../services/device_prefs_service.dart';
 
+
 /// Splash Screen — Dynamic startup sequence for iCan App.
 ///
 /// Performs background initialization including BLE auto-connection.
@@ -135,7 +136,7 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
               const SizedBox(height: 48),
               
               // Loading Indicator
-              SizedBox(
+              const SizedBox(
                 width: 48,
                 height: 48,
                 child: CircularProgressIndicator(

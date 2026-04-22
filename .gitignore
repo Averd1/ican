@@ -99,3 +99,9 @@ secret.json
 
 # Test captures
 captures/
+
+# On-device ML models (large binaries — generate locally via Mac script)
+ios/Runner/EyePipeline/Models/
+
+# Moondream CoreML conversion virtual environment
+.venv-moondream/

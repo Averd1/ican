@@ -8,6 +8,18 @@ import UIKit
     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
   ) -> Bool {
     GeneratedPluginRegistrant.register(with: self)
+
+    // Register on-device vision MethodChannel + EventChannels
+    if let controller = window?.rootViewController as? FlutterViewController {
+      OnDeviceVisionChannel.register(with: controller.binaryMessenger)
+    }
+
     return super.application(application, didFinishLaunchingWithOptions: launchOptions)
+  }
+
+  override func applicationDidReceiveMemoryWarning(_ application: UIApplication) {
+    super.applicationDidReceiveMemoryWarning(application)
+    // Free the VLM to reclaim ~800MB under memory pressure
+    LlamaService.shared.unloadModel()
   }
 }

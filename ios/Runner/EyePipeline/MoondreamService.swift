@@ -28,7 +28,6 @@ final class MoondreamService {
     // MARK: - Models
 
     private var visionModel:       MLModel?
-    private var prefillModel:      MLModel?
     private var textDecodeModel:   MLModel?
     private var coordEncModel:     MLModel?
     private var coordDecModel:     MLModel?
@@ -63,7 +62,7 @@ final class MoondreamService {
     // MARK: - Availability
 
     var isAvailable: Bool {
-        visionModel != nil && prefillModel != nil && textDecodeModel != nil
+        visionModel != nil && textDecodeModel != nil
     }
 
     var isLoaded: Bool { isAvailable }
@@ -79,7 +78,6 @@ final class MoondreamService {
         config.computeUnits = .all
 
         visionModel    = loadModel("moondream_vision",          config: config)
-        prefillModel   = loadModel("moondream_prefill",         config: config)
         textDecodeModel = loadModel("moondream_text",           config: config)
         coordEncModel  = loadModel("moondream_coord_encoder",   config: config)
         coordDecModel  = loadModel("moondream_coord_decoder",   config: config)
@@ -145,10 +143,12 @@ final class MoondreamService {
 
     // MARK: - Public Inference API
 
-    /// Encode an image and run the 730-token prefill, filling the KV cache.
-    /// Must be called before caption() or point().
+    /// Encode an image and prefill the KV cache by feeding BOS + 729 image
+    /// embeddings one-by-one through the text decoder. Must be called before
+    /// caption() or point().
     func encodeAndPrefill(jpegData: Data) async -> Bool {
-        guard let vision = visionModel, let prefill = prefillModel else { return false }
+        guard let vision = visionModel else { return false }
+        guard #available(iOS 18.0, *), let state = decodeState as? MLState else { return false }
 
         // 1. Vision encoder → (729, 2048) image embeddings
         guard let cgImage = UIImage(data: jpegData)?.cgImage else { return false }
@@ -161,22 +161,27 @@ final class MoondreamService {
               let imageEmbeds = visionOut.featureValue(for: "image_embeddings")?.multiArrayValue
         else { return false }
 
-        // imageEmbeds shape: (729, 2048)
+        // 2. Reset state for fresh inference
+        decodeState = try? textDecodeModel?.makeState()
+        guard let freshState = decodeState as? MLState else { return false }
 
-        // 2. Build prefill input: BOS(1) + image(729) = (1, 730, 2048)
-        guard let prefillInput = buildPrefillInput(bosId: bosId, imageEmbeds: imageEmbeds) else {
-            return false
-        }
+        // 3. Feed BOS token at position 0
+        var attnMask = makeAttnMask(validUpTo: 0)
+        guard let bosEmbed = tokenEmbedding(bosId) else { return false }
+        _ = runDecodeStepFull(embed: bosEmbed, pos: 0, mask: attnMask, state: freshState)
+        attnMask[[0, 0, 0, 0] as [NSNumber]] = 0.0
 
-        // 3. Run prefill model
-        guard let prefillOut = try? prefill.prediction(from: MLDictionaryFeatureProvider(
-            dictionary: ["embeds": MLFeatureValue(multiArray: prefillInput)])) else {
-            return false
-        }
+        // 4. Feed 729 image embeddings at positions 1..729
+        let imgPtr = imageEmbeds.dataPointer.bindMemory(to: Float32.self, capacity: 729 * dim)
+        for i in 0..<729 {
+            guard let embed = try? MLMultiArray(shape: [1, 1, dim] as [NSNumber], dataType: .float32)
+            else { return false }
+            let dst = embed.dataPointer.bindMemory(to: Float32.self, capacity: dim)
+            memcpy(dst, imgPtr.advanced(by: i * dim), dim * 4)
 
-        // 4. Transfer KV caches from prefill output into decode model's state
-        if #available(iOS 18.0, *), let state = decodeState as? MLState {
-            guard loadKVIntoState(prefillOut, state: state) else { return false }
+            let pos = i + 1
+            _ = runDecodeStepFull(embed: embed, pos: pos, mask: attnMask, state: freshState)
+            attnMask[[0, 0, 0, pos] as [NSNumber]] = 0.0
         }
 
         return true
@@ -390,43 +395,6 @@ final class MoondreamService {
         return (0..<logits.count).map { logits[$0].floatValue }
     }
 
-    // MARK: - Private: KV Cache Transfer
-
-    private func loadKVIntoState(_ prefillOut: MLFeatureProvider, state: AnyObject) -> Bool {
-        guard #available(iOS 18.0, *), let mlState = state as? MLState else { return false }
-
-        let n = 24  // n_layers
-        let nkv = 32, pLen = prefillLen, dh = 64
-
-        for i in 0..<n {
-            guard let kSrc = prefillOut.featureValue(for: "k_out_\(i)")?.multiArrayValue,
-                  let vSrc = prefillOut.featureValue(for: "v_out_\(i)")?.multiArrayValue
-            else { return false }
-
-            let srcK = kSrc.dataPointer.bindMemory(to: Float32.self, capacity: nkv * pLen * dh)
-            let srcV = vSrc.dataPointer.bindMemory(to: Float32.self, capacity: nkv * pLen * dh)
-
-            mlState.withMultiArray(for: "k_cache_\(i)") { kBuf in
-                let dstK = kBuf.dataPointer.bindMemory(to: Float32.self, capacity: nkv * self.maxContext * dh)
-                for h in 0..<nkv {
-                    let sOff = h * pLen * dh
-                    let dOff = h * self.maxContext * dh
-                    memcpy(dstK.advanced(by: dOff), srcK.advanced(by: sOff), pLen * dh * 4)
-                }
-            }
-
-            mlState.withMultiArray(for: "v_cache_\(i)") { vBuf in
-                let dstV = vBuf.dataPointer.bindMemory(to: Float32.self, capacity: nkv * self.maxContext * dh)
-                for h in 0..<nkv {
-                    let sOff = h * pLen * dh
-                    let dOff = h * self.maxContext * dh
-                    memcpy(dstV.advanced(by: dOff), srcV.advanced(by: sOff), pLen * dh * 4)
-                }
-            }
-        }
-        return true
-    }
-
     // MARK: - Private: Tokenization / Embeddings
 
     private func tokenEmbedding(_ tokenId: Int) -> MLMultiArray? {
@@ -486,23 +454,6 @@ final class MoondreamService {
         vocabReverse = Dictionary(uniqueKeysWithValues: dict.map { ($1, $0) })
     }
 
-    // MARK: - Private: Prefill Input
-
-    private func buildPrefillInput(bosId: Int, imageEmbeds: MLMultiArray) -> MLMultiArray? {
-        // Concatenate BOS embedding (1, 2048) + image embeddings (729, 2048) → (1, 730, 2048)
-        guard let bosEmb = tokenEmbedding(bosId) else { return nil }
-        guard let result = try? MLMultiArray(shape: [1, 730, dim] as [NSNumber], dataType: .float32)
-        else { return nil }
-
-        let dst = result.dataPointer.bindMemory(to: Float32.self, capacity: 730 * dim)
-        let bosPtr = bosEmb.dataPointer.bindMemory(to: Float32.self, capacity: dim)
-        // Row 0: BOS
-        memcpy(dst, bosPtr, dim * 4)
-        // Rows 1..729: image embeddings
-        let imgPtr = imageEmbeds.dataPointer.bindMemory(to: Float32.self, capacity: 729 * dim)
-        memcpy(dst.advanced(by: dim), imgPtr, 729 * dim * 4)
-        return result
-    }
 
     // MARK: - Private: Attention Mask
 

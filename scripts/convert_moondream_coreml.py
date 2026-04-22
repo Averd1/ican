@@ -131,12 +131,11 @@ class VisionEncoderWrapper(nn.Module):
         x = w.patch_emb(x)                         # (1, 729, enc_dim)
         x = x + w.pos_emb
 
-        # Transformer blocks — cast to float32 for layer_norm, back to float16 after
+        # All weights are float32 (wrapper.float() called before tracing)
         for block in w.blocks:
-            x = x + attn(layer_norm(x.float(), block.ln1), block.attn,
-                         n_heads=cfg.enc_n_heads).to(x.dtype)
-            x = x + mlp(layer_norm(x.float(), block.ln2), block.mlp).to(x.dtype)
-        x = layer_norm(x.float(), w.post_ln).to(x.dtype)  # (1, 729, enc_dim)
+            x = x + attn(layer_norm(x, block.ln1), block.attn, n_heads=cfg.enc_n_heads)
+            x = x + mlp(layer_norm(x, block.ln2), block.mlp)
+        x = layer_norm(x, w.post_ln)               # (1, 729, enc_dim)
 
         global_features = x[0]                     # (729, enc_dim)
 
@@ -151,8 +150,8 @@ class VisionEncoderWrapper(nn.Module):
 def convert_vision_encoder(md_model, output_dir: Path):
     log("Converting vision encoder + projection...")
 
-    wrapper = VisionEncoderWrapper(md_model).eval()
-    sample  = torch.zeros(1, 3, 378, 378)  # zeros avoid any normalisation issues
+    wrapper = VisionEncoderWrapper(md_model).eval().float()  # bfloat16→float32 for CoreML
+    sample  = torch.zeros(1, 3, 378, 378)
 
     with torch.no_grad():
         out = wrapper(sample)
@@ -245,41 +244,33 @@ class SingleStepTextDecoder(nn.Module):
         return torch.cat([xq_out.to(x.dtype), x_pass], dim=-1)
 
     def _ln(self, x: torch.Tensor, w) -> torch.Tensor:
-        """Layer norm — cast to float32 locally (layer_norm doesn't support fp16 on CPU)."""
-        return torch.nn.functional.layer_norm(
-            x.float(), [self.cfg.dim], w.weight.float(), w.bias.float()
-        ).to(x.dtype)
+        # All weights are float32 (wrapper.float() called before tracing)
+        return torch.nn.functional.layer_norm(x, [self.cfg.dim], w.weight, w.bias)
 
     def _mlp(self, x: torch.Tensor, w) -> torch.Tensor:
-        """Two-layer MLP with GeLU — fully inlined, no shape ops."""
         h = torch.nn.functional.gelu(w.fc1(x), approximate="tanh")
         return w.fc2(h)
 
     def _lm_head(self, x: torch.Tensor) -> torch.Tensor:
-        """LM head: layer_norm last token → linear projection."""
-        h = x[:, -1, :]   # (1, dim)
+        h = x[:, -1, :]
         h = torch.nn.functional.layer_norm(
-            h.float(), [self.cfg.dim],
-            self.text.post_ln.weight.float(),
-            self.text.post_ln.bias.float(),
-        ).to(x.dtype)
+            h, [self.cfg.dim], self.text.post_ln.weight, self.text.post_ln.bias,
+        )
         return self.text.lm_head(h)  # (1, vocab_size)
 
     def forward(
         self,
-        token_embed: torch.Tensor,   # (1, 1, dim)
-        pos_id:      torch.Tensor,   # (1,) int
-        attn_mask:   torch.Tensor,   # (1, 1, 1, max_ctx) additive mask
-    ) -> torch.Tensor:               # (1, vocab_size) logits
-        # Cast inputs to model weight dtype (bfloat16 or float16); outputs stay float32
-        wdtype = self.text.blocks[0].attn.qkv.weight.dtype
-        x         = token_embed.to(wdtype)
-        attn_mask = attn_mask.to(wdtype)
+        token_embed: torch.Tensor,   # (1, 1, dim)  float32
+        pos_id:      torch.Tensor,   # (1,)          int32
+        attn_mask:   torch.Tensor,   # (1, 1, 1, max_ctx)  float32
+    ) -> torch.Tensor:
+        # All weights are float32 (wrapper.float() called before tracing) — no casting needed
+        x   = token_embed
         dim = self.cfg.dim
         nh  = self.cfg.n_heads
         nkv = self.cfg.n_kv_heads
         dh  = dim // nh
-        freqs = self.text.freqs_cis
+        freqs = self.text.freqs_cis.float()
 
         for i, block in enumerate(self.text.blocks):
             k_buf = getattr(self, f"k_cache_{i}")
@@ -297,20 +288,20 @@ class SingleStepTextDecoder(nn.Module):
             q = self._apply_rope_static(q, freqs, pos_id)
             k = self._apply_rope_static(k, freqs, pos_id)
 
-            k_buf[:, :, pos_id[0], :] = k[:, :, 0, :].float()
-            v_buf[:, :, pos_id[0], :] = v[:, :, 0, :].float()
+            k_buf[:, :, pos_id[0], :] = k[:, :, 0, :]
+            v_buf[:, :, pos_id[0], :] = v[:, :, 0, :]
 
             attn_out = torch.nn.functional.scaled_dot_product_attention(
-                q.float(), k_buf, v_buf, attn_mask=attn_mask.float(),
+                q, k_buf, v_buf, attn_mask=attn_mask,
             )
-            attn_out = attn_out.to(wdtype).transpose(1, 2).reshape(1, 1, dim)
+            attn_out = attn_out.transpose(1, 2).reshape(1, 1, dim)
             attn_out = block.attn.proj(attn_out)
 
             l_mlp = self._mlp(l_in, block.mlp)
             x = x + attn_out + l_mlp
 
-        hidden = x.float()           # (1, 1, dim) — cast to float32 for CoreML output
-        logits = self._lm_head(x)   # (1, vocab_size) — _lm_head already returns float32
+        hidden = x                   # (1, 1, dim)
+        logits = self._lm_head(x)   # (1, vocab_size)
         return logits, hidden
 
 
@@ -358,14 +349,14 @@ class MoondreamPrefill(nn.Module):
         nh  = self.cfg.n_heads
         nkv = self.cfg.n_kv_heads
         dh  = dim // nh
-        freqs = self.text.freqs_cis
+        freqs = self.text.freqs_cis.float()
 
         k_outs, v_outs = [], []
 
         for block in self.text.blocks:
             l_in = torch.nn.functional.layer_norm(
-                x.float(), [dim], block.ln.weight.float(), block.ln.bias.float()
-            ).to(x.dtype)
+                x, [dim], block.ln.weight, block.ln.bias
+            )
             qkv = block.attn.qkv(l_in)
             q_dim, kv_dim = nh * dh, nkv * dh
             q, k, v = qkv.split([q_dim, kv_dim, kv_dim], dim=-1)
@@ -402,7 +393,7 @@ def convert_prefill_model(md_model, output_dir: Path):
     nkv = cfg.n_kv_heads
     dh  = dim // cfg.n_heads
 
-    wrapper = MoondreamPrefill(md_model).eval()
+    wrapper = MoondreamPrefill(md_model).eval().float()  # bfloat16→float32 for CoreML
     sample  = torch.zeros(1, 730, dim)
 
     with torch.no_grad():
@@ -523,7 +514,7 @@ def convert_text_decoder(md_model, output_dir: Path):
     dh  = dim // cfg.n_heads
     n   = cfg.n_layers
 
-    wrapper = SingleStepTextDecoder(md_model).eval()
+    wrapper = SingleStepTextDecoder(md_model).eval().float()  # bfloat16→float32 for CoreML
 
     sample_embed = torch.zeros(1, 1, dim)
     sample_pos   = torch.tensor([0])
@@ -602,7 +593,7 @@ def convert_coord_head(md_model, output_dir: Path):
     dim = md_model.config.text.dim
 
     # Encoder
-    enc = CoordEncoderWrapper(md_model.region).eval()
+    enc = CoordEncoderWrapper(md_model.region).eval().float()
     s_coord = torch.tensor([0.5])
     with torch.no_grad(): enc(s_coord)
     tr_enc = torch.jit.trace(enc, s_coord, strict=False)
@@ -618,7 +609,7 @@ def convert_coord_head(md_model, output_dir: Path):
     ml_enc.save(str(p)); log(f"  Saved → {p}")
 
     # Decoder
-    dec = CoordDecoderWrapper(md_model.region).eval()
+    dec = CoordDecoderWrapper(md_model.region).eval().float()
     s_hidden = torch.zeros(1, 1, dim)
     with torch.no_grad(): dec(s_hidden)
     tr_dec = torch.jit.trace(dec, s_hidden, strict=False)
@@ -649,7 +640,7 @@ class SizeDecoderWrapper(nn.Module):
 def convert_size_head(md_model, output_dir: Path):
     log("Converting size (Detection) decoder...")
     dim = md_model.config.text.dim
-    wrapper = SizeDecoderWrapper(md_model.region).eval()
+    wrapper = SizeDecoderWrapper(md_model.region).eval().float()
     s = torch.zeros(1, 1, dim)
     with torch.no_grad(): wrapper(s)
     traced = torch.jit.trace(wrapper, s, strict=False)

@@ -271,7 +271,10 @@ class SingleStepTextDecoder(nn.Module):
         pos_id:      torch.Tensor,   # (1,) int
         attn_mask:   torch.Tensor,   # (1, 1, 1, max_ctx) additive mask
     ) -> torch.Tensor:               # (1, vocab_size) logits
-        x   = token_embed
+        # Cast inputs to model weight dtype (bfloat16 or float16); outputs stay float32
+        wdtype = self.text.blocks[0].attn.qkv.weight.dtype
+        x         = token_embed.to(wdtype)
+        attn_mask = attn_mask.to(wdtype)
         dim = self.cfg.dim
         nh  = self.cfg.n_heads
         nkv = self.cfg.n_kv_heads
@@ -294,20 +297,20 @@ class SingleStepTextDecoder(nn.Module):
             q = self._apply_rope_static(q, freqs, pos_id)
             k = self._apply_rope_static(k, freqs, pos_id)
 
-            k_buf[:, :, pos_id[0], :] = k[:, :, 0, :]
-            v_buf[:, :, pos_id[0], :] = v[:, :, 0, :]
+            k_buf[:, :, pos_id[0], :] = k[:, :, 0, :].float()
+            v_buf[:, :, pos_id[0], :] = v[:, :, 0, :].float()
 
             attn_out = torch.nn.functional.scaled_dot_product_attention(
-                q, k_buf, v_buf, attn_mask=attn_mask,
+                q.float(), k_buf, v_buf, attn_mask=attn_mask.float(),
             )
-            attn_out = attn_out.transpose(1, 2).reshape(1, 1, dim)
+            attn_out = attn_out.to(wdtype).transpose(1, 2).reshape(1, 1, dim)
             attn_out = block.attn.proj(attn_out)
 
             l_mlp = self._mlp(l_in, block.mlp)
             x = x + attn_out + l_mlp
 
-        hidden = x                   # (1, 1, dim) — pre-lm_head, used for coord/size
-        logits = self._lm_head(x)   # (1, vocab_size)
+        hidden = x.float()           # (1, 1, dim) — cast to float32 for CoreML output
+        logits = self._lm_head(x)   # (1, vocab_size) — _lm_head already returns float32
         return logits, hidden
 
 

@@ -183,7 +183,7 @@ class HomeViewModel extends ChangeNotifier {
     } catch (_) {}
   }
 
-  void _stopLiveVisionInternal() {
+  Future<void> _stopLiveVisionInternal() async {
     _liveVisionActive = false;
     _liveProcessing = false;
     _liveImageSub?.cancel();

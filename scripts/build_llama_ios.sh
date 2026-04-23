@@ -35,7 +35,7 @@ echo "    output:    $OUTPUT_DIR/llama.xcframework"
 # ── Shared cmake args ──────────────────────────────────────────────────────
 CMAKE_COMMON=(
     -G Xcode
-    -DLLAMA_BUILD_TOOLS=ON
+    -DLLAMA_BUILD_TOOLS=ON       # must be ON so tools/mtmd is added to project
     -DLLAMA_BUILD_COMMON=ON
     -DLLAMA_BUILD_EXAMPLES=OFF
     -DLLAMA_BUILD_TESTS=OFF
@@ -44,6 +44,10 @@ CMAKE_COMMON=(
     -DGGML_METAL_EMBED_LIBRARY=ON
     -DGGML_METAL_USE_BF16=ON
     -DBUILD_SHARED_LIBS=OFF
+    # Tell Xcode to skip code-signing for command-line targets (no bundle ID needed)
+    -DCMAKE_XCODE_ATTRIBUTE_CODE_SIGN_IDENTITY=""
+    -DCMAKE_XCODE_ATTRIBUTE_CODE_SIGNING_REQUIRED=NO
+    -DCMAKE_XCODE_ATTRIBUTE_CODE_SIGNING_ALLOWED=NO
 )
 
 # ── Static libs to merge (relative to build dir / Release-*) ──────────────
@@ -78,8 +82,10 @@ build_slice() {
         -DCMAKE_OSX_DEPLOYMENT_TARGET="$min_ver" \
         "$LLAMA_CPP"
 
-    echo "── Building $name ──"
-    cmake --build "$build_dir" --config Release -- -quiet
+    echo "── Building $name (mtmd target only) ──"
+    # Build only the mtmd library target — it pulls in llama + ggml automatically.
+    # LLAMA_BUILD_TOOLS=OFF means no CLI executables are built (they need bundle IDs on iOS).
+    cmake --build "$build_dir" --config Release --target mtmd -- -quiet
 
     # Merge static libs into one combined.a
     local tmp="$build_dir/combined_tmp"

@@ -612,6 +612,7 @@
 				OTHER_LDFLAGS = (
 					"$(inherited)",
 					"-ObjC",
+					"-lc++",
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = com.icannavigation.app;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -639,6 +640,7 @@
 				OTHER_LDFLAGS = (
 					"$(inherited)",
 					"-ObjC",
+					"-lc++",
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = com.icannavigation.app;
 				PRODUCT_NAME = "$(TARGET_NAME)";

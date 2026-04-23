@@ -670,7 +670,7 @@ def main():
         revision=args.revision,
         trust_remote_code=True,
         device_map="cpu",
-        dtype=torch.float16,  # half precision to keep peak RAM ~4 GB
+        torch_dtype=torch.float16,  # half precision to keep peak RAM ~4 GB
     )
     md_model = md_hf.model
     md_model.use_flex_decoding = False   # disable flex_attention — use SDPA instead

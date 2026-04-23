@@ -277,63 +277,6 @@ class OnDeviceVisionService {
     }
   }
 
-  // ── Moondream CoreML ─────────────────────────────────────────────────────
-
-  /// Returns true if all Moondream CoreML models are bundled and loadable.
-  Future<bool> isMoondreamAvailable() async {
-    try {
-      final result = await _method.invokeMethod<bool>('isMoondreamAvailable');
-      return result ?? false;
-    } catch (_) {
-      return false;
-    }
-  }
-
-  /// Encode the image and run the 730-token prefill into the KV cache.
-  /// Must be called before [captionWithMoondream] or [pointWithMoondream].
-  Future<bool> moondreamEncodeAndPrefill(Uint8List jpegBytes) async {
-    try {
-      final result = await _method.invokeMethod<bool>('moondreamEncodeAndPrefill', {
-        'imageBytes': jpegBytes,
-      });
-      return result ?? false;
-    } catch (e) {
-      debugPrint('[OnDeviceVision] Moondream prefill error: $e');
-      return false;
-    }
-  }
-
-  /// Generate a scene caption with Moondream. Streams token chunks via fm_stream.
-  /// Call [moondreamEncodeAndPrefill] first.
-  Stream<String> captionWithMoondream() async* {
-    try {
-      await _method.invokeMethod<bool>('moondreamCaption');
-      await for (final event in _fmStream.receiveBroadcastStream()) {
-        if (event is String) yield event;
-      }
-    } on PlatformException catch (e) {
-      debugPrint('[OnDeviceVision] Moondream caption error: ${e.message}');
-    }
-  }
-
-  /// Point to a named object. Returns list of {x, y} normalised coordinates.
-  /// Call [moondreamEncodeAndPrefill] first.
-  Future<List<Map<String, double>>> pointWithMoondream(String objectName) async {
-    try {
-      final result = await _method.invokeMethod<List<dynamic>>('moondreamPoint', {
-        'object': objectName,
-      });
-      return result
-              ?.map((e) => (e as Map<dynamic, dynamic>)
-                  .map((k, v) => MapEntry(k.toString(), (v as num).toDouble())))
-              .toList() ??
-          [];
-    } catch (e) {
-      debugPrint('[OnDeviceVision] Moondream point error: $e');
-      return [];
-    }
-  }
-
   // ── Layer 3: Foundation Models ───────────────────────────────────────────
 
   /// Returns true if Apple Foundation Models is available on this device (iOS 26+).

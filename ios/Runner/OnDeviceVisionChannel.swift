@@ -65,60 +65,6 @@ final class OnDeviceVisionChannel: NSObject {
         case "isObjectDetectionAvailable":
             result(ObjectDetector.shared.isAvailable)
 
-        // ── Moondream CoreML availability ─────────────────────────────────────
-        case "isMoondreamAvailable":
-            MoondreamService.shared.loadModels()
-            result(MoondreamService.shared.isAvailable)
-
-        // ── Moondream: encode image + prefill KV cache ────────────────────────
-        case "moondreamEncodeAndPrefill":
-            guard let imageBytes = imageBytes(from: call, result: result) else { return }
-            Task {
-                let ok = await MoondreamService.shared.encodeAndPrefill(jpegData: imageBytes)
-                DispatchQueue.main.async { result(ok) }
-            }
-
-        // ── Moondream: caption (streams via fm_stream) ────────────────────────
-        case "moondreamCaption":
-            Task {
-                await MoondreamService.shared.caption(
-                    onToken: { token in
-                        DispatchQueue.main.async { fmEventSink?(token) }
-                    },
-                    onComplete: {
-                        DispatchQueue.main.async { fmEventSink?(FlutterEndOfEventStream) }
-                    },
-                    onError: { error in
-                        DispatchQueue.main.async {
-                            fmEventSink?(FlutterError(code: "MD_ERROR", message: error, details: nil))
-                        }
-                    }
-                )
-                DispatchQueue.main.async { result(true) }
-            }
-
-        // ── Moondream: point skill ─────────────────────────────────────────────
-        case "moondreamPoint":
-            guard let args = call.arguments as? [String: Any],
-                  let objectName = args["object"] as? String else {
-                result(FlutterError(code: "INVALID_ARGS", message: "object required", details: nil))
-                return
-            }
-            Task {
-                await MoondreamService.shared.point(
-                    objectName: objectName,
-                    onResult: { points in
-                        let serialised = points.map { ["x": $0.x, "y": $0.y] }
-                        DispatchQueue.main.async { result(serialised) }
-                    },
-                    onError: { error in
-                        DispatchQueue.main.async {
-                            result(FlutterError(code: "MD_ERROR", message: error, details: nil))
-                        }
-                    }
-                )
-            }
-
         // ── Layer 3: Foundation Models availability check ────────────────────
         case "isFoundationModelsAvailable":
             result(FoundationModelSynthesizer.isAvailable)

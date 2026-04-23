@@ -20,8 +20,7 @@ enum VisionMode {
 enum VisionBackend {
   cloud,
   foundationModels, // Apple Foundation Models (iOS 26+) — richest offline path
-  moondream,        // Moondream 2B CoreML — pioneer on-device VLM with Pointing skill
-  vlm,              // SmolVLM via llama.cpp — fallback
+  vlm,              // SmolVLM-500M via llama.cpp mtmd
   visionOnly,       // Layer 1 template only
 }
 
@@ -93,10 +92,6 @@ class SceneDescriptionService extends ChangeNotifier {
         onStatusUpdate?.call('Analyzing on-device...', backend);
         yield* _describeWithFoundationModels(imageBytes, systemPrompt: systemPrompt);
 
-      case VisionBackend.moondream:
-        onStatusUpdate?.call('Analyzing with Moondream...', backend);
-        yield* _describeWithMoondream(imageBytes);
-
       case VisionBackend.vlm:
         onStatusUpdate?.call('Analyzing offline with AI model...', backend);
         yield* _describeWithVlm(imageBytes, systemPrompt: systemPrompt);
@@ -121,10 +116,6 @@ class SceneDescriptionService extends ChangeNotifier {
     required String systemPrompt,
   }) {
     return _describeWithFoundationModels(imageBytes, systemPrompt: systemPrompt);
-  }
-
-  Stream<String> describeWithMoondream(Uint8List imageBytes) {
-    return _describeWithMoondream(imageBytes);
   }
 
   Stream<String> describeWithSmolVLM(
@@ -158,18 +149,14 @@ class SceneDescriptionService extends ChangeNotifier {
   /// Pick the best available offline backend.
   ///
   /// Priority: Foundation Models (iOS 26, zero download)
-  ///           → Moondream CoreML (bundled, best VLM quality + Pointing)
-  ///           → SmolVLM llama.cpp → template.
+  ///           → SmolVLM-500M via llama.cpp (546 MB download)
+  ///           → Layer 1 template (always available)
   Future<VisionBackend> _bestOfflineBackend() async {
     // 1. Foundation Models — zero download, iOS 26+
     final fmAvailable = await onDeviceService.isFoundationModelsAvailable();
     if (fmAvailable) return VisionBackend.foundationModels;
 
-    // 2. Moondream CoreML — bundled, best on-device VLM with Pointing skill
-    final mdAvailable = await onDeviceService.isMoondreamAvailable();
-    if (mdAvailable) return VisionBackend.moondream;
-
-    // 2. SmolVLM — good quality, ~800 MB download
+    // 2. SmolVLM — good quality, ~546 MB download
     final status = await onDeviceService.getModelStatus();
     if (status == ModelStatus.loaded) return VisionBackend.vlm;
     if (status == ModelStatus.ready) {
@@ -222,34 +209,6 @@ class SceneDescriptionService extends ChangeNotifier {
 
     if (!gotTokens) {
       debugPrint('[SceneDescription] FM produced no output — using template');
-      yield perception.toTemplateDescription();
-    }
-  }
-
-  /// Moondream path — encode + prefill + caption via CoreML.
-  /// Falls back to Layer 1 template if prefill fails.
-  Stream<String> _describeWithMoondream(Uint8List imageBytes) async* {
-    // Run Layer 1 in parallel with Moondream encode+prefill
-    final perception = await onDeviceService.analyzeScene(imageBytes);
-    final prefillOk  = await onDeviceService.moondreamEncodeAndPrefill(imageBytes);
-
-    if (!prefillOk) {
-      debugPrint('[SceneDescription] Moondream prefill failed — template fallback');
-      yield perception.toTemplateDescription();
-      return;
-    }
-
-    bool gotTokens = false;
-    try {
-      await for (final token in onDeviceService.captionWithMoondream()) {
-        gotTokens = true;
-        yield token;
-      }
-    } catch (e) {
-      debugPrint('[SceneDescription] Moondream caption error: $e');
-    }
-
-    if (!gotTokens) {
       yield perception.toTemplateDescription();
     }
   }

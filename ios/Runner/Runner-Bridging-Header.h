@@ -1,10 +1,10 @@
 #import "GeneratedPluginRegistrant.h"
 
 // llama.cpp C API — required for LlamaService.swift VLM inference.
-// The llama.xcframework must be linked in the Xcode project build settings.
-// Build llama.cpp with: -DGGML_METAL=ON -DBUILD_SHARED_LIBS=OFF
+// Build the xcframework: scripts/build_llama_ios.sh ~/path/to/llama.cpp
+// Then add ios/Frameworks/llama.xcframework to the Runner target in Xcode.
 #if __has_include("llama.h")
 #include "llama.h"
-#include "llava.h"
-#include "clip.h"
+#include "mtmd.h"
+#include "mtmd-helper.h"
 #endif

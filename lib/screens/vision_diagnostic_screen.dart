@@ -15,7 +15,6 @@ import '../services/vertex_ai_service.dart';
 enum _DiagBackend {
   cloud('Cloud Gemini'),
   foundationModels('Apple Foundation Models'),
-  moondream('Moondream CoreML'),
   smolVLM('SmolVLM llama.cpp'),
   visionTemplate('Vision-only template');
 
@@ -124,8 +123,6 @@ class _VisionDiagnosticScreenState extends State<VisionDiagnosticScreen> {
             _imageBytes!,
             systemPrompt: systemPrompt,
           );
-        case _DiagBackend.moondream:
-          stream = _sceneService.describeWithMoondream(_imageBytes!);
         case _DiagBackend.smolVLM:
           stream = _sceneService.describeWithSmolVLM(
             _imageBytes!,

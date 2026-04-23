@@ -134,18 +134,19 @@ build_slice() {
         -o "$fw_dir/llama"
 
     # ── Copy public headers ────────────────────────────────────────────────
-    cp "$LLAMA_CPP/include/llama.h"          "$fw_dir/Headers/"
-    cp "$LLAMA_CPP/ggml/include/ggml.h"      "$fw_dir/Headers/"
-    cp "$LLAMA_CPP/tools/mtmd/mtmd.h"        "$fw_dir/Headers/"
-    cp "$LLAMA_CPP/tools/mtmd/mtmd-helper.h" "$fw_dir/Headers/"
+    # Copy all ggml headers (llama.h transitively includes ggml-cpu.h etc.)
+    cp "$LLAMA_CPP/include/llama.h"           "$fw_dir/Headers/"
+    cp "$LLAMA_CPP/ggml/include/"*.h          "$fw_dir/Headers/"
+    cp "$LLAMA_CPP/tools/mtmd/mtmd.h"         "$fw_dir/Headers/"
+    cp "$LLAMA_CPP/tools/mtmd/mtmd-helper.h"  "$fw_dir/Headers/"
 
     cat > "$fw_dir/Modules/module.modulemap" <<'MODULEMAP'
 framework module llama {
-    header "llama.h"
-    header "ggml.h"
+    umbrella header "llama.h"
     header "mtmd.h"
     header "mtmd-helper.h"
     export *
+    module * { export * }
 }
 MODULEMAP
 

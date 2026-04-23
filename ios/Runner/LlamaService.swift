@@ -216,7 +216,7 @@ final class LlamaService {
             }
 
             // ── 7. Reset KV cache ──────────────────────────────────────────────
-            llama_kv_self_clear(ctx)
+            llama_memory_clear(llama_get_memory(ctx), false)
             onComplete()
         }.value
     }

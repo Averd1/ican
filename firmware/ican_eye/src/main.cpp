@@ -25,8 +25,20 @@
 
 // Hardware Button Configuration
 #define CAPTURE_BUTTON_PIN D1
-unsigned long lastButtonPressMillis = 0;
-const unsigned long BUTTON_DEBOUNCE_DELAY_MS = 3000;
+const unsigned long BUTTON_DEBOUNCE_MS = 50;
+const unsigned long DOUBLE_PRESS_WINDOW_MS = 400;
+
+enum ButtonState : uint8_t {
+  BTN_IDLE,
+  BTN_FIRST_DOWN,
+  BTN_WAITING_SECOND,
+  BTN_SECOND_DOWN,
+};
+
+ButtonState buttonState = BTN_IDLE;
+unsigned long buttonDownTime = 0;
+unsigned long buttonUpTime = 0;
+bool lastButtonReading = HIGH;
 
 // Live capture mode state
 bool liveMode = false;
@@ -77,20 +89,42 @@ void setup() {
 // ============================================================================
 
 void loop() {
-  // Check physical button state (LOW means pressed because of INPUT_PULLUP)
-  if (digitalRead(CAPTURE_BUTTON_PIN) == LOW) {
-    if (millis() - lastButtonPressMillis > BUTTON_DEBOUNCE_DELAY_MS) {
-      lastButtonPressMillis = millis();
-      Serial.println("[Main] Physical button pressed. Triggering capture...");
+  // Button state machine: single press = capture, double press = voice command
+  bool reading = digitalRead(CAPTURE_BUTTON_PIN);
+  unsigned long now = millis();
 
-      // Quick double blink for physical feedback
+  switch (buttonState) {
+  case BTN_IDLE:
+    if (reading == LOW && lastButtonReading == HIGH &&
+        (now - buttonUpTime) > BUTTON_DEBOUNCE_MS) {
+      buttonState = BTN_FIRST_DOWN;
+      buttonDownTime = now;
+    }
+    break;
+
+  case BTN_FIRST_DOWN:
+    if (reading == HIGH && lastButtonReading == LOW &&
+        (now - buttonDownTime) > BUTTON_DEBOUNCE_MS) {
+      buttonState = BTN_WAITING_SECOND;
+      buttonUpTime = now;
+    }
+    break;
+
+  case BTN_WAITING_SECOND:
+    if (reading == LOW && lastButtonReading == HIGH &&
+        (now - buttonUpTime) > BUTTON_DEBOUNCE_MS) {
+      buttonState = BTN_SECOND_DOWN;
+      buttonDownTime = now;
+    } else if (now - buttonUpTime > DOUBLE_PRESS_WINDOW_MS) {
+      // Timeout — single press: trigger capture
+      buttonState = BTN_IDLE;
+      Serial.println("[Main] Single press — triggering capture.");
       digitalWrite(21, LOW); delay(50);
       digitalWrite(21, HIGH); delay(50);
       digitalWrite(21, LOW); delay(50);
       digitalWrite(21, HIGH);
-
       if (!isBleEyeConnected()) {
-        Serial.println("[Main] Capture requested via button but no client connected.");
+        Serial.println("[Main] No client connected.");
       } else {
         camera_fb_t *fb = capturePhoto();
         if (fb) {
@@ -100,7 +134,28 @@ void loop() {
         }
       }
     }
+    break;
+
+  case BTN_SECOND_DOWN:
+    if (reading == HIGH && lastButtonReading == LOW &&
+        (now - buttonDownTime) > BUTTON_DEBOUNCE_MS) {
+      // Double press detected — send voice trigger event
+      buttonState = BTN_IDLE;
+      buttonUpTime = now;
+      Serial.println("[Main] Double press — sending BUTTON:DOUBLE.");
+      // Triple blink for distinct feedback
+      for (int i = 0; i < 3; i++) {
+        digitalWrite(21, LOW); delay(40);
+        digitalWrite(21, HIGH); delay(40);
+      }
+      if (isBleEyeConnected()) {
+        sendControlMessage("BUTTON:DOUBLE");
+      }
+    }
+    break;
   }
+
+  lastButtonReading = reading;
 
   // Stop live mode if client disconnected
   if (liveMode && !isBleEyeConnected()) {

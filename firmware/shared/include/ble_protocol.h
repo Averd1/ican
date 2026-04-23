@@ -115,6 +115,9 @@ static_assert(sizeof(GpsPacket) == 19, "GpsPacket must be 19 bytes");
 //   "LIVE_STOP"             — stop firmware-driven periodic capture
 //   "PROFILE:{idx}"         — switch camera quality profile
 //   "STATUS"                — request current status
+//
+// Events (Eye → App, notified on same characteristic):
+//   "BUTTON:DOUBLE"         — physical button double-press detected
 
 // ===========================================================================
 // Image Stream Packet Header (Eye → App)

@@ -6,6 +6,7 @@ import 'package:image/image.dart' as img;
 
 import '../protocol/ble_protocol.dart';
 import '../services/ble_service.dart';
+import '../services/on_device_vision_service.dart';
 import '../services/scene_description_service.dart';
 import '../services/tts_service.dart';
 import 'font_scale.dart';
@@ -35,21 +36,28 @@ class HomeViewModel extends ChangeNotifier {
     _init();
   }
 
-  // ── Private state ──
   final List<DescriptionEntry> _history = [];
   String _lastDescription = '';
   bool _isPaused = false;
   bool _isProcessing = false;
-  FontScale _fontScale = FontScale.normal;
   String? _lastImageFingerprint;
   DateTime? _lastImageTime;
   int _batteryPercent = -1;
+  Timer? _processingTimeout;
 
   StreamSubscription<ObstacleAlert>? _obstacleSub;
   StreamSubscription<Uint8List>? _imageSub;
   StreamSubscription<void>? _captureSub;
   StreamSubscription<TelemetryPacket>? _telemetrySub;
   VoidCallback? _bleListener;
+
+  // ── Live vision mode state ──
+  bool _liveVisionActive = false;
+  bool get liveVisionActive => _liveVisionActive;
+  final OnDeviceVisionService _onDeviceVision = OnDeviceVisionService();
+  StreamSubscription<Uint8List>? _liveImageSub;
+  final Map<String, DateTime> _liveLastAnnounced = {};
+  bool _liveProcessing = false;
 
   // ── Public getters ──
   BleConnectionState get caneConnection => BleService.instance.caneState;
@@ -59,29 +67,41 @@ class HomeViewModel extends ChangeNotifier {
   String get lastDescription => _lastDescription;
   bool get isPaused => _isPaused;
   bool get isProcessing => _isProcessing;
-  FontScale get fontScale => _fontScale;
   List<DescriptionEntry> get history => List.unmodifiable(_history);
+  bool get hasAnyDevice => isEyeConnected || isCaneConnected;
 
   bool get isEyeConnected =>
       BleService.instance.state == BleConnectionState.connected;
   bool get isCaneConnected =>
       BleService.instance.caneState == BleConnectionState.connected;
-  bool get canDescribe => isEyeConnected && !_isProcessing && !_isPaused;
+  bool get canDescribe =>
+      isEyeConnected && !_isProcessing && !_isPaused && !_liveVisionActive;
 
-  // ── Initialization ──
   void _init() {
-    _bleListener = () => notifyListeners();
+    _bleListener = () {
+      if (_liveVisionActive &&
+          BleService.instance.state != BleConnectionState.connected) {
+        _stopLiveVisionInternal();
+      }
+      // Reset stuck processing if Eye disconnects mid-capture
+      if (!isEyeConnected && _isProcessing) {
+        _isProcessing = false;
+        _processingTimeout?.cancel();
+      }
+      notifyListeners();
+    };
     BleService.instance.addListener(_bleListener!);
 
     _obstacleSub = BleService.instance.obstacleStream.listen((alert) {
-      // Obstacle alerts are handled by the HazardAlertBanner directly
-      // via its own stream subscription — ViewModel just notifies.
       notifyListeners();
     });
 
     _captureSub = BleService.instance.captureStartedStream.listen((_) {
-      _isProcessing = true;
-      notifyListeners();
+      if (!_liveVisionActive) {
+        _isProcessing = true;
+        notifyListeners();
+        _startProcessingTimeout();
+      }
     });
 
     _telemetrySub = BleService.instance.telemetryStream.listen((pkt) {
@@ -91,7 +111,7 @@ class HomeViewModel extends ChangeNotifier {
 
     _imageSub =
         BleService.instance.imageStream.listen((Uint8List imageBytes) async {
-      if (_isPaused) return;
+      if (_isPaused || _liveVisionActive || _isProcessing) return;
       final now = DateTime.now();
       final fingerprint = _computeFingerprint(imageBytes);
       if (_lastImageFingerprint == fingerprint &&
@@ -103,6 +123,117 @@ class HomeViewModel extends ChangeNotifier {
       _lastImageTime = now;
       await _processImage(imageBytes);
     });
+
+    _announceStartup();
+  }
+
+  void _startProcessingTimeout() {
+    _processingTimeout?.cancel();
+    _processingTimeout = Timer(const Duration(seconds: 15), () {
+      if (_isProcessing) {
+        _isProcessing = false;
+        notifyListeners();
+      }
+    });
+  }
+
+  Future<void> _announceStartup() async {
+    final parts = <String>['Home screen.'];
+    if (isEyeConnected) parts.add('Camera connected.');
+    if (isCaneConnected) parts.add('Cane connected.');
+    if (!isEyeConnected && !isCaneConnected) {
+      parts.add('No devices connected yet.');
+    }
+    await ttsService.speak(parts.join(' '));
+  }
+
+  // ── Live Vision Mode ──
+
+  Future<void> startLiveVision() async {
+    if (_liveVisionActive || !isEyeConnected) return;
+    _liveVisionActive = true;
+    _liveLastAnnounced.clear();
+    notifyListeners();
+
+    await BleService.instance.setEyeProfile(0);
+    await BleService.instance.startLiveCapture(intervalMs: 1500);
+
+    _liveImageSub =
+        BleService.instance.imageStream.listen((Uint8List imageBytes) async {
+      if (!_liveVisionActive || _liveProcessing) return;
+      _liveProcessing = true;
+      try {
+        await _processLiveFrame(imageBytes);
+      } catch (e) {
+        debugPrint('[HomeViewModel] Live frame error: $e');
+      }
+      _liveProcessing = false;
+    });
+
+    try {
+      await ttsService.speak('Live vision started.');
+    } catch (_) {}
+  }
+
+  Future<void> stopLiveVision() async {
+    if (!_liveVisionActive) return;
+    await _stopLiveVisionInternal();
+    try {
+      await ttsService.speak('Live vision stopped.');
+    } catch (_) {}
+  }
+
+  void _stopLiveVisionInternal() {
+    _liveVisionActive = false;
+    _liveProcessing = false;
+    _liveImageSub?.cancel();
+    _liveImageSub = null;
+    _liveLastAnnounced.clear();
+    BleService.instance.stopLiveCapture();
+    BleService.instance.setEyeProfile(1);
+    notifyListeners();
+  }
+
+  Future<void> _processLiveFrame(Uint8List imageBytes) async {
+    if (imageBytes.length < 2 ||
+        imageBytes[0] != 0xFF ||
+        imageBytes[1] != 0xD8) return;
+
+    final result = await _onDeviceVision.analyzeScene(imageBytes);
+    if (!_liveVisionActive) return;
+
+    final filtered = result.detectedObjects
+        .where((o) => o.confidence >= 0.5)
+        .toList()
+      ..sort((a, b) => b.confidence.compareTo(a.confidence));
+
+    if (filtered.isEmpty) return;
+
+    final now = DateTime.now();
+    final toAnnounce = <String>[];
+
+    for (final det in filtered.take(3)) {
+      final lastTime = _liveLastAnnounced[det.label];
+      if (lastTime != null &&
+          now.difference(lastTime) < const Duration(seconds: 3)) {
+        continue;
+      }
+      _liveLastAnnounced[det.label] = now;
+      final position = _positionFromCenterX(det.centerX);
+      toAnnounce.add('${det.label} $position');
+    }
+
+    if (toAnnounce.isNotEmpty && _liveVisionActive) {
+      try {
+        await ttsService.speak(toAnnounce.join(', '));
+      } catch (_) {}
+    }
+  }
+
+  static String _positionFromCenterX(double cx) {
+    if (cx < 0.33) return 'on your left';
+    if (cx < 0.66) return 'ahead';
+    return 'on your right';
   }
 
   // ── Public methods ──
@@ -127,12 +258,8 @@ class HomeViewModel extends ChangeNotifier {
     if (!canDescribe) return;
     _isProcessing = true;
     notifyListeners();
+    _startProcessingTimeout();
     BleService.instance.triggerEyeCapture();
-  }
-
-  void setFontScale(FontScale scale) {
-    _fontScale = scale;
-    notifyListeners();
   }
 
   void removeDescription(int index) {
@@ -171,6 +298,7 @@ class HomeViewModel extends ChangeNotifier {
         imageBytes[0] != 0xFF ||
         imageBytes[1] != 0xD8) {
       _isProcessing = false;
+      _processingTimeout?.cancel();
       notifyListeners();
       try {
         await ttsService
@@ -181,6 +309,7 @@ class HomeViewModel extends ChangeNotifier {
 
     _isProcessing = true;
     notifyListeners();
+    _startProcessingTimeout();
 
     final enhancedBytes = await compute(_enhanceImageForApi, imageBytes);
 
@@ -238,6 +367,7 @@ class HomeViewModel extends ChangeNotifier {
     }
 
     _isProcessing = false;
+    _processingTimeout?.cancel();
     notifyListeners();
   }
 
@@ -252,10 +382,15 @@ class HomeViewModel extends ChangeNotifier {
 
   @override
   void dispose() {
+    if (_liveVisionActive) {
+      _stopLiveVisionInternal();
+    }
     _obstacleSub?.cancel();
     _imageSub?.cancel();
+    _liveImageSub?.cancel();
     _captureSub?.cancel();
     _telemetrySub?.cancel();
+    _processingTimeout?.cancel();
     if (_bleListener != null) {
       BleService.instance.removeListener(_bleListener!);
     }

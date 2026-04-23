@@ -173,8 +173,7 @@ class _AccessibleButtonState extends State<AccessibleButton> {
           fontSize: 20.sp,
           fontWeight: FontWeight.w600,
           color: fg,
-          decoration:
-              _enabled ? TextDecoration.none : TextDecoration.lineThrough,
+          decoration: TextDecoration.none,
           decorationColor: fg,
           decorationThickness: 2,
         ),
@@ -197,8 +196,7 @@ class _AccessibleButtonState extends State<AccessibleButton> {
           fontSize: 14.sp,
           fontWeight: FontWeight.normal,
           color: subtitleColor,
-          decoration:
-              _enabled ? TextDecoration.none : TextDecoration.lineThrough,
+          decoration: TextDecoration.none,
           decorationColor: subtitleColor,
           decorationThickness: 2,
         ),

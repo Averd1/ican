@@ -7,7 +7,6 @@ import 'package:provider/provider.dart';
 import 'package:go_router/go_router.dart';
 
 import '../core/theme.dart';
-import '../models/home_view_model.dart';
 import '../models/settings_provider.dart';
 import '../services/ble_service.dart';
 import '../services/device_prefs_service.dart';
@@ -356,18 +355,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
         _DeviceRow(
           name: 'iCan Eye Camera',
           isConnected: eyeConnected,
-          onForget: () => _confirmForgetDevice(
-            'iCan Eye Camera',
-            () async {
-              await BleService.instance.disconnectAndForget();
-              if (mounted) {
-                HapticFeedback.mediumImpact();
-                SemanticsService.announce(
-                    'iCan Eye Camera forgotten.', TextDirection.ltr);
-                setState(() {});
-              }
-            },
-          ),
           onReconnect: () {
             HapticFeedback.mediumImpact();
             BleService.instance.startScan();
@@ -377,98 +364,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
         _DeviceRow(
           name: 'iCan Cane',
           isConnected: caneConnected,
-          onForget: () => _confirmForgetDevice(
-            'iCan Cane',
-            () async {
-              await DevicePrefsService.instance.saveLastCaneDeviceId('');
-              if (mounted) {
-                HapticFeedback.mediumImpact();
-                SemanticsService.announce(
-                    'iCan Cane forgotten.', TextDirection.ltr);
-                setState(() {});
-              }
-            },
-          ),
           onReconnect: () {
             HapticFeedback.mediumImpact();
             BleService.instance.startScanForCane();
           },
         ),
       ],
-    );
-  }
-
-  void _confirmForgetDevice(String name, VoidCallback onConfirm) {
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: AppColors.backgroundLight,
-        shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12)),
-        title: Semantics(
-          header: true,
-          child: Text(
-            'Forget $name?',
-            style: TextStyle(
-              fontSize: 22.sp,
-              fontWeight: FontWeight.bold,
-              color: AppColors.textOnLight,
-            ),
-          ),
-        ),
-        content: Text(
-          'This will disconnect and remove $name. '
-          'You will need to search for it again to reconnect.',
-          style: TextStyle(
-            fontSize: 18.sp,
-            color: AppColors.textOnLight,
-            height: 1.4,
-          ),
-        ),
-        actions: [
-          Semantics(
-            button: true,
-            label: 'Cancel, keep device',
-            child: TextButton(
-              onPressed: () => Navigator.pop(ctx),
-              style: TextButton.styleFrom(
-                minimumSize: const Size(48, 56),
-              ),
-              child: Text(
-                'Cancel',
-                style: TextStyle(
-                  fontSize: 18.sp,
-                  fontWeight: FontWeight.w600,
-                  color: AppColors.textSecondaryOnLight,
-                ),
-              ),
-            ),
-          ),
-          Semantics(
-            button: true,
-            label: 'Confirm forget $name',
-            focusable: true,
-            child: TextButton(
-              autofocus: true,
-              onPressed: () {
-                Navigator.pop(ctx);
-                onConfirm();
-              },
-              style: TextButton.styleFrom(
-                minimumSize: const Size(48, 56),
-              ),
-              child: Text(
-                'Forget',
-                style: TextStyle(
-                  fontSize: 18.sp,
-                  fontWeight: FontWeight.bold,
-                  color: AppColors.error,
-                ),
-              ),
-            ),
-          ),
-        ],
-      ),
     );
   }
 
@@ -580,11 +481,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
         const _Divider(),
 
         _TapTile(
-          label: 'Send Feedback',
-          hint: 'Opens a way to send feedback to the iCan team',
+          label: 'Switch Role',
+          hint: 'Go back to role selection to switch between user and caretaker',
           onTap: () {
             HapticFeedback.lightImpact();
-            // TODO: open feedback flow
+            DevicePrefsService.instance.saveUserRole('');
+            context.goNamed('role-selection');
           },
         ),
       ],
@@ -796,13 +698,11 @@ class _TapTile extends StatelessWidget {
 class _DeviceRow extends StatelessWidget {
   final String name;
   final bool isConnected;
-  final VoidCallback onForget;
   final VoidCallback onReconnect;
 
   const _DeviceRow({
     required this.name,
     required this.isConnected,
-    required this.onForget,
     required this.onReconnect,
   });
 
@@ -815,7 +715,6 @@ class _DeviceRow extends StatelessWidget {
         child: ExcludeSemantics(
           child: Row(
             children: [
-              // Status icon
               if (isConnected)
                 Icon(Icons.check_circle,
                     color: AppColors.success, size: 24)
@@ -824,7 +723,6 @@ class _DeviceRow extends StatelessWidget {
                     color: AppColors.disabledOnLight, size: 24),
               const SizedBox(width: AppSpacing.xs),
 
-              // Name + status
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -851,45 +749,34 @@ class _DeviceRow extends StatelessWidget {
                 ),
               ),
 
-              // Action button
-              Semantics(
-                button: true,
-                label: isConnected
-                    ? 'Forget $name'
-                    : 'Reconnect $name',
-                hint: isConnected
-                    ? 'Disconnects and removes this device'
-                    : 'Searches for this device to reconnect',
-                child: GestureDetector(
-                  onTap: isConnected ? onForget : onReconnect,
-                  child: Container(
-                    constraints:
-                        const BoxConstraints(minWidth: 88, minHeight: 48),
-                    decoration: BoxDecoration(
-                      color: isConnected
-                          ? AppColors.backgroundLight
-                          : AppColors.interactive,
-                      borderRadius: BorderRadius.circular(10),
-                      border: isConnected
-                          ? Border.all(color: AppColors.error, width: 1.5)
-                          : null,
-                    ),
-                    alignment: Alignment.center,
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 12),
-                    child: Text(
-                      isConnected ? 'Forget' : 'Reconnect',
-                      style: TextStyle(
-                        fontSize: 14.sp,
-                        fontWeight: FontWeight.w600,
-                        color: isConnected
-                            ? AppColors.error
-                            : AppColors.textOnDark,
+              if (!isConnected)
+                Semantics(
+                  button: true,
+                  label: 'Reconnect $name',
+                  hint: 'Searches for this device to reconnect',
+                  child: GestureDetector(
+                    onTap: onReconnect,
+                    child: Container(
+                      constraints:
+                          const BoxConstraints(minWidth: 88, minHeight: 48),
+                      decoration: BoxDecoration(
+                        color: AppColors.interactive,
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      alignment: Alignment.center,
+                      padding:
+                          const EdgeInsets.symmetric(horizontal: 12),
+                      child: Text(
+                        'Reconnect',
+                        style: TextStyle(
+                          fontSize: 14.sp,
+                          fontWeight: FontWeight.w600,
+                          color: AppColors.textOnDark,
+                        ),
                       ),
                     ),
                   ),
                 ),
-              ),
             ],
           ),
         ),

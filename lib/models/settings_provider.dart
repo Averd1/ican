@@ -65,6 +65,7 @@ class SettingsProvider extends ChangeNotifier {
 
   void setVolume(double vol) {
     _volume = vol.clamp(0.0, 1.0);
+    ttsService.setVolume(_volume);
     _save('volume', _volume);
     notifyListeners();
   }
@@ -143,6 +144,7 @@ class SettingsProvider extends ChangeNotifier {
       if (rate != null) ttsService.setRate(rate);
 
       _volume = prefs.getDouble('volume') ?? 1.0;
+      ttsService.setVolume(_volume);
 
       final voiceIdx = prefs.getInt('voice_type');
       if (voiceIdx != null && voiceIdx < VoiceType.values.length) {

@@ -36,15 +36,15 @@ class LiveDetectionScreen extends StatefulWidget {
 
 class _LiveDetectionScreenState extends State<LiveDetectionScreen> {
   final OnDeviceVisionService _vision = OnDeviceVisionService();
-  final TtsService _tts = TtsService();
+  final TtsService _tts = TtsService.instance;
 
   bool _checkingPrereqs = true;
   String? _errorMessage;
   String? _errorHint;
 
-  Timer? _captureTimer;
   StreamSubscription<Uint8List>? _imageSub;
   bool _processing = false;
+  bool _liveStarted = false;
 
   Uint8List? _latestImage;
   List<SpatialObjectData> _detections = [];
@@ -54,12 +54,13 @@ class _LiveDetectionScreenState extends State<LiveDetectionScreen> {
   @override
   void initState() {
     super.initState();
-    _tts.init().then((_) => _checkPrerequisites());
+    _checkPrerequisites();
   }
 
   Future<void> _checkPrerequisites() async {
     final modelAvailable = await _vision.isObjectDetectionAvailable();
     if (!modelAvailable) {
+      if (!mounted) return;
       setState(() {
         _checkingPrereqs = false;
         _errorMessage = 'Object detection model not loaded.';
@@ -71,6 +72,7 @@ class _LiveDetectionScreenState extends State<LiveDetectionScreen> {
     }
 
     if (BleService.instance.state != BleConnectionState.connected) {
+      if (!mounted) return;
       setState(() {
         _checkingPrereqs = false;
         _errorMessage = 'iCan Eye is not connected.';
@@ -80,11 +82,12 @@ class _LiveDetectionScreenState extends State<LiveDetectionScreen> {
       return;
     }
 
+    if (!mounted) return;
     setState(() => _checkingPrereqs = false);
     _startCaptureLoop();
   }
 
-  void _startCaptureLoop() {
+  Future<void> _startCaptureLoop() async {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       SemanticsService.announce(
         'Live detection started. Objects will be announced as they are detected.',
@@ -99,59 +102,36 @@ class _LiveDetectionScreenState extends State<LiveDetectionScreen> {
       },
     );
 
-    _captureTimer = Timer.periodic(
-      const Duration(milliseconds: 1500),
-      (_) => _triggerCapture(),
-    );
-    _triggerCapture();
-  }
-
-  void _triggerCapture() {
-    if (BleService.instance.state != BleConnectionState.connected) {
-      debugPrint('[LiveDetection] Eye disconnected mid-session');
-      _stopLoop();
-      if (mounted) {
-        setState(() {
-          _errorMessage = 'iCan Eye disconnected.';
-          _errorHint =
-              'Please reconnect the Eye to resume live detection.';
-        });
-      }
-      return;
-    }
-    try {
-      BleService.instance.triggerEyeCapture();
-    } catch (e) {
-      debugPrint('[LiveDetection] triggerEyeCapture failed: $e');
-      _stopLoop();
-      if (mounted) {
-        setState(() {
-          _errorMessage = 'iCan Eye disconnected.';
-          _errorHint =
-              'Please reconnect the Eye to resume live detection.';
-        });
-      }
-    }
+    await BleService.instance.setEyeProfile(0);
+    await BleService.instance.startLiveCapture(intervalMs: 1500);
+    _liveStarted = true;
   }
 
   Future<void> _handleImage(Uint8List imageBytes) async {
     if (_processing || !mounted) return;
     _processing = true;
 
-    setState(() => _latestImage = imageBytes);
+    if (mounted) {
+      setState(() => _latestImage = imageBytes);
+    }
 
     try {
       final result = await _vision.analyzeScene(imageBytes);
-      if (!mounted) return;
+      if (!mounted) {
+        _processing = false;
+        return;
+      }
 
       final filtered = result.detectedObjects
           .where((o) => o.confidence >= 0.5)
           .toList()
         ..sort((a, b) => b.confidence.compareTo(a.confidence));
 
-      setState(() => _detections = filtered);
+      if (mounted) {
+        setState(() => _detections = filtered);
+      }
 
-      if (filtered.isNotEmpty) {
+      if (filtered.isNotEmpty && mounted) {
         final verbosity = context.read<SettingsProvider>().liveDetectionVerbosity;
         final now = DateTime.now();
 
@@ -217,6 +197,7 @@ class _LiveDetectionScreenState extends State<LiveDetectionScreen> {
   }
 
   void _addLogEntry(String label, String position, double confidence, DateTime ts) {
+    if (!mounted) return;
     setState(() {
       _log.insert(
         0,
@@ -232,8 +213,11 @@ class _LiveDetectionScreenState extends State<LiveDetectionScreen> {
   }
 
   void _stopLoop() {
-    _captureTimer?.cancel();
-    _captureTimer = null;
+    if (_liveStarted) {
+      BleService.instance.stopLiveCapture();
+      BleService.instance.setEyeProfile(1);
+      _liveStarted = false;
+    }
     _imageSub?.cancel();
     _imageSub = null;
   }

@@ -10,6 +10,7 @@ import 'package:provider/provider.dart';
 import '../core/theme.dart';
 import '../models/home_view_model.dart';
 import '../services/ble_service.dart';
+import '../services/device_prefs_service.dart';
 import '../widgets/accessible_button.dart';
 import '../widgets/device_status_card.dart';
 import '../widgets/hazard_alert_banner.dart';
@@ -37,13 +38,18 @@ class _AccessibleHomeScreenState extends State<AccessibleHomeScreen> {
     });
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      SemanticsService.announce(
-        'Home screen. Camera and cane active.',
-        TextDirection.ltr,
-      );
-      final vm = context.read<HomeViewModel>();
-      vm.ttsService.speak('Home screen. Camera and cane active.');
+      SemanticsService.announce('Home screen', TextDirection.ltr);
+      // If we arrive at home still disconnected (e.g. after first-time pairing
+      // flow or a cold launch where BLE wasn't ready), kick off a fresh connect.
+      _retryBleIfNeeded();
     });
+  }
+
+  Future<void> _retryBleIfNeeded() async {
+    if (BleService.instance.state != BleConnectionState.disconnected) return;
+    final savedId = await DevicePrefsService.instance.getLastDeviceId();
+    if (savedId == null || savedId.isEmpty) return;
+    BleService.instance.connectToEyeByMac(savedId);
   }
 
   @override
@@ -61,7 +67,6 @@ class _AccessibleHomeScreenState extends State<AccessibleHomeScreen> {
       backgroundColor: AppColors.backgroundLight,
       body: Stack(
         children: [
-          // ── Main content ──
           SafeArea(
             child: FocusTraversalGroup(
               policy: OrderedTraversalPolicy(),
@@ -73,7 +78,7 @@ class _AccessibleHomeScreenState extends State<AccessibleHomeScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    // ── Screen title (visually hidden, semantics heading) ──
+                    // Screen title (visually hidden, semantics heading)
                     FocusTraversalOrder(
                       order: const NumericFocusOrder(0),
                       child: Semantics(
@@ -83,7 +88,7 @@ class _AccessibleHomeScreenState extends State<AccessibleHomeScreen> {
                       ),
                     ),
 
-                    // ── 1. Device status cards ──
+                    // 1. Device status cards
                     FocusTraversalOrder(
                       order: const NumericFocusOrder(1),
                       child: _buildStatusSection(vm),
@@ -91,7 +96,7 @@ class _AccessibleHomeScreenState extends State<AccessibleHomeScreen> {
 
                     const SizedBox(height: AppSpacing.md),
 
-                    // ── 2. Live description area ──
+                    // 2. Live description area
                     FocusTraversalOrder(
                       order: const NumericFocusOrder(2),
                       child: _buildDescriptionArea(vm),
@@ -99,49 +104,10 @@ class _AccessibleHomeScreenState extends State<AccessibleHomeScreen> {
 
                     const SizedBox(height: AppSpacing.md),
 
-                    // ── 3. Primary actions ──
+                    // 3. Context-sensitive actions
                     FocusTraversalOrder(
                       order: const NumericFocusOrder(3),
                       child: _buildActions(vm),
-                    ),
-
-                    const SizedBox(height: AppSpacing.md),
-
-                    // ── 4. Quick settings ──
-                    FocusTraversalOrder(
-                      order: const NumericFocusOrder(4),
-                      child: _buildSettings(vm),
-                    ),
-
-                    // ── 5. Navigation shortcut ──
-                    FocusTraversalOrder(
-                      order: const NumericFocusOrder(5),
-                      child: Padding(
-                        padding:
-                            const EdgeInsets.only(top: AppSpacing.md),
-                        child: AccessibleButton(
-                          label: 'Open Navigation',
-                          hint: 'Opens turn-by-turn walking directions',
-                          onPressed: () =>
-                                  context.pushNamed('nav'),
-                        ),
-                      ),
-                    ),
-
-                    // ── 6. Live Detection shortcut ──
-                    FocusTraversalOrder(
-                      order: const NumericFocusOrder(6),
-                      child: Padding(
-                        padding:
-                            const EdgeInsets.only(top: AppSpacing.md),
-                        child: AccessibleButton(
-                          label: 'Start Live Detection',
-                          hint:
-                              'Continuously announces objects the Eye sees with audio',
-                          onPressed: () =>
-                                  context.pushNamed('live-detection'),
-                        ),
-                      ),
                     ),
 
                     const SizedBox(height: AppSpacing.lg),
@@ -151,7 +117,7 @@ class _AccessibleHomeScreenState extends State<AccessibleHomeScreen> {
             ),
           ),
 
-          // ── Hazard alert overlay ──
+          // Hazard alert overlay
           Positioned(
             top: topPadding,
             left: 0,
@@ -162,10 +128,6 @@ class _AccessibleHomeScreenState extends State<AccessibleHomeScreen> {
       ),
     );
   }
-
-  // ═══════════════════════════════════════════════════════════════════════════
-  // Section 1 — Device status
-  // ═══════════════════════════════════════════════════════════════════════════
 
   Widget _buildStatusSection(HomeViewModel vm) {
     return Column(
@@ -188,10 +150,6 @@ class _AccessibleHomeScreenState extends State<AccessibleHomeScreen> {
       ],
     );
   }
-
-  // ═══════════════════════════════════════════════════════════════════════════
-  // Section 2 — Live description
-  // ═══════════════════════════════════════════════════════════════════════════
 
   Widget _buildDescriptionArea(HomeViewModel vm) {
     final bool hasDescription = vm.lastDescription.isNotEmpty;
@@ -236,7 +194,7 @@ class _AccessibleHomeScreenState extends State<AccessibleHomeScreen> {
                     Text(
                       'Scene Description',
                       style: TextStyle(
-                        fontSize: 14.sp * vm.fontScale.value,
+                        fontSize: 14.sp,
                         fontWeight: FontWeight.w600,
                         color: AppColors.textSecondaryOnLight,
                       ),
@@ -258,7 +216,7 @@ class _AccessibleHomeScreenState extends State<AccessibleHomeScreen> {
                 Text(
                   displayText,
                   style: TextStyle(
-                    fontSize: 18.sp * vm.fontScale.value,
+                    fontSize: 18.sp,
                     fontWeight:
                         hasDescription ? FontWeight.normal : FontWeight.w300,
                     color: hasDescription
@@ -274,7 +232,7 @@ class _AccessibleHomeScreenState extends State<AccessibleHomeScreen> {
                   Text(
                     'Tap to hear again',
                     style: TextStyle(
-                      fontSize: 13.sp * vm.fontScale.value,
+                      fontSize: 13.sp,
                       color: AppColors.interactive,
                       fontWeight: FontWeight.w600,
                     ),
@@ -288,13 +246,38 @@ class _AccessibleHomeScreenState extends State<AccessibleHomeScreen> {
     );
   }
 
-  // ═══════════════════════════════════════════════════════════════════════════
-  // Section 3 — Primary actions
-  // ═══════════════════════════════════════════════════════════════════════════
-
   Widget _buildActions(HomeViewModel vm) {
-    return Column(
-      children: [
+    final widgets = <Widget>[];
+
+    // "Describe Surroundings Now" — only when Eye is connected
+    if (vm.isEyeConnected) {
+      widgets.add(
+        AccessibleButton(
+          label: vm.isProcessing ? 'Describing…' : 'Describe Surroundings Now',
+          hint:
+              'Takes a photo with the camera and describes what is around you',
+          onPressed: vm.canDescribe ? () => vm.describeNow() : null,
+          subtitle: vm.isProcessing ? 'Processing…' : null,
+        ),
+      );
+    }
+
+    // "Repeat Last" — only when there's a description to repeat
+    if (vm.lastDescription.isNotEmpty) {
+      if (widgets.isNotEmpty) widgets.add(const SizedBox(height: AppSpacing.md));
+      widgets.add(
+        AccessibleButton(
+          label: 'Repeat Last Description',
+          hint: 'Reads the last scene description aloud again',
+          onPressed: () => vm.repeatLast(),
+        ),
+      );
+    }
+
+    // "Pause/Resume" — only when a device is connected
+    if (vm.hasAnyDevice) {
+      if (widgets.isNotEmpty) widgets.add(const SizedBox(height: AppSpacing.md));
+      widgets.add(
         AccessibleButton(
           label: vm.isPaused ? 'Resume Descriptions' : 'Pause Descriptions',
           hint: vm.isPaused
@@ -308,171 +291,48 @@ class _AccessibleHomeScreenState extends State<AccessibleHomeScreen> {
             }
           },
         ),
-        const SizedBox(height: AppSpacing.md),
-        AccessibleButton(
-          label: 'Repeat Last',
-          hint: 'Reads the last scene description aloud again',
-          onPressed: vm.lastDescription.isNotEmpty ? () => vm.repeatLast() : null,
-        ),
-        const SizedBox(height: AppSpacing.md),
-        AccessibleButton(
-          label: 'Describe Surroundings Now',
-          hint:
-              'Takes a photo with the camera and describes what is around you',
-          onPressed: vm.canDescribe ? () => vm.describeNow() : null,
-          subtitle: !vm.isEyeConnected
-              ? 'Camera not connected'
-              : vm.isProcessing
-                  ? 'Processing…'
-                  : null,
-        ),
-      ],
-    );
-  }
+      );
+    }
 
-  // ═══════════════════════════════════════════════════════════════════════════
-  // Section 4 — Quick settings
-  // ═══════════════════════════════════════════════════════════════════════════
+    // "Start Live Detection" — only when Eye is connected
+    if (vm.isEyeConnected) {
+      if (widgets.isNotEmpty) widgets.add(const SizedBox(height: AppSpacing.md));
+      widgets.add(
+        AccessibleButton(
+          label: 'Start Live Detection',
+          hint: 'Continuously announces objects the Eye sees with audio',
+          onPressed: () => context.pushNamed('live-detection'),
+        ),
+      );
+    }
 
-  Widget _buildSettings(HomeViewModel vm) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        // ── Font size toggle ──
-        Semantics(
-          label:
-              'Text size. Current: ${vm.fontScale.label}',
-          child: Container(
-            width: double.infinity,
-            padding: const EdgeInsets.all(AppSpacing.sm),
-            decoration: BoxDecoration(
-              color: AppColors.surfaceCardLight,
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: AppColors.borderLight),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                ExcludeSemantics(
-                  child: Text(
-                    'Text Size',
-                    style: TextStyle(
-                      fontSize: 16.sp,
-                      fontWeight: FontWeight.w600,
-                      color: AppColors.textOnLight,
-                    ),
-                  ),
-                ),
-                const SizedBox(height: AppSpacing.xs),
-                SizedBox(
-                  width: double.infinity,
-                  child: SegmentedButton<FontScale>(
-                    segments: FontScale.values
-                        .map((s) => ButtonSegment<FontScale>(
-                              value: s,
-                              label: Text(s.label),
-                            ))
-                        .toList(),
-                    selected: {vm.fontScale},
-                    onSelectionChanged: (selected) {
-                      HapticFeedback.selectionClick();
-                      vm.setFontScale(selected.first);
-                    },
-                    style: ButtonStyle(
-                      minimumSize: const WidgetStatePropertyAll(
-                          Size(0, 48)),
-                      foregroundColor: WidgetStatePropertyAll(
-                          AppColors.textOnLight),
-                      textStyle: WidgetStatePropertyAll(TextStyle(
-                        fontSize: 16.sp,
-                        fontWeight: FontWeight.w600,
-                      )),
-                    ),
-                  ),
-                ),
-              ],
+    // Empty state — no devices connected
+    if (widgets.isEmpty) {
+      return Semantics(
+        label: 'Connect a device to get started. Tap a device card above.',
+        child: Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(AppSpacing.md),
+          decoration: BoxDecoration(
+            color: AppColors.surfaceCardLight,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: AppColors.borderLight),
+          ),
+          child: ExcludeSemantics(
+            child: Text(
+              'Connect a device to get started.\nTap a device card above to scan.',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 18.sp,
+                color: AppColors.textSecondaryOnLight,
+                height: 1.5,
+              ),
             ),
           ),
         ),
-        const SizedBox(height: AppSpacing.sm),
+      );
+    }
 
-        // ── Speech rate slider ──
-        Semantics(
-          label:
-              'Speech rate. ${(vm.ttsService.rate * 100).round()} percent',
-          slider: true,
-          child: Container(
-            width: double.infinity,
-            padding: const EdgeInsets.all(AppSpacing.sm),
-            decoration: BoxDecoration(
-              color: AppColors.surfaceCardLight,
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: AppColors.borderLight),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                ExcludeSemantics(
-                  child: Text(
-                    'Speech Rate',
-                    style: TextStyle(
-                      fontSize: 16.sp,
-                      fontWeight: FontWeight.w600,
-                      color: AppColors.textOnLight,
-                    ),
-                  ),
-                ),
-                const SizedBox(height: AppSpacing.xs),
-                ExcludeSemantics(
-                  child: Row(
-                    children: [
-                      Text(
-                        'Slow',
-                        style: TextStyle(
-                          fontSize: 14.sp,
-                          color: AppColors.textSecondaryOnLight,
-                        ),
-                      ),
-                      Expanded(
-                        child: SliderTheme(
-                          data: SliderThemeData(
-                            activeTrackColor: AppColors.interactive,
-                            inactiveTrackColor: AppColors.borderLight,
-                            thumbColor: AppColors.interactive,
-                            overlayColor:
-                                AppColors.interactive.withAlpha(40),
-                            thumbShape: const RoundSliderThumbShape(
-                                enabledThumbRadius: 14),
-                            trackHeight: 6,
-                          ),
-                          child: Slider(
-                            value: vm.ttsService.rate,
-                            min: 0.0,
-                            max: 1.0,
-                            divisions: 10,
-                            onChanged: (value) {
-                              HapticFeedback.selectionClick();
-                              vm.ttsService.setRate(value);
-                              setState(() {});
-                            },
-                          ),
-                        ),
-                      ),
-                      Text(
-                        'Fast',
-                        style: TextStyle(
-                          fontSize: 14.sp,
-                          color: AppColors.textSecondaryOnLight,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ],
-    );
+    return Column(children: widgets);
   }
 }

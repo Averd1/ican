@@ -45,8 +45,7 @@ jobs:
           pip install \
             "coremltools==9.0" \
             "torch==2.7.0" \
-            "transformers==5.5.4" \
-            "tokenizers==0.22.2" \
+            "transformers==4.53.3" \
             safetensors pillow accelerate huggingface_hub
 
       - name: Cache HuggingFace model weights

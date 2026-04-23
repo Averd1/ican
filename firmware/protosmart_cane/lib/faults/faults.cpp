@@ -44,12 +44,10 @@ void checkFaults() {
     }
     systemFaults.matrixSensor_fail = (matrixSensorFailCount >= SENSOR_FAIL_THRESHOLD);
 
-    // Heart sensor fault detection
-    // Bench testing often has no finger on the pulse sensor, so lack of beat detection
-    // is not considered a hardware fault. pulseInit() sets heart_fail if init fails.
-    if (currentSensors.heartRaw > 0 || currentSensors.pulseDetected) {
-        systemFaults.heart_fail = false;
-    }
+    // Heart sensor auto-recovery disabled for now.
+    // During normal use the pulse signal can legitimately be absent/noisy,
+    // which would otherwise cause continuous fault-recovery loops.
+    systemFaults.heart_fail = false;
 
     // Attempt recovery for failed sensors
     if ((systemFaults.imu_fail || systemFaults.ultrasonic_fail ||

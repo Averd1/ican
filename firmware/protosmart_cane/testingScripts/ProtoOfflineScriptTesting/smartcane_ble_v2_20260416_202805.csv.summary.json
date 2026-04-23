@@ -1,0 +1,42 @@
+{
+  "packet_count": 112,
+  "elapsed_seconds": 24.929,
+  "packet_rate_hz": 4.4927594368005135,
+  "packet_interval_mean_s": 0.2245855855855856,
+  "packet_interval_min_s": 0.179,
+  "packet_interval_max_s": 0.298,
+  "versions_seen": [
+    4
+  ],
+  "version_ok": true,
+  "modes_seen": [
+    0
+  ],
+  "battery_min": 0,
+  "battery_max": 0,
+  "heart_min": 0,
+  "heart_max": 0,
+  "pulse_raw_min": 0,
+  "pulse_raw_max": 0,
+  "pulse_detected_count": 0,
+  "fall_count": 0,
+  "high_stress_count": 0,
+  "obstacle_near_count": 0,
+  "obstacle_imminent_count": 0,
+  "imu_ax_min_ms2": 0.0,
+  "imu_ax_max_ms2": 0.0,
+  "imu_ay_min_ms2": 0.0,
+  "imu_ay_max_ms2": 0.0,
+  "imu_az_min_ms2": 0.0,
+  "imu_az_max_ms2": 0.0,
+  "ultra_left_min_mm": 58,
+  "ultra_left_max_mm": 60,
+  "ultra_right_min_mm": 90,
+  "ultra_right_max_mm": 90,
+  "matrix_head_valid_count": 112,
+  "matrix_waist_valid_count": 112,
+  "matrix_head_min_mm": 101,
+  "matrix_head_max_mm": 108,
+  "matrix_waist_min_mm": 105,
+  "matrix_waist_max_mm": 113
+}

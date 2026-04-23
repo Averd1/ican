@@ -2,8 +2,7 @@
  * ProtoSmartCane Firmware - Main Controller
  *
  * DEPLOYMENT-READY VERSION with advanced power management and sensor features:
- * - Continuous fall buzzer fix (now pulsed with 30-second timeout)
- * - Ambient light sensor with auto LED illumination
+ * - Continuous fall haptic disk pulse logic with 30-second timeout
  * - Distance-scaled haptic feedback (intensity + frequency)
  * - Power consumption profiles and battery lifetime estimation
  * - Sleep modes: Cautious (5min inactivity) and Deep (20min inactivity)
@@ -33,6 +32,7 @@
 #include "light.h"
 #include "fusion.h"
 #include "responses.h"
+#include "haptic_driver.h"
 #include "faults.h"
 #include "ble.h"
 #include "battery_monitor.h"
@@ -101,25 +101,36 @@ static void printIsolatedSensorDebug(unsigned long now) {
     Serial.print(systemFaults.ultrasonic_fail);
     Serial.print("/");
     Serial.println(systemFaults.imu_fail);
+
+    uint8_t hapticBits = hapticDriverStatusBits();
+    Serial.print("HAPTIC_INIT bits=0x");
+    Serial.print(hapticBits, HEX);
+    Serial.print(" (8x8=");
+    Serial.print((hapticBits & 0x10) ? "1" : "0");
+    Serial.print(", right=");
+    Serial.print((hapticBits & 0x20) ? "1" : "0");
+    Serial.print(", left=");
+    Serial.print((hapticBits & 0x40) ? "1" : "0");
+    Serial.println(")");
 }
 
 void setup() {
     // === STEP 0: Bare minimum hardware check — runs before any sensor init ===
-    // If you see the LED flash and serial output, the board and USB serial are alive.
+    // If you feel haptic pulses and serial output, the board and USB serial are alive.
     // Each subsequent step is gated so we can pinpoint any init that crashes.
-    pinMode(LED_HAPTIC_FRONT_PIN, OUTPUT);  // GPIO18 = D9
-    pinMode(LED_HAPTIC_LEFT_PIN,  OUTPUT);  // GPIO21 = D10
-    pinMode(LED_HAPTIC_RIGHT_PIN, OUTPUT);  // GPIO38 = D11
+    pinMode(HAPTIC_TOP_PIN, OUTPUT);   // GPIO18 = D9
+    pinMode(HAPTIC_LEFT_PIN, OUTPUT);  // GPIO21 = D10
+    pinMode(HAPTIC_RIGHT_PIN, OUTPUT); // GPIO38 = D11
 
-    // Flash all three LEDs twice as "I am alive" signal — visible before serial opens
+    // Pulse all three directional haptic channels as "I am alive" signal.
     for (int i = 0; i < 2; i++) {
-        digitalWrite(LED_HAPTIC_FRONT_PIN, HIGH);
-        digitalWrite(LED_HAPTIC_LEFT_PIN,  HIGH);
-        digitalWrite(LED_HAPTIC_RIGHT_PIN, HIGH);
+        digitalWrite(HAPTIC_TOP_PIN, HIGH);
+        digitalWrite(HAPTIC_LEFT_PIN, HIGH);
+        digitalWrite(HAPTIC_RIGHT_PIN, HIGH);
         delay(250);
-        digitalWrite(LED_HAPTIC_FRONT_PIN, LOW);
-        digitalWrite(LED_HAPTIC_LEFT_PIN,  LOW);
-        digitalWrite(LED_HAPTIC_RIGHT_PIN, LOW);
+        digitalWrite(HAPTIC_TOP_PIN, LOW);
+        digitalWrite(HAPTIC_LEFT_PIN, LOW);
+        digitalWrite(HAPTIC_RIGHT_PIN, LOW);
         delay(250);
     }
 
@@ -148,6 +159,14 @@ void setup() {
     Serial.println("[2] setMode OK");
     Serial.flush();
 
+#if ENABLE_BLE
+    Serial.println("[2.5] bleInit...");
+    Serial.flush();
+    bleInit();
+    Serial.println("[2.5] bleInit OK");
+    Serial.flush();
+#endif
+
     // === STEP 3: Sensors (IMU + ultrasonic + 8x8) ===
     Serial.println("[3] sensorsInit...");
     Serial.flush();
@@ -162,15 +181,6 @@ void setup() {
     Serial.println("[4] responsesInit OK");
     Serial.flush();
 
-    // === STEP 5: BLE ===
-    if (ENABLE_BLE) {
-        Serial.println("[5] bleInit...");
-        Serial.flush();
-        bleInit();
-        Serial.println("[5] bleInit OK");
-        Serial.flush();
-    }
-
     Serial.println("=== Setup complete — entering loop ===");
     Serial.flush();
 }
@@ -178,20 +188,15 @@ void setup() {
 void loop() {
     unsigned long now = millis();
 
-    if (ENABLE_BLE) {
-        // Keep BLE stack responsive even during heavy sensor/response activity.
-        blePoll();
-    }
-
 #if BOOT_MINIMAL_MODE
     static unsigned long lastBlink = 0;
     static bool blinkState = false;
     if (now - lastBlink > 250) {
         lastBlink = now;
         blinkState = !blinkState;
-        digitalWrite(LED_HAPTIC_FRONT_PIN, blinkState ? HIGH : LOW);
-        digitalWrite(LED_HAPTIC_LEFT_PIN, blinkState ? HIGH : LOW);
-        digitalWrite(LED_HAPTIC_RIGHT_PIN, blinkState ? HIGH : LOW);
+        digitalWrite(HAPTIC_TOP_PIN, blinkState ? HIGH : LOW);
+        digitalWrite(HAPTIC_LEFT_PIN, blinkState ? HIGH : LOW);
+        digitalWrite(HAPTIC_RIGHT_PIN, blinkState ? HIGH : LOW);
         if (DEBUG_MODE) Serial.println("BOOT_MINIMAL_MODE loop alive");
     }
     return;
@@ -213,13 +218,17 @@ void loop() {
         lastMatrixSensorUpdate = now;
     }
 
-    if (ENABLE_BLE && now - lastTelemetryUpdate > 200) {
+    fuseSituations();
+    handleResponses();
+
+#if ENABLE_BLE
+    blePoll();
+    if (now - lastTelemetryUpdate > 200) {
         updateBLETelemetry();
         lastTelemetryUpdate = now;
     }
+#endif
 
-    fuseSituations();
-    handleResponses();
     printIsolatedSensorDebug(now);
     return;
 #endif
@@ -334,16 +343,12 @@ void loop() {
     handleResponses();
 
     // === BLE TELEMETRY ===
-    if (ENABLE_BLE) {
-        blePoll();  // BLE event polling
-        
-        // Adjust telemetry rate based on mode and emergency status
-        unsigned long telemetryInterval = (currentMode == EMERGENCY) ? 50 :  // 20 Hz in emergency
-                                         (currentMode == LOW_POWER) ? 1000 : // 1 Hz in low power
-                                         200; // 5 Hz normal
-        if (now - lastTelemetryUpdate > telemetryInterval) {
-            updateBLETelemetry();
-            lastTelemetryUpdate = now;
-        }
+    // Adjust telemetry rate based on mode and emergency status
+    unsigned long telemetryInterval = (currentMode == EMERGENCY) ? 50 :  // 20 Hz in emergency
+                                     (currentMode == LOW_POWER) ? 1000 : // 1 Hz in low power
+                                     200; // 5 Hz normal
+    if (ENABLE_BLE && now - lastTelemetryUpdate > telemetryInterval) {
+        updateBLETelemetry();
+        lastTelemetryUpdate = now;
     }
 }

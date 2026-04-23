@@ -9,6 +9,7 @@ param(
 )
 
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+$resultsDir = Join-Path $scriptDir "test_results"
 $pythonExe = Join-Path $scriptDir ".venv\Scripts\python.exe"
 $recorder = Join-Path $scriptDir "TestDataRecorder.py"
 $analyzer = Join-Path $scriptDir "AnalyzeBleData.py"
@@ -20,6 +21,12 @@ if (!(Test-Path $pythonExe)) {
 }
 
 $args = @($recorder, "--duration", "$Duration", "--min-packets", "$MinPackets")
+
+if (!(Test-Path $resultsDir)) {
+    New-Item -ItemType Directory -Path $resultsDir | Out-Null
+}
+
+$args += @("--output-dir", $resultsDir)
 
 if ($Address -ne "") {
     $args += @("--address", $Address)
@@ -38,7 +45,7 @@ if ($LASTEXITCODE -ne 0) {
     exit $LASTEXITCODE
 }
 
-$latestCsv = Get-ChildItem -Path $scriptDir -Filter "smartcane_ble_v2_*.csv" |
+$latestCsv = Get-ChildItem -Path $resultsDir -Filter "smartcane_ble_v2_*.csv" |
     Sort-Object LastWriteTime -Descending |
     Select-Object -First 1
 

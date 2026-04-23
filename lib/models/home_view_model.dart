@@ -177,13 +177,13 @@ class HomeViewModel extends ChangeNotifier {
 
   Future<void> stopLiveVision() async {
     if (!_liveVisionActive) return;
-    await _stopLiveVisionInternal();
+    _stopLiveVisionInternal();
     try {
       await ttsService.speak('Live vision stopped.');
     } catch (_) {}
   }
 
-  Future<void> _stopLiveVisionInternal() async {
+  void _stopLiveVisionInternal() {
     _liveVisionActive = false;
     _liveProcessing = false;
     _liveImageSub?.cancel();

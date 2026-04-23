@@ -179,6 +179,20 @@ class GpsPacket {
 }
 
 // ===========================================================================
+// Eye Commands (App → Eye via eyeCaptureRx)
+// ===========================================================================
+
+class EyeCommands {
+  EyeCommands._();
+
+  static const String capture = 'CAPTURE';
+  static const String liveStop = 'LIVE_STOP';
+  static String liveStart(int intervalMs) => 'LIVE_START:$intervalMs';
+  static String profile(int index) => 'PROFILE:$index';
+  static const String status = 'STATUS';
+}
+
+// ===========================================================================
 // Image Stream Packet Codec
 // ===========================================================================
 

@@ -107,6 +107,16 @@ struct GpsPacket {
 static_assert(sizeof(GpsPacket) == 19, "GpsPacket must be 19 bytes");
 
 // ===========================================================================
+// Eye Command Types (App → Eye via eyeCaptureRx)
+// ===========================================================================
+// String commands sent over BLE:
+//   "CAPTURE"               — single-shot capture
+//   "LIVE_START:{ms}"       — start firmware-driven periodic capture at {ms} interval
+//   "LIVE_STOP"             — stop firmware-driven periodic capture
+//   "PROFILE:{idx}"         — switch camera quality profile
+//   "STATUS"                — request current status
+
+// ===========================================================================
 // Image Stream Packet Header (Eye → App)
 // ===========================================================================
 constexpr uint8_t IMAGE_HEADER_BYTES = 2;

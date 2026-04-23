@@ -67,6 +67,12 @@ characteristics:
     uuid: "20000004-2000-2000-2000-200000000000"
     direction: "write"  # App → Eye
     description: "App can remotely trigger image capture on the Eye"
+    commands:
+      CAPTURE: "Single-shot capture"
+      LIVE_START: "Start firmware-driven periodic capture. Format: LIVE_START:{intervalMs}"
+      LIVE_STOP: "Stop firmware-driven periodic capture"
+      PROFILE: "Switch camera quality profile. Format: PROFILE:{index}"
+      STATUS: "Request current status"
 
   gps_data_tx:
     service: cane

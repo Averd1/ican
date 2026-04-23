@@ -9,11 +9,7 @@
 #
 # Requirements:
 #   - macOS with Xcode installed
-#   - cmake >= 3.28 (brew install cmake)
-#
-# The standard build-xcframework.sh sets LLAMA_BUILD_TOOLS=OFF which skips
-# tools/mtmd entirely. This script enables TOOLS so libmtmd.a is produced,
-# then merges it into the xcframework alongside libllama + libggml.
+#   - cmake >= 3.28  (pip3 install cmake --user)
 
 set -euo pipefail
 
@@ -33,9 +29,11 @@ echo "    llama.cpp: $LLAMA_CPP"
 echo "    output:    $OUTPUT_DIR/llama.xcframework"
 
 # ── Shared cmake args ──────────────────────────────────────────────────────
+# LLAMA_BUILD_TOOLS=ON is required so tools/mtmd gets added to the Xcode project.
+# Code-signing is disabled so CLI tool targets (which lack bundle IDs) don't fail.
 CMAKE_COMMON=(
     -G Xcode
-    -DLLAMA_BUILD_TOOLS=ON       # must be ON so tools/mtmd is added to project
+    -DLLAMA_BUILD_TOOLS=ON
     -DLLAMA_BUILD_COMMON=ON
     -DLLAMA_BUILD_EXAMPLES=OFF
     -DLLAMA_BUILD_TESTS=OFF
@@ -44,14 +42,12 @@ CMAKE_COMMON=(
     -DGGML_METAL_EMBED_LIBRARY=ON
     -DGGML_METAL_USE_BF16=ON
     -DBUILD_SHARED_LIBS=OFF
-    # Tell Xcode to skip code-signing for command-line targets (no bundle ID needed)
     -DCMAKE_XCODE_ATTRIBUTE_CODE_SIGN_IDENTITY=""
     -DCMAKE_XCODE_ATTRIBUTE_CODE_SIGNING_REQUIRED=NO
     -DCMAKE_XCODE_ATTRIBUTE_CODE_SIGNING_ALLOWED=NO
 )
 
-# ── Static libs to merge (relative to build dir / Release-*) ──────────────
-# common is needed by mtmd internally
+# ── Static libs to merge ───────────────────────────────────────────────────
 STATIC_LIBS=(
     "src/Release-{SUFFIX}/libllama.a"
     "ggml/src/Release-{SUFFIX}/libggml.a"
@@ -64,30 +60,32 @@ STATIC_LIBS=(
 )
 
 build_slice() {
-    local name="$1"         # e.g. "build-ios-device"
-    local sdk="$2"          # e.g. "iphoneos"
-    local arch="$3"         # e.g. "arm64" or "arm64;x86_64"
-    local suffix="$4"       # e.g. "iphoneos" or "iphonesimulator"
+    local name="$1"      # e.g. "build-ios-device"
+    local sdk="$2"       # e.g. "iphoneos"
+    local archs="$3"     # space-separated, e.g. "arm64" or "arm64 x86_64"
+    local suffix="$4"    # e.g. "iphoneos" or "iphonesimulator"
+    local is_sim="$5"    # "true" or "false"
     local min_ver="16.0"
 
     local build_dir="$BUILD_ROOT/$name"
     echo ""
-    echo "── Configuring $name (sdk=$sdk arch=$arch) ──"
+    echo "── Configuring $name (sdk=$sdk archs=$archs) ──"
+
+    # cmake expects semicolon-separated architectures
+    local cmake_archs="${archs// /;}"
 
     cmake -B "$build_dir" \
         "${CMAKE_COMMON[@]}" \
         -DCMAKE_SYSTEM_NAME=iOS \
         -DCMAKE_OSX_SYSROOT="$sdk" \
-        -DCMAKE_OSX_ARCHITECTURES="$arch" \
+        -DCMAKE_OSX_ARCHITECTURES="$cmake_archs" \
         -DCMAKE_OSX_DEPLOYMENT_TARGET="$min_ver" \
         "$LLAMA_CPP"
 
     echo "── Building $name (mtmd target only) ──"
-    # Build only the mtmd library target — it pulls in llama + ggml automatically.
-    # LLAMA_BUILD_TOOLS=OFF means no CLI executables are built (they need bundle IDs on iOS).
     cmake --build "$build_dir" --config Release --target mtmd -- -quiet
 
-    # Merge static libs into one combined.a
+    # ── Merge static libs into combined.a ─────────────────────────────────
     local tmp="$build_dir/combined_tmp"
     mkdir -p "$tmp"
 
@@ -104,16 +102,29 @@ build_slice() {
     echo "── Merging ${#lib_paths[@]} static libs → combined.a ──"
     xcrun libtool -static -o "$tmp/combined.a" "${lib_paths[@]}" 2>/dev/null
 
-    # Build dynamic framework from combined.a
+    # ── Build dynamic framework from combined.a ────────────────────────────
     local fw_dir="$build_dir/framework/llama.framework"
     mkdir -p "$fw_dir/Headers" "$fw_dir/Modules"
 
-    # Determine install name and link flags
     local install_name="@rpath/llama.framework/llama"
 
+    # Build -arch flags (one per arch)
+    local arch_flags=()
+    for a in $archs; do
+        arch_flags+=(-arch "$a")
+    done
+
+    # Simulator needs -target instead of -miphoneos-version-min
+    local platform_flag
+    if [ "$is_sim" = "true" ]; then
+        platform_flag="-target arm64-apple-ios${min_ver}-simulator"
+    else
+        platform_flag="-miphoneos-version-min=$min_ver"
+    fi
+
     xcrun -sdk "$sdk" clang++ -dynamiclib \
-        -arch "$arch" \
-        -miphoneos-version-min="$min_ver" \
+        "${arch_flags[@]}" \
+        $platform_flag \
         -install_name "$install_name" \
         -framework Foundation \
         -framework Metal \
@@ -122,13 +133,12 @@ build_slice() {
         -force_load "$tmp/combined.a" \
         -o "$fw_dir/llama"
 
-    # Copy public headers
-    cp "$LLAMA_CPP/include/llama.h"               "$fw_dir/Headers/"
-    cp "$LLAMA_CPP/ggml/include/ggml.h"           "$fw_dir/Headers/"
-    cp "$LLAMA_CPP/tools/mtmd/mtmd.h"             "$fw_dir/Headers/"
-    cp "$LLAMA_CPP/tools/mtmd/mtmd-helper.h"      "$fw_dir/Headers/"
+    # ── Copy public headers ────────────────────────────────────────────────
+    cp "$LLAMA_CPP/include/llama.h"          "$fw_dir/Headers/"
+    cp "$LLAMA_CPP/ggml/include/ggml.h"      "$fw_dir/Headers/"
+    cp "$LLAMA_CPP/tools/mtmd/mtmd.h"        "$fw_dir/Headers/"
+    cp "$LLAMA_CPP/tools/mtmd/mtmd-helper.h" "$fw_dir/Headers/"
 
-    # module.modulemap (lets Xcode find headers without a bridging header)
     cat > "$fw_dir/Modules/module.modulemap" <<'MODULEMAP'
 framework module llama {
     header "llama.h"
@@ -139,7 +149,6 @@ framework module llama {
 }
 MODULEMAP
 
-    # Minimal Info.plist
     cat > "$fw_dir/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
@@ -160,12 +169,13 @@ MODULEMAP
 </plist>
 PLIST
 
-    echo "── Slice $name done: $fw_dir ──"
+    echo "── Slice $name done ──"
 }
 
 # ── Build both slices ──────────────────────────────────────────────────────
-build_slice "build-ios-device"    "iphoneos"        "arm64"          "iphoneos"
-build_slice "build-ios-sim"       "iphonesimulator" "arm64;x86_64"   "iphonesimulator"
+#                    name                sdk               archs            suffix            is_sim
+build_slice "build-ios-device" "iphoneos"        "arm64"          "iphoneos"        "false"
+build_slice "build-ios-sim"    "iphonesimulator" "arm64 x86_64"   "iphonesimulator" "true"
 
 # ── Combine into xcframework ───────────────────────────────────────────────
 mkdir -p "$OUTPUT_DIR"

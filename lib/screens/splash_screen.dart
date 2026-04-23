@@ -1,14 +1,10 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:go_router/go_router.dart';
-import '../core/route_constants.dart';
 import '../services/ble_service.dart';
 import '../services/device_prefs_service.dart';
 
-
-/// Splash Screen — Dynamic startup sequence for iCan App.
-///
-/// Performs background initialization including BLE auto-connection.
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
 
@@ -16,150 +12,192 @@ class SplashScreen extends StatefulWidget {
   State<SplashScreen> createState() => _SplashScreenState();
 }
 
-class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderStateMixin {
-  late AnimationController _controller;
-  late Animation<double> _scaleAnimation;
-  late Animation<double> _opacityAnimation;
+class _SplashScreenState extends State<SplashScreen>
+    with TickerProviderStateMixin {
+  late AnimationController _logoController;
+  late Animation<double> _logoScale;
+  late Animation<double> _logoOpacity;
 
-  final List<String> _loadingMessages = [
-    'Initializing BLE...',
-    'Connecting to iCan Cane...',
-    'Connecting to iCan Eye...',
-    'Ready!'
-  ];
-  int _currentMessageIndex = 0;
-  Timer? _messageTimer;
-  bool _isInitStarted = false;
+  late AnimationController _textController;
+  late Animation<double> _textOpacity;
+
+  late AnimationController _subtitleController;
+  late Animation<double> _subtitleOpacity;
 
   @override
   void initState() {
     super.initState();
 
-    _controller = AnimationController(
+    _logoController = AnimationController(
       vsync: this,
-      duration: const Duration(seconds: 2),
+      duration: const Duration(milliseconds: 1200),
+    );
+    _logoScale = Tween<double>(begin: 0.6, end: 1.0).animate(
+      CurvedAnimation(parent: _logoController, curve: Curves.easeOutBack),
+    );
+    _logoOpacity = Tween<double>(begin: 0.0, end: 1.0).animate(
+      CurvedAnimation(
+        parent: _logoController,
+        curve: const Interval(0.0, 0.6, curve: Curves.easeIn),
+      ),
     );
 
-    _scaleAnimation = Tween<double>(begin: 0.8, end: 1.0).animate(
-      CurvedAnimation(parent: _controller, curve: Curves.easeOutBack),
+    _textController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 800),
+    );
+    _textOpacity = Tween<double>(begin: 0.0, end: 1.0).animate(
+      CurvedAnimation(parent: _textController, curve: Curves.easeIn),
     );
 
-    _opacityAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
-      CurvedAnimation(parent: _controller, curve: Curves.easeIn),
+    _subtitleController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 600),
+    );
+    _subtitleOpacity = Tween<double>(begin: 0.0, end: 1.0).animate(
+      CurvedAnimation(parent: _subtitleController, curve: Curves.easeIn),
     );
 
-    _controller.forward();
-    _startMessageSimulation();
-    
-    // Start actual initialization
-    _initializeApp();
+    _runSequence();
   }
 
-  Future<void> _initializeApp() async {
-    if (_isInitStarted) return;
-    _isInitStarted = true;
+  Future<void> _runSequence() async {
+    // Staggered animation: logo → title → subtitle
+    _logoController.forward();
+    await Future.delayed(const Duration(milliseconds: 600));
+    _textController.forward();
+    await Future.delayed(const Duration(milliseconds: 400));
+    _subtitleController.forward();
 
-    debugPrint('[Splash] Initializing app...');
+    // BLE auto-connect in background (fire-and-forget)
+    _startBleAutoConnect();
 
-    // Minimum splash display time
-    await Future.delayed(const Duration(seconds: 2));
+    // Minimum display time for the splash
+    await Future.delayed(const Duration(milliseconds: 1500));
 
-    // Fire-and-forget: connect both devices in background, don't block navigation.
-    // Auto-reconnect on disconnect is handled inside BleService.
-    final savedEyeMac = await DevicePrefsService.instance.getLastDeviceId()
-        ?? BleService.fallbackEyeDeviceId;
-    BleService.instance.connectToEyeByMac(savedEyeMac);
-    BleService.instance.autoConnectToCane();
+    if (!mounted) return;
 
-    debugPrint('[Splash] Initialization complete.');
-    _navigateToHome();
+    // Determine where to go next
+    final role = await DevicePrefsService.instance.getUserRole();
+    if (!mounted) return;
+
+    if (role == null || role.isEmpty) {
+      context.goNamed('role-selection');
+    } else if (role == 'caretaker') {
+      context.goNamed('caretaker-dashboard');
+    } else {
+      context.goNamed('home');
+    }
   }
 
-  void _startMessageSimulation() {
-    _messageTimer = Timer.periodic(const Duration(milliseconds: 1000), (timer) {
-      if (_currentMessageIndex < _loadingMessages.length - 1) {
-        if (mounted) {
-          setState(() {
-            _currentMessageIndex++;
-          });
-        }
-      } else {
-        timer.cancel();
-      }
-    });
-  }
-
-  void _navigateToHome() {
-    if (mounted) {
-      context.goNamed(Routes.homeName);
+  void _startBleAutoConnect() async {
+    try {
+      // Wait for the iOS CoreBluetooth stack to power on before attempting
+      // to connect. Calling connectToEyeByMac before the adapter is ready
+      // causes startScan() to fail silently with no retry scheduled.
+      await FlutterBluePlus.adapterState
+          .where((s) => s == BluetoothAdapterState.on)
+          .first
+          .timeout(const Duration(seconds: 8));
+    } catch (_) {
+      // Adapter didn't come up in time (e.g. BT disabled) — proceed anyway
+      // so the rest of the app still launches.
+    }
+    try {
+      final savedEyeMac = await DevicePrefsService.instance.getLastDeviceId()
+          ?? BleService.fallbackEyeDeviceId;
+      BleService.instance.connectToEyeByMac(savedEyeMac);
+      BleService.instance.autoConnectToCane();
+    } catch (e) {
+      debugPrint('[Splash] BLE auto-connect error: $e');
     }
   }
 
   @override
   void dispose() {
-    _controller.dispose();
-    _messageTimer?.cancel();
+    _logoController.dispose();
+    _textController.dispose();
+    _subtitleController.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
 
     return Scaffold(
-      backgroundColor: theme.colorScheme.surface,
-      body: Semantics(
-        label: 'App loading: ${_loadingMessages[_currentMessageIndex]}',
-        child: Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              // Logo/Title Animation
-              AnimatedBuilder(
-                animation: _controller,
-                builder: (context, child) {
-                  return Transform.scale(
-                    scale: _scaleAnimation.value,
-                    child: Opacity(
-                      opacity: _opacityAnimation.value,
-                      child: Text(
-                        'iCan',
-                        style: theme.textTheme.displayLarge?.copyWith(
-                          color: theme.colorScheme.primary,
-                          fontWeight: FontWeight.bold,
-                          letterSpacing: 2.0,
-                        ),
-                      ),
-                    ),
-                  );
-                },
-              ),
-              const SizedBox(height: 48),
-              
-              // Loading Indicator
-              SizedBox(
-                width: 48,
-                height: 48,
-                child: CircularProgressIndicator(
-                  color: theme.colorScheme.secondary,
-                  strokeWidth: 4.0,
-                ),
-              ),
-              const SizedBox(height: 24),
-
-              // Status Message (Simulated processes)
-              AnimatedSwitcher(
-                duration: const Duration(milliseconds: 400),
-                child: Text(
-                  _loadingMessages[_currentMessageIndex],
-                  key: ValueKey<int>(_currentMessageIndex),
-                  style: theme.textTheme.bodyLarge?.copyWith(
-                    color: theme.colorScheme.onSurface.withAlpha(200),
+      backgroundColor: theme.scaffoldBackgroundColor,
+      body: Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            // App icon with scale + fade
+            AnimatedBuilder(
+              animation: _logoController,
+              builder: (context, child) {
+                return Transform.scale(
+                  scale: _logoScale.value,
+                  child: Opacity(
+                    opacity: _logoOpacity.value,
+                    child: child,
                   ),
+                );
+              },
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(32),
+                child: Image.asset(
+                  'assets/ican-app-icon.png',
+                  width: 140,
+                  height: 140,
                 ),
               ),
-            ],
-          ),
+            ),
+            const SizedBox(height: 28),
+
+            // "iCan" title
+            AnimatedBuilder(
+              animation: _textController,
+              builder: (context, child) {
+                return Opacity(
+                  opacity: _textOpacity.value,
+                  child: child,
+                );
+              },
+              child: Text(
+                'iCan',
+                style: TextStyle(
+                  fontSize: 42,
+                  fontWeight: FontWeight.bold,
+                  color: theme.colorScheme.primary,
+                  letterSpacing: 2.0,
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
+
+            // Subtitle
+            AnimatedBuilder(
+              animation: _subtitleController,
+              builder: (context, child) {
+                return Opacity(
+                  opacity: _subtitleOpacity.value,
+                  child: child,
+                );
+              },
+              child: Text(
+                'See the world, your way',
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w400,
+                  color: isDark
+                      ? Colors.white70
+                      : Colors.black54,
+                  letterSpacing: 0.5,
+                ),
+              ),
+            ),
+          ],
         ),
       ),
     );

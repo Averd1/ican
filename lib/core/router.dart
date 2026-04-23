@@ -18,7 +18,6 @@ import '../screens/role_selection_screen.dart';
 import '../screens/settings_screen.dart';
 import '../screens/splash_screen.dart';
 import '../screens/vision_diagnostic_screen.dart';
-import '../services/device_prefs_service.dart';
 import '../services/on_device_vision_service.dart';
 import '../services/scene_description_service.dart';
 import '../services/tts_service.dart';
@@ -30,10 +29,8 @@ import 'theme.dart';
 GoRouter buildRouter() {
   return GoRouter(
     navigatorKey: Routes.navigatorKey,
-    initialLocation: Routes.home,
+    initialLocation: '/splash',
     debugLogDiagnostics: false,
-
-    redirect: _guardNoPairedDevices,
 
     errorBuilder: (context, state) {
       _announceScreen(Routes.notFoundName);
@@ -42,13 +39,12 @@ GoRouter buildRouter() {
 
     routes: [
       // Shell route wraps the three-tab bottom navigation scaffold.
-      // Each branch gets its own navigator so back-stack is per-tab.
       StatefulShellRoute.indexedStack(
         builder: (context, state, navigationShell) {
           return AppShell(navigationShell: navigationShell);
         },
         branches: [
-          // ── Tab 0: Home ──
+          // Tab 0: Home
           StatefulShellBranch(
             routes: [
               GoRoute(
@@ -65,10 +61,9 @@ GoRouter buildRouter() {
                         cloudService: aiService,
                         onDeviceService: onDeviceService,
                       )..loadSavedMode();
-                      final ttsService = TtsService()..init();
                       return HomeViewModel(
                         sceneService: sceneService,
-                        ttsService: ttsService,
+                        ttsService: TtsService.instance,
                       );
                     },
                     child: const AccessibleHomeScreen(),
@@ -78,7 +73,7 @@ GoRouter buildRouter() {
             ],
           ),
 
-          // ── Tab 1: Settings ──
+          // Tab 1: Settings
           StatefulShellBranch(
             routes: [
               GoRoute(
@@ -89,7 +84,7 @@ GoRouter buildRouter() {
                   name: Routes.settingsName,
                   child: ChangeNotifierProvider(
                     create: (_) =>
-                        SettingsProvider(ttsService: TtsService()..init()),
+                        SettingsProvider(ttsService: TtsService.instance),
                     child: const SettingsScreen(),
                   ),
                 ),
@@ -97,7 +92,7 @@ GoRouter buildRouter() {
             ],
           ),
 
-          // ── Tab 2: Help ──
+          // Tab 2: Help
           StatefulShellBranch(
             routes: [
               GoRoute(
@@ -114,7 +109,7 @@ GoRouter buildRouter() {
         ],
       ),
 
-      // ── Device pairing (full-screen, outside the tab shell) ──
+      // Device pairing (full-screen, outside the tab shell)
       GoRoute(
         path: Routes.devicePairing,
         name: Routes.devicePairingName,
@@ -128,7 +123,7 @@ GoRouter buildRouter() {
         ),
       ),
 
-      // ── Nav screen (pushed from home, not a tab) ──
+      // Nav screen (pushed from home)
       GoRoute(
         path: '/nav',
         name: 'nav',
@@ -139,7 +134,7 @@ GoRouter buildRouter() {
         ),
       ),
 
-      // ── GPS screen (pushed from old home screen) ──
+      // GPS screen
       GoRoute(
         path: '/gps',
         name: 'gps',
@@ -150,7 +145,7 @@ GoRouter buildRouter() {
         ),
       ),
 
-      // ── Live object detection (full-screen, outside tabs) ──
+      // Live object detection (full-screen)
       GoRoute(
         path: '/live-detection',
         name: 'live-detection',
@@ -159,13 +154,13 @@ GoRouter buildRouter() {
           name: 'live-detection',
           child: ChangeNotifierProvider(
             create: (_) =>
-                SettingsProvider(ttsService: TtsService()..init()),
+                SettingsProvider(ttsService: TtsService.instance),
             child: const LiveDetectionScreen(),
           ),
         ),
       ),
 
-      // ── Vision diagnostic (hidden dev tool, long-press in Settings > About) ──
+      // Vision diagnostic (hidden dev tool)
       GoRoute(
         path: '/dev/vision-diagnostic',
         name: 'vision-diagnostic',
@@ -176,7 +171,7 @@ GoRouter buildRouter() {
         ),
       ),
 
-      // ── Splash (startup sequence) ──
+      // Splash (startup sequence)
       GoRoute(
         path: '/splash',
         name: 'splash',
@@ -187,7 +182,7 @@ GoRouter buildRouter() {
         ),
       ),
 
-      // ── Role selection ──
+      // Role selection
       GoRoute(
         path: '/role-selection',
         name: 'role-selection',
@@ -198,7 +193,7 @@ GoRouter buildRouter() {
         ),
       ),
 
-      // ── Caretaker dashboard ──
+      // Caretaker dashboard
       GoRoute(
         path: '/caretaker-dashboard',
         name: 'caretaker-dashboard',
@@ -209,7 +204,7 @@ GoRouter buildRouter() {
         ),
       ),
 
-      // ── Connection error ──
+      // Connection error
       GoRoute(
         path: '/connection-error',
         name: 'connection-error',
@@ -223,30 +218,7 @@ GoRouter buildRouter() {
   );
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Redirect: if no devices have ever been paired, send to pairing screen.
-// ─────────────────────────────────────────────────────────────────────────────
-
-Future<String?> _guardNoPairedDevices(
-    BuildContext context, GoRouterState state) async {
-  if (state.matchedLocation == Routes.devicePairing) return null;
-  if (state.matchedLocation.startsWith('/dev/')) return null;
-
-  final eyeId = await DevicePrefsService.instance.getLastDeviceId();
-  final caneId = await DevicePrefsService.instance.getLastCaneDeviceId();
-
-  final neverPaired =
-      (eyeId == null || eyeId.isEmpty) && (caneId == null || caneId.isEmpty);
-
-  if (neverPaired) return Routes.devicePairing;
-  return null;
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Page builder: fade transition (or instant when reduceMotion is on).
-// Every route change announces the screen name to the accessibility framework.
-// ─────────────────────────────────────────────────────────────────────────────
-
+// Page builder with fade transition and accessibility announcement
 CustomTransitionPage<void> _buildPage({
   required GoRouterState state,
   required String name,
@@ -271,17 +243,16 @@ void _announceScreen(String routeName) {
   SemanticsService.announce('$title screen', TextDirection.ltr);
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// 404 / Not Found — full screen, large text, single "Go Home" action.
-// ─────────────────────────────────────────────────────────────────────────────
-
+// 404 / Not Found
 class _NotFoundScreen extends StatelessWidget {
   const _NotFoundScreen();
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
     return Scaffold(
-      backgroundColor: AppColors.backgroundLight,
+      backgroundColor: theme.scaffoldBackgroundColor,
       body: SafeArea(
         child: Center(
           child: Padding(
@@ -297,30 +268,25 @@ class _NotFoundScreen extends StatelessWidget {
                     style: TextStyle(
                       fontSize: 32,
                       fontWeight: FontWeight.bold,
-                      color: AppColors.textOnLight,
+                      color: theme.colorScheme.onSurface,
                     ),
                     textAlign: TextAlign.center,
                   ),
                 ),
                 const SizedBox(height: AppSpacing.sm),
-                Semantics(
-                  label:
-                      'The page you are looking for does not exist or has been moved.',
-                  child: Text(
-                    'The page you are looking for does not exist or has been moved.',
-                    style: TextStyle(
-                      fontSize: 20,
-                      color: AppColors.textSecondaryOnLight,
-                      height: 1.5,
-                    ),
-                    textAlign: TextAlign.center,
+                Text(
+                  'The page you are looking for does not exist or has been moved.',
+                  style: TextStyle(
+                    fontSize: 20,
+                    color: theme.colorScheme.onSurface.withAlpha(179),
+                    height: 1.5,
                   ),
+                  textAlign: TextAlign.center,
                 ),
                 const SizedBox(height: AppSpacing.lg),
                 Semantics(
                   button: true,
                   label: 'Go to home screen',
-                  hint: 'Returns to the main home screen',
                   child: SizedBox(
                     width: double.infinity,
                     height: 56,

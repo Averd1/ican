@@ -3,6 +3,7 @@ import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'core/router.dart';
 import 'core/theme.dart';
 import 'services/notification_service.dart';
+import 'services/tts_service.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -13,16 +14,18 @@ Future<void> main() async {
     debugPrint('[main] NotificationService.init() failed: $e');
   }
 
+  await TtsService.instance.init();
+
   runApp(const ICanApp());
 }
 
 class ICanApp extends StatelessWidget {
   const ICanApp({super.key});
 
+  static final _router = buildRouter();
+
   @override
   Widget build(BuildContext context) {
-    final router = buildRouter();
-
     return ScreenUtilInit(
       designSize: const Size(375, 812),
       minTextAdapt: true,
@@ -32,7 +35,7 @@ class ICanApp extends StatelessWidget {
         theme: ICanTheme.lightTheme,
         darkTheme: ICanTheme.darkTheme,
         themeMode: ThemeMode.system,
-        routerConfig: router,
+        routerConfig: _router,
       ),
     );
   }

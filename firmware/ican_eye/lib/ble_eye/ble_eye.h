@@ -24,12 +24,15 @@ enum EyeCommand : uint8_t {
   EYE_CMD_CAPTURE = 1,
   EYE_CMD_PROFILE = 2,
   EYE_CMD_STATUS = 3,
+  EYE_CMD_LIVE_START = 4,
+  EYE_CMD_LIVE_STOP = 5,
 };
 
 /** Parsed command from BLE client. */
 struct EyeCommandData {
   EyeCommand type;
-  int profileIndex; // only valid when type == EYE_CMD_PROFILE
+  int profileIndex;   // valid when type == EYE_CMD_PROFILE
+  int liveIntervalMs; // valid when type == EYE_CMD_LIVE_START
 };
 
 // =========================================================================

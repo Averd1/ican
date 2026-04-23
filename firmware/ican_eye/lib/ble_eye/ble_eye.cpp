@@ -47,6 +47,7 @@ static volatile uint16_t s_connId = 0;
 static portMUX_TYPE s_cmdMux = portMUX_INITIALIZER_UNLOCKED;
 static EyeCommand pendingCmdType = EYE_CMD_NONE;
 static int pendingCmdProfile = 0;
+static int pendingCmdLiveInterval = 0;
 
 // =========================================================================
 // BLE Callbacks
@@ -119,6 +120,22 @@ class CaptureCommandCallback : public BLECharacteristicCallbacks {
       pendingCmdProfile = 0;
       portEXIT_CRITICAL(&s_cmdMux);
       Serial.println("[BLE] CAPTURE command received");
+    } else if (cmd.startsWith("LIVE_START:")) {
+      int intervalMs = cmd.substring(11).toInt();
+      if (intervalMs < 500) intervalMs = 500;
+      if (intervalMs > 10000) intervalMs = 10000;
+      portENTER_CRITICAL(&s_cmdMux);
+      pendingCmdType = EYE_CMD_LIVE_START;
+      pendingCmdProfile = 0;
+      pendingCmdLiveInterval = intervalMs;
+      portEXIT_CRITICAL(&s_cmdMux);
+      Serial.printf("[BLE] LIVE_START command received: %dms\n", intervalMs);
+    } else if (cmd == "LIVE_STOP") {
+      portENTER_CRITICAL(&s_cmdMux);
+      pendingCmdType = EYE_CMD_LIVE_STOP;
+      pendingCmdProfile = 0;
+      portEXIT_CRITICAL(&s_cmdMux);
+      Serial.println("[BLE] LIVE_STOP command received");
     } else if (cmd.startsWith("PROFILE:")) {
       int idx = cmd.substring(8).toInt();
       portENTER_CRITICAL(&s_cmdMux);
@@ -220,8 +237,10 @@ EyeCommandData getLastEyeCommand() {
   portENTER_CRITICAL(&s_cmdMux);
   cmd.type = pendingCmdType;
   cmd.profileIndex = pendingCmdProfile;
+  cmd.liveIntervalMs = pendingCmdLiveInterval;
   pendingCmdType = EYE_CMD_NONE;
   pendingCmdProfile = 0;
+  pendingCmdLiveInterval = 0;
   portEXIT_CRITICAL(&s_cmdMux);
   return cmd;
 }

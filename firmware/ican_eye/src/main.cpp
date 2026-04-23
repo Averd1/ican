@@ -28,6 +28,11 @@
 unsigned long lastButtonPressMillis = 0;
 const unsigned long BUTTON_DEBOUNCE_DELAY_MS = 3000;
 
+// Live capture mode state
+bool liveMode = false;
+int liveIntervalMs = 1500;
+unsigned long lastLiveCaptureMs = 0;
+
 // ============================================================================
 // Setup
 // ============================================================================
@@ -77,7 +82,7 @@ void loop() {
     if (millis() - lastButtonPressMillis > BUTTON_DEBOUNCE_DELAY_MS) {
       lastButtonPressMillis = millis();
       Serial.println("[Main] Physical button pressed. Triggering capture...");
-      
+
       // Quick double blink for physical feedback
       digitalWrite(21, LOW); delay(50);
       digitalWrite(21, HIGH); delay(50);
@@ -95,6 +100,12 @@ void loop() {
         }
       }
     }
+  }
+
+  // Stop live mode if client disconnected
+  if (liveMode && !isBleEyeConnected()) {
+    liveMode = false;
+    Serial.println("[Main] Client disconnected — live mode stopped.");
   }
 
   // Check for pending BLE commands
@@ -115,10 +126,25 @@ void loop() {
     break;
   }
 
+  case EYE_CMD_LIVE_START: {
+    liveMode = true;
+    liveIntervalMs = cmd.liveIntervalMs;
+    lastLiveCaptureMs = 0;
+    Serial.printf("[Main] Live mode ON — interval %dms\n", liveIntervalMs);
+    sendControlMessage("LIVE_STARTED");
+    break;
+  }
+
+  case EYE_CMD_LIVE_STOP: {
+    liveMode = false;
+    Serial.println("[Main] Live mode OFF");
+    sendControlMessage("LIVE_STOPPED");
+    break;
+  }
+
   case EYE_CMD_PROFILE: {
     if (cmd.profileIndex >= 0 && cmd.profileIndex < NUM_PROFILES) {
       applyProfile(cmd.profileIndex);
-      // Notify client of profile change
       char msg[64];
       snprintf(msg, sizeof(msg), "PROFILE_SET:%d:%s", cmd.profileIndex,
                profiles[cmd.profileIndex].name);
@@ -130,13 +156,28 @@ void loop() {
   }
 
   case EYE_CMD_STATUS:
-    Serial.printf("[Main] Current profile: %d (%s)\n", getCurrentProfile(),
-                  profiles[getCurrentProfile()].name);
+    Serial.printf("[Main] Current profile: %d (%s), live=%s\n",
+                  getCurrentProfile(), profiles[getCurrentProfile()].name,
+                  liveMode ? "ON" : "OFF");
     break;
 
   case EYE_CMD_NONE:
   default:
     break;
+  }
+
+  // Firmware-driven live capture: auto-capture at the requested interval
+  if (liveMode && isBleEyeConnected()) {
+    unsigned long now = millis();
+    if (now - lastLiveCaptureMs >= (unsigned long)liveIntervalMs) {
+      lastLiveCaptureMs = now;
+      camera_fb_t *fb = capturePhoto();
+      if (fb) {
+        streamImageViaBle(fb->buf, fb->len,
+                          profiles[getCurrentProfile()].name);
+        esp_camera_fb_return(fb);
+      }
+    }
   }
 
   delay(10);

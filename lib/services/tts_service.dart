@@ -3,31 +3,36 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_tts/flutter_tts.dart';
 
-/// Text-to-Speech Service — wraps platform TTS for voice output.
-///
-/// The iCan app is primarily voice-driven for visually impaired users.
-/// All navigation feedback and scene descriptions are spoken aloud.
 class TtsService extends ChangeNotifier {
+  TtsService._();
+  static final TtsService instance = TtsService._();
+
   final FlutterTts _flutterTts = FlutterTts();
+
+  bool _initialized = false;
+  bool get initialized => _initialized;
 
   bool _isSpeaking = false;
   bool get isSpeaking => _isSpeaking;
 
-  double _rate = 0.5; // 0.0 – 1.0
+  double _rate = 0.5;
   double get rate => _rate;
 
-  double _pitch = 1.0; // 0.5 – 2.0
+  double _pitch = 1.0;
   double get pitch => _pitch;
 
-  /// Initialize TTS engine.
+  double _volume = 1.0;
+  double get volume => _volume;
+
   Future<void> init() async {
+    if (_initialized) return;
+
     await _flutterTts.setLanguage('en-US');
     await _flutterTts.setSpeechRate(_rate);
     await _flutterTts.setPitch(_pitch);
+    await _flutterTts.setVolume(_volume);
 
     if (Platform.isIOS) {
-      // Force audio to play even if the physical silent switch is engaged,
-      // and ensure it prefers the main speaker or Bluetooth.
       await _flutterTts.setSharedInstance(true);
       await _flutterTts.setIosAudioCategory(
         IosTextToSpeechAudioCategory.playback,
@@ -43,19 +48,10 @@ class TtsService extends ChangeNotifier {
       );
     }
 
-    // Use awaitSpeakCompletion on all platforms:
-    // - Windows: native callbacks fire on a non-platform thread (crashes).
-    // - iOS: same threading issue — flutter_tts fires completion/cancel/error
-    //   handlers from the native audio thread, which violates Flutter's
-    //   platform-channel threading contract and causes data loss.
-    // awaitSpeakCompletion(true) makes speak() block until done on the Dart
-    // side so we never need native-thread callbacks at all.
     if (Platform.isWindows || Platform.isIOS || Platform.isMacOS) {
       await _flutterTts.awaitSpeakCompletion(true);
       debugPrint('[TTS] Using awaitSpeakCompletion mode (platform: ${Platform.operatingSystem}).');
     } else {
-      // Android: native callbacks are dispatched on the platform thread, so
-      // callbacks are safe here. Wrap in Future.microtask anyway as a guard.
       _flutterTts.setCompletionHandler(() {
         Future.microtask(() {
           _isSpeaking = false;
@@ -77,10 +73,10 @@ class TtsService extends ChangeNotifier {
       });
     }
 
+    _initialized = true;
     debugPrint('[TTS] Initialized.');
   }
 
-  /// Speak the given text aloud.
   Future<void> speak(String text) async {
     if (text.isEmpty) return;
 
@@ -88,12 +84,9 @@ class TtsService extends ChangeNotifier {
       _isSpeaking = true;
       notifyListeners();
 
-      // Log before speak so we always see what was requested, even if TTS throws.
       debugPrint('[TTS] Speaking (${text.length} chars): "$text"');
       await _flutterTts.speak(text);
 
-      // awaitSpeakCompletion platforms: speak() blocks until done, so reset here.
-      // Android callback platforms: completion handler resets it async.
       if (Platform.isWindows || Platform.isIOS || Platform.isMacOS) {
         _isSpeaking = false;
         notifyListeners();
@@ -109,7 +102,6 @@ class TtsService extends ChangeNotifier {
     }
   }
 
-  /// Stop any ongoing speech immediately.
   Future<void> stop() async {
     try {
       await _flutterTts.stop();
@@ -120,16 +112,19 @@ class TtsService extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Update speech rate (0.0 slow – 1.0 fast).
   void setRate(double rate) {
     _rate = rate;
     _flutterTts.setSpeechRate(rate);
   }
 
-  /// Update pitch (0.5 low – 2.0 high).
   void setPitch(double pitch) {
     _pitch = pitch;
     _flutterTts.setPitch(pitch);
+  }
+
+  void setVolume(double vol) {
+    _volume = vol.clamp(0.0, 1.0);
+    _flutterTts.setVolume(_volume);
   }
 
   @override

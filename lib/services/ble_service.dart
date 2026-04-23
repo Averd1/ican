@@ -1238,42 +1238,13 @@ class BleService extends ChangeNotifier {
     }
   }
 
-  /// Remotely trigger image capture on the Eye.
-  Future<void> triggerEyeCapture() async {
+  /// Send a string command to the Eye via the capture/control characteristic.
+  Future<void> _sendEyeCommand(String cmd) async {
     if (_state != BleConnectionState.connected) {
-      debugPrint('[BLE] Cannot trigger capture: not connected.');
+      debugPrint('[BLE] Cannot send "$cmd": not connected.');
       return;
     }
-    debugPrint('[BLE] Triggering Eye capture. state=$_state connectedMac=$_connectedWindowsMac');
-    if (Platform.isWindows) {
-      if (_connectedWindowsMac == null) {
-        debugPrint('[BLE] ABORT: _connectedWindowsMac is null');
-        return;
-      }
-      try {
-        await WinBle.write(
-          address: _connectedWindowsMac!,
-          service: BleServices.eyeServiceUuid,
-          characteristic: BleCharacteristics.eyeCaptureRx,
-          data: Uint8List.fromList('CAPTURE'.codeUnits),
-          writeWithResponse: false,
-        );
-        debugPrint('[BLE] CAPTURE written OK to $_connectedWindowsMac');
-      } catch (e) {
-        debugPrint('[BLE] CAPTURE write FAILED: $e');
-      }
-    } else {
-      if (_eyeCaptureRxChar == null) return;
-      await _eyeCaptureRxChar!.write('CAPTURE'.codeUnits, withoutResponse: false);
-    }
-  }
-
-  /// Send a camera profile change command to the Eye.
-  /// Profile indices: 0=FAST, 1=BALANCED, 2=QUALITY, 3=MAX
-  Future<void> setEyeProfile(int profileIndex) async {
-    if (_state != BleConnectionState.connected) return;
-    final cmd = 'PROFILE:$profileIndex';
-    debugPrint('[BLE] Sending $cmd');
+    debugPrint('[BLE] Sending Eye command: $cmd');
     if (Platform.isWindows) {
       if (_connectedWindowsMac == null) return;
       try {
@@ -1285,13 +1256,29 @@ class BleService extends ChangeNotifier {
           writeWithResponse: false,
         );
       } catch (e) {
-        debugPrint('[BLE] Profile write failed: $e');
+        debugPrint('[BLE] Eye command write FAILED: $e');
       }
     } else {
       if (_eyeCaptureRxChar == null) return;
       await _eyeCaptureRxChar!.write(cmd.codeUnits, withoutResponse: false);
     }
   }
+
+  /// Remotely trigger a single image capture on the Eye.
+  Future<void> triggerEyeCapture() => _sendEyeCommand(EyeCommands.capture);
+
+  /// Start firmware-driven periodic capture at [intervalMs].
+  /// The Eye will auto-capture and stream images until [stopLiveCapture] is called.
+  Future<void> startLiveCapture({int intervalMs = 1500}) =>
+      _sendEyeCommand(EyeCommands.liveStart(intervalMs));
+
+  /// Stop firmware-driven periodic capture.
+  Future<void> stopLiveCapture() => _sendEyeCommand(EyeCommands.liveStop);
+
+  /// Send a camera profile change command to the Eye.
+  /// Profile indices: 0=FAST, 1=BALANCED, 2=QUALITY, 3=MAX
+  Future<void> setEyeProfile(int profileIndex) =>
+      _sendEyeCommand(EyeCommands.profile(profileIndex));
 
   // ---------------------------------------------------------------------------
   // Internal

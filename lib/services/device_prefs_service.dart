@@ -11,6 +11,26 @@ class DevicePrefsService {
 
   static const String _lastEyeDeviceIdKey  = 'last_eye_device_id';
   static const String _lastCaneDeviceIdKey = 'last_cane_device_id';
+  static const String _userRoleKey = 'user_role';
+
+  Future<String?> getUserRole() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      return prefs.getString(_userRoleKey);
+    } catch (e) {
+      debugPrint('[DevicePrefs] Error loading user role: $e');
+      return null;
+    }
+  }
+
+  Future<void> saveUserRole(String role) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_userRoleKey, role);
+    } catch (e) {
+      debugPrint('[DevicePrefs] Error saving user role: $e');
+    }
+  }
 
   /// Get the last connected iCan Eye device ID (MAC address or identifier).
   /// Returns null if no device has been saved yet.

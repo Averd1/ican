@@ -22,6 +22,7 @@
 		AA000102000000000A050000 /* DepthEstimator.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000101000000000A050000 /* DepthEstimator.swift */; };
 		AA000102000000000A060000 /* FoundationModelSynthesizer.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000101000000000A060000 /* FoundationModelSynthesizer.swift */; };
 		AA000102000000000A080000 /* ObjectDetector.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000101000000000A080000 /* ObjectDetector.swift */; };
+		BB000102000000000B010000 /* llama.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = BB000101000000000B010000 /* llama.xcframework */; };
 		AA000102000000000A090000 /* PerceptionLayer.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000101000000000A090000 /* PerceptionLayer.swift */; };
 		AA000102000000000A0A0000 /* SceneContext.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000101000000000A0A0000 /* SceneContext.swift */; };
 /* End PBXBuildFile section */
@@ -73,6 +74,7 @@
 		AA000101000000000A050000 /* DepthEstimator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DepthEstimator.swift; sourceTree = "<group>"; };
 		AA000101000000000A060000 /* FoundationModelSynthesizer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FoundationModelSynthesizer.swift; sourceTree = "<group>"; };
 		AA000101000000000A080000 /* ObjectDetector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ObjectDetector.swift; sourceTree = "<group>"; };
+		BB000101000000000B010000 /* llama.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = llama.xcframework; path = Frameworks/llama.xcframework; sourceTree = "<group>"; };
 		AA000101000000000A090000 /* PerceptionLayer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PerceptionLayer.swift; sourceTree = "<group>"; };
 		AA000101000000000A0A0000 /* SceneContext.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SceneContext.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -82,6 +84,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				BB000102000000000B010000 /* llama.xcframework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -114,7 +117,16 @@
 				97C146F01CF9000F007C117D /* Runner */,
 				97C146EF1CF9000F007C117D /* Products */,
 				331C8082294A63A400263BE5 /* RunnerTests */,
+				BB000103000000000B010000 /* Frameworks */,
 			);
+			sourceTree = "<group>";
+		};
+		BB000103000000000B010000 /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				BB000101000000000B010000 /* llama.xcframework */,
+			);
+			name = Frameworks;
 			sourceTree = "<group>";
 		};
 		97C146EF1CF9000F007C117D /* Products */ = {
@@ -597,6 +609,10 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
+				OTHER_LDFLAGS = (
+					"$(inherited)",
+					"-ObjC",
+				);
 				PRODUCT_BUNDLE_IDENTIFIER = com.icannavigation.app;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_OBJC_BRIDGING_HEADER = "Runner/Runner-Bridging-Header.h";
@@ -619,6 +635,10 @@
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
+				);
+				OTHER_LDFLAGS = (
+					"$(inherited)",
+					"-ObjC",
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = com.icannavigation.app;
 				PRODUCT_NAME = "$(TARGET_NAME)";

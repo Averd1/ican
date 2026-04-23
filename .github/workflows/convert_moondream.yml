@@ -1,0 +1,76 @@
+name: Convert Moondream → CoreML
+
+on:
+  workflow_dispatch:
+    inputs:
+      skip_vision:
+        description: "Skip vision encoder (already converted)"
+        type: boolean
+        default: true
+      skip_prefill:
+        description: "Skip prefill model (not needed)"
+        type: boolean
+        default: true
+
+jobs:
+  convert:
+    runs-on: ubuntu-latest   # 16 GB RAM, 4 cores — enough for wrapper.float() + coremltools
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout iCan
+        uses: actions/checkout@v4
+
+      - name: Checkout Moondream
+        uses: actions/checkout@v4
+        with:
+          repository: m87-labs/moondream
+          path: moondream
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Cache pip packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: moondream-pip-${{ hashFiles('scripts/convert_moondream_coreml.py') }}
+          restore-keys: moondream-pip-
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install \
+            "coremltools==9.0" \
+            "torch==2.7.0" \
+            "transformers==5.5.4" \
+            "tokenizers==0.22.2" \
+            safetensors pillow accelerate huggingface_hub
+
+      - name: Cache HuggingFace model weights
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/huggingface
+          key: moondream2-2025-06-21
+          # No restore-keys — exact revision must match or we re-download
+
+      - name: Convert models
+        env:
+          PYTHONPATH: ${{ github.workspace }}/moondream
+        run: |
+          mkdir -p ios/Runner/EyePipeline/Models/Moondream
+          SKIP_VISION=${{ inputs.skip_vision == true && '--skip-vision' || '' }}
+          SKIP_PREFILL=${{ inputs.skip_prefill == true && '--skip-prefill' || '' }}
+          python scripts/convert_moondream_coreml.py \
+            --output ios/Runner/EyePipeline/Models/Moondream \
+            $SKIP_VISION $SKIP_PREFILL
+
+      - name: Upload converted models
+        uses: actions/upload-artifact@v4
+        with:
+          name: moondream-coreml-models
+          path: ios/Runner/EyePipeline/Models/Moondream/
+          retention-days: 7
+          if-no-files-found: error

@@ -21,7 +21,6 @@
 		AA000102000000000A040000 /* ModelDownloadManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000101000000000A040000 /* ModelDownloadManager.swift */; };
 		AA000102000000000A050000 /* DepthEstimator.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000101000000000A050000 /* DepthEstimator.swift */; };
 		AA000102000000000A060000 /* FoundationModelSynthesizer.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000101000000000A060000 /* FoundationModelSynthesizer.swift */; };
-		AA000102000000000A070000 /* MoondreamService.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000101000000000A070000 /* MoondreamService.swift */; };
 		AA000102000000000A080000 /* ObjectDetector.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000101000000000A080000 /* ObjectDetector.swift */; };
 		AA000102000000000A090000 /* PerceptionLayer.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000101000000000A090000 /* PerceptionLayer.swift */; };
 		AA000102000000000A0A0000 /* SceneContext.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000101000000000A0A0000 /* SceneContext.swift */; };
@@ -73,7 +72,6 @@
 		AA000101000000000A040000 /* ModelDownloadManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelDownloadManager.swift; sourceTree = "<group>"; };
 		AA000101000000000A050000 /* DepthEstimator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DepthEstimator.swift; sourceTree = "<group>"; };
 		AA000101000000000A060000 /* FoundationModelSynthesizer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FoundationModelSynthesizer.swift; sourceTree = "<group>"; };
-		AA000101000000000A070000 /* MoondreamService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MoondreamService.swift; sourceTree = "<group>"; };
 		AA000101000000000A080000 /* ObjectDetector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ObjectDetector.swift; sourceTree = "<group>"; };
 		AA000101000000000A090000 /* PerceptionLayer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PerceptionLayer.swift; sourceTree = "<group>"; };
 		AA000101000000000A0A0000 /* SceneContext.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SceneContext.swift; sourceTree = "<group>"; };
@@ -154,7 +152,6 @@
 			children = (
 				AA000101000000000A050000 /* DepthEstimator.swift */,
 				AA000101000000000A060000 /* FoundationModelSynthesizer.swift */,
-				AA000101000000000A070000 /* MoondreamService.swift */,
 				AA000101000000000A080000 /* ObjectDetector.swift */,
 				AA000101000000000A090000 /* PerceptionLayer.swift */,
 				AA000101000000000A0A0000 /* SceneContext.swift */,
@@ -318,7 +315,6 @@
 				AA000102000000000A040000 /* ModelDownloadManager.swift in Sources */,
 				AA000102000000000A050000 /* DepthEstimator.swift in Sources */,
 				AA000102000000000A060000 /* FoundationModelSynthesizer.swift in Sources */,
-				AA000102000000000A070000 /* MoondreamService.swift in Sources */,
 				AA000102000000000A080000 /* ObjectDetector.swift in Sources */,
 				AA000102000000000A090000 /* PerceptionLayer.swift in Sources */,
 				AA000102000000000A0A0000 /* SceneContext.swift in Sources */,

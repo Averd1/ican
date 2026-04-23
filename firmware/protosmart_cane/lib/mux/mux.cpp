@@ -41,6 +41,15 @@ void selectLight() {
     selectMuxChannel(LIGHT_CHANNEL);
 }
 
-void selectHaptic() {
-    selectMuxChannel(HAPTIC_CHANNEL);
+// === HAPTIC DRIVER CHANNEL SELECTION ===
+void selectHaptic8x8() {
+    selectMuxChannel(HAPTIC_8X8_CHANNEL);
+}
+
+void selectHapticLeftUltrasonic() {
+    selectMuxChannel(HAPTIC_LEFT_ULTRASONIC_CHANNEL);
+}
+
+void selectHapticRightUltrasonic() {
+    selectMuxChannel(HAPTIC_RIGHT_ULTRASONIC_CHANNEL);
 }

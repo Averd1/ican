@@ -13,4 +13,8 @@ void selectLidar();
 void selectUltrasonic();
 void selectIMU();
 void selectLight();
-void selectHaptic();
+
+// === HAPTIC DRIVER CHANNEL SELECTION ===
+void selectHaptic8x8();
+void selectHapticLeftUltrasonic();
+void selectHapticRightUltrasonic();

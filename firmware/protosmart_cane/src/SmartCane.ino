@@ -32,6 +32,7 @@
 #include "light.h"
 #include "fusion.h"
 #include "responses.h"
+#include "haptic_driver.h"
 #include "faults.h"
 #include "ble.h"
 #include "battery_monitor.h"
@@ -100,6 +101,17 @@ static void printIsolatedSensorDebug(unsigned long now) {
     Serial.print(systemFaults.ultrasonic_fail);
     Serial.print("/");
     Serial.println(systemFaults.imu_fail);
+
+    uint8_t hapticBits = hapticDriverStatusBits();
+    Serial.print("HAPTIC_INIT bits=0x");
+    Serial.print(hapticBits, HEX);
+    Serial.print(" (8x8=");
+    Serial.print((hapticBits & 0x10) ? "1" : "0");
+    Serial.print(", right=");
+    Serial.print((hapticBits & 0x20) ? "1" : "0");
+    Serial.print(", left=");
+    Serial.print((hapticBits & 0x40) ? "1" : "0");
+    Serial.println(")");
 }
 
 void setup() {
@@ -146,6 +158,14 @@ void setup() {
     setMode(NORMAL);
     Serial.println("[2] setMode OK");
     Serial.flush();
+
+#if ENABLE_BLE
+    Serial.println("[2.5] bleInit...");
+    Serial.flush();
+    bleInit();
+    Serial.println("[2.5] bleInit OK");
+    Serial.flush();
+#endif
 
     // === STEP 3: Sensors (IMU + ultrasonic + 8x8) ===
     Serial.println("[3] sensorsInit...");
@@ -200,6 +220,15 @@ void loop() {
 
     fuseSituations();
     handleResponses();
+
+#if ENABLE_BLE
+    blePoll();
+    if (now - lastTelemetryUpdate > 200) {
+        updateBLETelemetry();
+        lastTelemetryUpdate = now;
+    }
+#endif
+
     printIsolatedSensorDebug(now);
     return;
 #endif

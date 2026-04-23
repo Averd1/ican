@@ -131,10 +131,8 @@ void responsesInit() {
 
     runBootHapticTest();
 
-#if !ISOLATED_SENSOR_TEST_MODE
-    // Initialize haptic driver
+    // Initialize haptic drivers (DRV2605L on mux channels)
     hapticDriverInit();
-#endif
 
     if (DEBUG_MODE) {
         Serial.println("responsesInit complete");
@@ -255,6 +253,7 @@ void handleResponses() {
 #if ISOLATED_SENSOR_TEST_MODE
     vibrationDiskOff();
     updateIsolatedTestHaptics();
+    updateHapticFeedback();
     return;
 #endif
 
@@ -315,15 +314,21 @@ void handleFallResponse() {
     if (timeSinceFall < EMERGENCY_INITIAL_INTENSITY_MS) {
         // Phase 1: rapid strong haptic pulses
         vibrationDiskPulse(RESPONSE_PULSE_IMMINENT_MS);
-        hapticPulse(HAPTIC_STRONG, RESPONSE_PULSE_IMMINENT_MS / 2);
+        hapticPulse(DRIVER_8X8, HAPTIC_STRONG, RESPONSE_PULSE_IMMINENT_MS / 2);
+        hapticPulse(DRIVER_LEFT_ULTRASONIC, HAPTIC_STRONG, RESPONSE_PULSE_IMMINENT_MS / 2);
+        hapticPulse(DRIVER_RIGHT_ULTRASONIC, HAPTIC_STRONG, RESPONSE_PULSE_IMMINENT_MS / 2);
     } else if (timeSinceFall < EMERGENCY_DURATION_MS) {
         // Phase 2: sustained medium haptic pulses
         vibrationDiskPulse(RESPONSE_PULSE_NEAR_MS);
-        hapticPulse(HAPTIC_MEDIUM, RESPONSE_PULSE_NEAR_MS / 2);
+        hapticPulse(DRIVER_8X8, HAPTIC_MEDIUM, RESPONSE_PULSE_NEAR_MS / 2);
+        hapticPulse(DRIVER_LEFT_ULTRASONIC, HAPTIC_MEDIUM, RESPONSE_PULSE_NEAR_MS / 2);
+        hapticPulse(DRIVER_RIGHT_ULTRASONIC, HAPTIC_MEDIUM, RESPONSE_PULSE_NEAR_MS / 2);
     } else {
         // Timeout reached - return to normal haptic control but keep emergency flag
         vibrationDiskOff();
-        hapticStop();
+        hapticStop(DRIVER_8X8);
+        hapticStop(DRIVER_LEFT_ULTRASONIC);
+        hapticStop(DRIVER_RIGHT_ULTRASONIC);
         emergencyActive = false;
         if (DEBUG_MODE) Serial.println("Fall alert timeout - continuing with standard haptic control");
     }

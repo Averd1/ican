@@ -52,11 +52,15 @@
 #define IMU_I2C_ADDR 0x6A          // LSM6DSOX IMU (primary address)
 
 // === MUX CHANNEL ASSIGNMENTS ===
+// I2C Mux channels for primary I2C bus (3 DRV2605 haptic drivers)
+#define HAPTIC_LEFT_ULTRASONIC_CHANNEL 0   // Left ultrasonic sensor haptic driver
+#define HAPTIC_RIGHT_ULTRASONIC_CHANNEL 2  // Right ultrasonic sensor haptic driver
+#define HAPTIC_8X8_CHANNEL 1               // 8x8 matrix sensor haptic driver
+#define LIGHT_CHANNEL 4                    // Ambient light sensor
+
+// Secondary I2C bus (IMU + 8x8 sensor on GPIO9/10)
 #define MATRIX_SENSOR_CHANNEL 0
-#define ULTRASONIC_CHANNEL 1
 #define IMU_CHANNEL 2
-#define LIGHT_CHANNEL 3
-#define HAPTIC_CHANNEL 4
 
 // === 8x8 MATRIX SENSOR CONFIGURATION ===
 #define MATRIX_SENSOR_MAX_DISTANCE_MM 1500  // mm - ignore far readings beyond useful range
@@ -177,7 +181,7 @@
 #define SERIAL_BAUD_RATE 115200
 #define DEBUG_MODE true  // Set to false for production
 #ifndef ENABLE_BLE
-#define ENABLE_BLE false  // Set true or pass -DENABLE_BLE=true to restore BLE telemetry
+#define ENABLE_BLE true  // Enabled for software-only diagnostics and telemetry validation
 #endif
 
 #define DEBUG_WAIT_FOR_SERIAL_MS 3000

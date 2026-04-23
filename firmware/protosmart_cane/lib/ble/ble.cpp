@@ -6,6 +6,7 @@
 #include "ble.h"
 #include <Arduino.h>
 #include <ArduinoBLE.h>
+#include "../actuators/haptic_driver.h"
 
 // BLE objects are constructed lazily inside bleInit() to avoid
 // ArduinoBLE static constructors running before setup() (causes boot panic)
@@ -61,6 +62,7 @@ void updateBLETelemetry() {
     if (currentSituation == HIGH_STRESS_EVENT) packet.flags |= 0x02;
     if (obstacleNear) packet.flags |= 0x04;
     if (obstacleImminent) packet.flags |= 0x08;
+    packet.flags |= hapticDriverStatusBits();
     
     // Send the simplified packet
     if (telemetryCharacteristic) {

@@ -57,7 +57,11 @@ dependencies:
   # Local push notifications — used for fall detection alerts
   flutter_local_notifications: ^18.0.0
 
+  # File system paths (model storage for on-device VLM)
+  path_provider: ^2.1.0
+
   objective_c: 9.1.0
+  flutter_screenutil: ^5.9.3
 
 dev_dependencies:
   flutter_test:

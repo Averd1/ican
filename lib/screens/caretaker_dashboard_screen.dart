@@ -91,16 +91,16 @@ class _CaretakerDashboardScreenState extends State<CaretakerDashboardScreen>
         barrierDismissible: false,
         builder: (_) => AlertDialog(
           backgroundColor: ICanTheme.surfaceCard,
-          title: const Row(
+          title: Row(
             children: [
-              Icon(Icons.warning_rounded, color: Colors.redAccent, size: 28),
-              SizedBox(width: 8),
+              const Icon(Icons.warning_rounded, color: Colors.redAccent, size: 28),
+              const SizedBox(width: 8),
               Text('Fall Detected',
                   style: TextStyle(
                       color: Colors.redAccent, fontWeight: FontWeight.bold)),
             ],
           ),
-          content: const Text(
+          content: Text(
             'iCan Cane has detected a fall event.\n\nCheck on the user immediately.',
             style: TextStyle(color: ICanTheme.textPrimary, fontSize: 16),
           ),
@@ -110,7 +110,7 @@ class _CaretakerDashboardScreenState extends State<CaretakerDashboardScreen>
                 Navigator.of(context).pop();
                 _acknowledgeFall();
               },
-              child: const Text('Acknowledge',
+              child: Text('Acknowledge',
                   style: TextStyle(
                       color: ICanTheme.accentOrange,
                       fontWeight: FontWeight.bold,

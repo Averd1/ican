@@ -1,9 +1,9 @@
 /**
  * sensors.h — Unified Sensor Interface
  *
- * Abstracts the TF Luna LiDAR, 2x Ultrasonic sensors, and LSM6DSOX IMU
- * behind clean read functions. The I²C mux channel must be selected
- * before calling LiDAR or IMU functions.
+ * Abstracts the DFRobot SEN0628 Matrix LiDAR, 2x Ultrasonic sensors,
+ * and LSM6DSOX IMU behind clean read functions.
+ * LiDAR and IMU both use Wire1 (D6=SDA, D7=SCL) directly — no mux.
  */
 
 #ifndef SENSORS_H
@@ -23,7 +23,7 @@ struct ImuData {
 
 /**
  * Initialize all sensors.
- * Ultrasonic sensors use GPIO pins; LiDAR and IMU use I²C (mux-selected).
+ * Ultrasonic sensors use GPIO pins; LiDAR and IMU use Wire1 (D6/D7).
  */
 void initSensors(uint8_t leftTrig, uint8_t leftEcho, uint8_t rightTrig,
                  uint8_t rightEcho);
@@ -41,14 +41,14 @@ float readUltrasonicLeft();
 float readUltrasonicRight();
 
 /**
- * Read TF Luna LiDAR distance in centimeters.
- * I²C mux must be set to the LiDAR channel before calling.
+ * Read DFRobot SEN0628 Matrix LiDAR — returns closest point distance in cm.
+ * Uses Wire1 (D6/D7) directly at I2C address 0x33.
  */
 float readLidar();
 
 /**
  * Read LSM6DSOX IMU data.
- * I²C mux must be set to the IMU channel before calling.
+ * Uses Wire1 (D6/D7) directly.
  */
 ImuData readIMU();
 

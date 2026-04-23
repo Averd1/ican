@@ -16,9 +16,6 @@ Future<void> main() async {
 }
 
 /// iCan App — Assistive navigation and awareness for the visually impaired.
-///
-/// Voice-driven interface backed by BLE communication with the
-/// iCan Cane (haptic navigation) and iCan Eye (scene description).
 class ICanApp extends StatelessWidget {
   const ICanApp({super.key});
 
@@ -33,3 +30,4 @@ class ICanApp extends StatelessWidget {
     );
   }
 }
+

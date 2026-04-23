@@ -8,51 +8,70 @@ class RoleSelectionScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    
+
     return Scaffold(
       backgroundColor: theme.scaffoldBackgroundColor,
       body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 40.0),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              const Spacer(flex: 1),
-              Text(
-                'Welcome',
-                style: theme.textTheme.headlineLarge?.copyWith(
-                  fontWeight: FontWeight.w700,
-                  letterSpacing: -0.5,
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            // Adapt layout based on available space
+            final isWide = constraints.maxWidth > 600;
+            final contentWidth =
+                isWide ? 480.0 : constraints.maxWidth;
+
+            return Center(
+              child: SingleChildScrollView(
+                padding: EdgeInsets.symmetric(
+                  horizontal: isWide ? 32 : 24,
+                  vertical: 32,
                 ),
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 12),
-              Text(
-                'How are you using iCan today?',
-                style: theme.textTheme.bodyLarge?.copyWith(
-                  color: theme.colorScheme.onSurface.withAlpha(179),
+                child: ConstrainedBox(
+                  constraints: BoxConstraints(maxWidth: contentWidth),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Text(
+                        'Welcome',
+                        style: theme.textTheme.headlineLarge?.copyWith(
+                          fontWeight: FontWeight.w700,
+                          letterSpacing: -0.5,
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
+                      const SizedBox(height: 12),
+                      Text(
+                        'How are you using iCan today?',
+                        style: theme.textTheme.bodyLarge?.copyWith(
+                          color: theme.colorScheme.onSurface.withAlpha(179),
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
+                      const SizedBox(height: 40),
+                      _buildRoleCard(
+                        context,
+                        title: 'I am the User',
+                        subtitle:
+                            'Navigate, describe scenes, and stay safe.',
+                        icon: CupertinoIcons.person_crop_circle,
+                        onTap: () => Navigator.pushReplacementNamed(
+                            context, AppRouter.home),
+                      ),
+                      const SizedBox(height: 20),
+                      _buildRoleCard(
+                        context,
+                        title: 'I am a Caretaker',
+                        subtitle: 'Monitor vitals and location remotely.',
+                        icon: CupertinoIcons.heart_circle,
+                        onTap: () => Navigator.pushReplacementNamed(
+                            context, AppRouter.caretakerDashboard),
+                      ),
+                    ],
+                  ),
                 ),
-                textAlign: TextAlign.center,
               ),
-              const Spacer(flex: 2),
-              _buildRoleCard(
-                context,
-                title: 'I am the User',
-                subtitle: 'Navigate, describe scenes, and stay safe.',
-                icon: CupertinoIcons.person_crop_circle,
-                onTap: () => Navigator.pushReplacementNamed(context, AppRouter.home),
-              ),
-              const SizedBox(height: 24),
-              _buildRoleCard(
-                context,
-                title: 'I am a Caretaker',
-                subtitle: 'Monitor vitals and location remotely.',
-                icon: CupertinoIcons.heart_circle,
-                onTap: () => Navigator.pushReplacementNamed(context, AppRouter.caretakerDashboard),
-              ),
-              const Spacer(flex: 2),
-            ],
-          ),
+            );
+          },
         ),
       ),
     );
@@ -66,7 +85,7 @@ class RoleSelectionScreen extends StatelessWidget {
     required VoidCallback onTap,
   }) {
     final theme = Theme.of(context);
-    
+
     return Semantics(
       button: true,
       label: 'Select role: $title',

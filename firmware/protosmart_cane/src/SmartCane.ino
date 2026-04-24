@@ -203,11 +203,6 @@ void loop() {
 #endif
 
 #if ISOLATED_SENSOR_TEST_MODE
-    if (now - lastIMUUpdate > modeConfig.imuInterval) {
-        updateIMU();
-        lastIMUUpdate = now;
-    }
-
     if (now - lastUltrasonicUpdate > modeConfig.ultrasonicInterval) {
         updateUltrasonic();
         lastUltrasonicUpdate = now;

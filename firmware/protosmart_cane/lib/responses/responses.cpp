@@ -252,7 +252,6 @@ static void updateWaistLEDs() {
 void handleResponses() {
 #if ISOLATED_SENSOR_TEST_MODE
     vibrationDiskOff();
-    updateIsolatedTestHaptics();
     updateHapticFeedback();
     return;
 #endif

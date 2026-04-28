@@ -9,11 +9,6 @@ import UIKit
   ) -> Bool {
     GeneratedPluginRegistrant.register(with: self)
 
-    // Register on-device vision MethodChannel + EventChannels
-    if let controller = window?.rootViewController as? FlutterViewController {
-      OnDeviceVisionChannel.register(with: controller.binaryMessenger)
-    }
-
     return super.application(application, didFinishLaunchingWithOptions: launchOptions)
   }
 

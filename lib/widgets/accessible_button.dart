@@ -86,20 +86,19 @@ class _AccessibleButtonState extends State<AccessibleButton> {
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
     // ── Resolve colors per state ──
-    final Color bgBase =
-        _enabled ? AppColors.interactive : _disabledBg(isDark);
+    final Color bgBase = _enabled ? AppColors.interactive : _disabledBg(isDark);
     final Color bg = (_pressed && _enabled) ? _darken(bgBase, 0.15) : bgBase;
     final Color fg = _enabled ? AppColors.textOnDark : _disabledFg(isDark);
-    final Color focusRing =
-        isDark ? AppColors.focusRingOnDark : AppColors.focusRing;
+    final Color focusRing = isDark
+        ? AppColors.focusRingOnDark
+        : AppColors.focusRing;
 
     // ── Build semantic hint ──
     // When both tap and long-press exist, concatenate both hints so
     // VoiceOver / TalkBack announces the full action set.
     String semanticHint = widget.hint;
     if (widget.onLongPress != null && widget.longPressHint != null) {
-      semanticHint =
-          '${widget.hint}. Long press: ${widget.longPressHint}';
+      semanticHint = '${widget.hint}. Long press: ${widget.longPressHint}';
     }
 
     // SemanticLabel: The label announces the button's name. The hint
@@ -113,50 +112,51 @@ class _AccessibleButtonState extends State<AccessibleButton> {
       label: _enabled ? widget.label : '${widget.label}, unavailable',
       hint: semanticHint,
       child: Focus(
-        child: Builder(builder: (context) {
-          final focused = Focus.of(context).hasFocus;
+        child: Builder(
+          builder: (context) {
+            final focused = Focus.of(context).hasFocus;
 
-          return GestureDetector(
-            onTapDown: _handleTapDown,
-            onTapUp: _handleTapUp,
-            onTapCancel: _handleTapCancel,
-            onTap: _handleTap,
-            onLongPress:
-                widget.onLongPress != null ? _handleLongPress : null,
-            child: AnimatedContainer(
-              duration: AppAccessibility.reduceMotion(context)
-                  ? Duration.zero
-                  : const Duration(milliseconds: 100),
-              constraints: const BoxConstraints(
-                minHeight: 64,
-                minWidth: double.infinity,
-              ),
-              decoration: BoxDecoration(
-                color: bg,
-                borderRadius: BorderRadius.circular(12),
-                border: focused
-                    ? Border.all(color: focusRing, width: 3)
-                    : null,
-              ),
-              padding: const EdgeInsets.symmetric(
-                horizontal: AppSpacing.md,
-                vertical: AppSpacing.sm,
-              ),
-              child: Center(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    _buildLabel(fg),
-                    if (widget.subtitle != null) ...[
-                      const SizedBox(height: 4),
-                      _buildSubtitle(fg, isDark),
+            return GestureDetector(
+              onTapDown: _handleTapDown,
+              onTapUp: _handleTapUp,
+              onTapCancel: _handleTapCancel,
+              onTap: _handleTap,
+              onLongPress: widget.onLongPress != null ? _handleLongPress : null,
+              child: AnimatedContainer(
+                duration: AppAccessibility.reduceMotion(context)
+                    ? Duration.zero
+                    : const Duration(milliseconds: 100),
+                constraints: const BoxConstraints(
+                  minHeight: 64,
+                  minWidth: double.infinity,
+                ),
+                decoration: BoxDecoration(
+                  color: bg,
+                  borderRadius: BorderRadius.circular(12),
+                  border: focused
+                      ? Border.all(color: focusRing, width: 3)
+                      : null,
+                ),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: AppSpacing.md,
+                  vertical: AppSpacing.sm,
+                ),
+                child: Center(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      _buildLabel(fg),
+                      if (widget.subtitle != null) ...[
+                        const SizedBox(height: 4),
+                        _buildSubtitle(fg, isDark),
+                      ],
                     ],
-                  ],
+                  ),
                 ),
               ),
-            ),
-          );
-        }),
+            );
+          },
+        ),
       ),
     );
   }
@@ -184,8 +184,8 @@ class _AccessibleButtonState extends State<AccessibleButton> {
   Widget _buildSubtitle(Color fg, bool isDark) {
     final Color subtitleColor = _enabled
         ? (isDark
-            ? AppColors.textSecondaryOnDark
-            : AppColors.textSecondaryOnLight)
+              ? AppColors.textSecondaryOnDark
+              : AppColors.textSecondaryOnLight)
         : fg;
 
     return ExcludeSemantics(

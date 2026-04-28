@@ -18,6 +18,13 @@ final class DepthEstimator {
     private static let fallbackModelName  = "DepthAnythingV2SmallF16"
 
     private var vnModel: VNCoreMLModel?
+    private(set) var diagnostic: [String: Any] = [
+        "name": preferredModelName,
+        "bundle_found": false,
+        "compiled_model_found": false,
+        "loaded": false,
+        "message": "Model has not been checked yet."
+    ]
 
     private init() {
         loadModel()
@@ -28,21 +35,49 @@ final class DepthEstimator {
     // MARK: - Model Loading
 
     private func loadModel() {
+        var sawBundle = false
+        var sawCompiled = false
         for name in [Self.preferredModelName, Self.fallbackModelName] {
-            if let url = Bundle.main.url(forResource: name, withExtension: "mlpackage")
-                      ?? Bundle.main.url(forResource: name, withExtension: "mlmodelc") {
+            let packageUrl = Bundle.main.url(forResource: name, withExtension: "mlpackage")
+            let compiledUrl = Bundle.main.url(forResource: name, withExtension: "mlmodelc")
+            sawBundle = sawBundle || packageUrl != nil || compiledUrl != nil
+            sawCompiled = sawCompiled || compiledUrl != nil
+            if let url = compiledUrl ?? packageUrl {
                 do {
                     let config = MLModelConfiguration()
                     config.computeUnits = .all   // Neural Engine preferred
                     let mlModel = try MLModel(contentsOf: url, configuration: config)
                     vnModel = try VNCoreMLModel(for: mlModel)
+                    diagnostic = [
+                        "name": name,
+                        "bundle_found": true,
+                        "compiled_model_found": compiledUrl != nil,
+                        "loaded": true,
+                        "message": "\(name) loaded successfully."
+                    ]
                     print("[DepthEstimator] Loaded \(name)")
                     return
                 } catch {
+                    diagnostic = [
+                        "name": name,
+                        "bundle_found": true,
+                        "compiled_model_found": compiledUrl != nil,
+                        "loaded": false,
+                        "message": "\(name) failed to load: \(error.localizedDescription)"
+                    ]
                     print("[DepthEstimator] Failed to load \(name): \(error)")
                 }
             }
         }
+        diagnostic = [
+            "name": Self.preferredModelName,
+            "bundle_found": sawBundle,
+            "compiled_model_found": sawCompiled,
+            "loaded": false,
+            "message": sawBundle
+                ? "Depth model was found but did not load."
+                : "Depth model was not found in the app bundle."
+        ]
         print("[DepthEstimator] No depth model found in bundle — depth estimation disabled")
     }
 

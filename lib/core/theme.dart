@@ -86,35 +86,23 @@ class AppTextStyles {
   AppTextStyles._();
 
   static TextStyle get displayLarge => TextStyle(
-        fontSize: 36.sp,
-        fontWeight: FontWeight.bold,
-        letterSpacing: -0.5,
-        height: 1.2,
-      );
+    fontSize: 36.sp,
+    fontWeight: FontWeight.bold,
+    letterSpacing: -0.5,
+    height: 1.2,
+  );
 
-  static TextStyle get headlineMedium => TextStyle(
-        fontSize: 28.sp,
-        fontWeight: FontWeight.w600,
-        height: 1.3,
-      );
+  static TextStyle get headlineMedium =>
+      TextStyle(fontSize: 28.sp, fontWeight: FontWeight.w600, height: 1.3);
 
-  static TextStyle get bodyLarge => TextStyle(
-        fontSize: 20.sp,
-        fontWeight: FontWeight.normal,
-        height: 1.5,
-      );
+  static TextStyle get bodyLarge =>
+      TextStyle(fontSize: 20.sp, fontWeight: FontWeight.normal, height: 1.5);
 
-  static TextStyle get bodyMedium => TextStyle(
-        fontSize: 18.sp,
-        fontWeight: FontWeight.normal,
-        height: 1.5,
-      );
+  static TextStyle get bodyMedium =>
+      TextStyle(fontSize: 18.sp, fontWeight: FontWeight.normal, height: 1.5);
 
-  static TextStyle get labelLarge => TextStyle(
-        fontSize: 20.sp,
-        fontWeight: FontWeight.w600,
-        height: 1.2,
-      );
+  static TextStyle get labelLarge =>
+      TextStyle(fontSize: 20.sp, fontWeight: FontWeight.w600, height: 1.2);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -177,16 +165,19 @@ class ICanTheme {
 
   static ThemeData get lightTheme {
     final textTheme = TextTheme(
-      displayLarge:
-          AppTextStyles.displayLarge.copyWith(color: AppColors.textOnLight),
-      headlineMedium:
-          AppTextStyles.headlineMedium.copyWith(color: AppColors.textOnLight),
-      bodyLarge:
-          AppTextStyles.bodyLarge.copyWith(color: AppColors.textOnLight),
-      bodyMedium: AppTextStyles.bodyMedium
-          .copyWith(color: AppColors.textSecondaryOnLight),
-      labelLarge:
-          AppTextStyles.labelLarge.copyWith(color: AppColors.textOnLight),
+      displayLarge: AppTextStyles.displayLarge.copyWith(
+        color: AppColors.textOnLight,
+      ),
+      headlineMedium: AppTextStyles.headlineMedium.copyWith(
+        color: AppColors.textOnLight,
+      ),
+      bodyLarge: AppTextStyles.bodyLarge.copyWith(color: AppColors.textOnLight),
+      bodyMedium: AppTextStyles.bodyMedium.copyWith(
+        color: AppColors.textSecondaryOnLight,
+      ),
+      labelLarge: AppTextStyles.labelLarge.copyWith(
+        color: AppColors.textOnLight,
+      ),
     );
 
     return ThemeData(
@@ -214,67 +205,84 @@ class ICanTheme {
             }
             return AppColors.interactive;
           }),
-          foregroundColor:
-              const WidgetStatePropertyAll(AppColors.textOnDark),
+          foregroundColor: const WidgetStatePropertyAll(AppColors.textOnDark),
           minimumSize: const WidgetStatePropertyAll(
-              Size(double.infinity, _buttonHeight)),
+            Size(double.infinity, _buttonHeight),
+          ),
           textStyle: WidgetStatePropertyAll(AppTextStyles.labelLarge),
           shape: WidgetStateProperty.resolveWith((states) {
             if (states.contains(WidgetState.focused)) {
               return RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(_radius),
                 side: const BorderSide(
-                    color: AppColors.focusRing, width: _focusWidth),
+                  color: AppColors.focusRing,
+                  width: _focusWidth,
+                ),
               );
             }
             return RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(_radius));
+              borderRadius: BorderRadius.circular(_radius),
+            );
           }),
-          padding: const WidgetStatePropertyAll(EdgeInsets.symmetric(
-              horizontal: AppSpacing.md, vertical: AppSpacing.sm)),
+          padding: const WidgetStatePropertyAll(
+            EdgeInsets.symmetric(
+              horizontal: AppSpacing.md,
+              vertical: AppSpacing.sm,
+            ),
+          ),
         ),
       ),
 
       // ── Outlined Button ──
       outlinedButtonTheme: OutlinedButtonThemeData(
         style: ButtonStyle(
-          foregroundColor:
-              const WidgetStatePropertyAll(AppColors.interactive),
+          foregroundColor: const WidgetStatePropertyAll(AppColors.interactive),
           minimumSize: const WidgetStatePropertyAll(
-              Size(double.infinity, _buttonHeight)),
+            Size(double.infinity, _buttonHeight),
+          ),
           textStyle: WidgetStatePropertyAll(AppTextStyles.labelLarge),
           side: WidgetStateProperty.resolveWith((states) {
             if (states.contains(WidgetState.focused)) {
               return const BorderSide(
-                  color: AppColors.focusRing, width: _focusWidth);
+                color: AppColors.focusRing,
+                width: _focusWidth,
+              );
             }
             return const BorderSide(color: AppColors.interactive, width: 2);
           }),
-          shape: WidgetStatePropertyAll(RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(_radius))),
-          padding: const WidgetStatePropertyAll(EdgeInsets.symmetric(
-              horizontal: AppSpacing.md, vertical: AppSpacing.sm)),
+          shape: WidgetStatePropertyAll(
+            RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(_radius),
+            ),
+          ),
+          padding: const WidgetStatePropertyAll(
+            EdgeInsets.symmetric(
+              horizontal: AppSpacing.md,
+              vertical: AppSpacing.sm,
+            ),
+          ),
         ),
       ),
 
       // ── Text Button ──
       textButtonTheme: TextButtonThemeData(
         style: ButtonStyle(
-          foregroundColor:
-              const WidgetStatePropertyAll(AppColors.interactive),
-          minimumSize:
-              const WidgetStatePropertyAll(Size(_minTouch, _minTouch)),
+          foregroundColor: const WidgetStatePropertyAll(AppColors.interactive),
+          minimumSize: const WidgetStatePropertyAll(Size(_minTouch, _minTouch)),
           textStyle: WidgetStatePropertyAll(AppTextStyles.labelLarge),
           shape: WidgetStateProperty.resolveWith((states) {
             if (states.contains(WidgetState.focused)) {
               return RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(_radius),
                 side: const BorderSide(
-                    color: AppColors.focusRing, width: _focusWidth),
+                  color: AppColors.focusRing,
+                  width: _focusWidth,
+                ),
               );
             }
             return RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(_radius));
+              borderRadius: BorderRadius.circular(_radius),
+            );
           }),
         ),
       ),
@@ -282,20 +290,21 @@ class ICanTheme {
       // ── Icon Button ──
       iconButtonTheme: IconButtonThemeData(
         style: ButtonStyle(
-          minimumSize:
-              const WidgetStatePropertyAll(Size(_minTouch, _minTouch)),
-          foregroundColor:
-              const WidgetStatePropertyAll(AppColors.interactive),
+          minimumSize: const WidgetStatePropertyAll(Size(_minTouch, _minTouch)),
+          foregroundColor: const WidgetStatePropertyAll(AppColors.interactive),
           shape: WidgetStateProperty.resolveWith((states) {
             if (states.contains(WidgetState.focused)) {
               return RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(_radius),
                 side: const BorderSide(
-                    color: AppColors.focusRing, width: _focusWidth),
+                  color: AppColors.focusRing,
+                  width: _focusWidth,
+                ),
               );
             }
             return RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(_radius));
+              borderRadius: BorderRadius.circular(_radius),
+            );
           }),
         ),
       ),
@@ -307,8 +316,9 @@ class ICanTheme {
         elevation: 0,
         scrolledUnderElevation: 0,
         systemOverlayStyle: SystemUiOverlayStyle.dark,
-        titleTextStyle: AppTextStyles.headlineMedium
-            .copyWith(color: AppColors.textOnLight),
+        titleTextStyle: AppTextStyles.headlineMedium.copyWith(
+          color: AppColors.textOnLight,
+        ),
       ),
 
       // ── Card ──
@@ -340,17 +350,21 @@ class ICanTheme {
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(_radius),
-          borderSide:
-              const BorderSide(color: AppColors.focusRing, width: _focusWidth),
+          borderSide: const BorderSide(
+            color: AppColors.focusRing,
+            width: _focusWidth,
+          ),
         ),
         errorBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(_radius),
           borderSide: const BorderSide(color: AppColors.error, width: 2),
         ),
-        labelStyle: AppTextStyles.bodyMedium
-            .copyWith(color: AppColors.textSecondaryOnLight),
-        hintStyle: AppTextStyles.bodyMedium
-            .copyWith(color: AppColors.disabledOnLight),
+        labelStyle: AppTextStyles.bodyMedium.copyWith(
+          color: AppColors.textSecondaryOnLight,
+        ),
+        hintStyle: AppTextStyles.bodyMedium.copyWith(
+          color: AppColors.disabledOnLight,
+        ),
       ),
 
       // ── Switch ──
@@ -384,8 +398,9 @@ class ICanTheme {
 
       // ── Tooltip ──
       tooltipTheme: TooltipThemeData(
-        textStyle:
-            AppTextStyles.bodyMedium.copyWith(color: AppColors.textOnDark),
+        textStyle: AppTextStyles.bodyMedium.copyWith(
+          color: AppColors.textOnDark,
+        ),
         decoration: BoxDecoration(
           color: AppColors.backgroundDark,
           borderRadius: BorderRadius.circular(8),
@@ -395,11 +410,13 @@ class ICanTheme {
       // ── SnackBar ──
       snackBarTheme: SnackBarThemeData(
         backgroundColor: AppColors.backgroundDark,
-        contentTextStyle:
-            AppTextStyles.bodyMedium.copyWith(color: AppColors.textOnDark),
+        contentTextStyle: AppTextStyles.bodyMedium.copyWith(
+          color: AppColors.textOnDark,
+        ),
         behavior: SnackBarBehavior.floating,
         shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(_radius)),
+          borderRadius: BorderRadius.circular(_radius),
+        ),
       ),
     );
   }
@@ -410,16 +427,19 @@ class ICanTheme {
 
   static ThemeData get darkTheme {
     final textTheme = TextTheme(
-      displayLarge:
-          AppTextStyles.displayLarge.copyWith(color: AppColors.textOnDark),
-      headlineMedium:
-          AppTextStyles.headlineMedium.copyWith(color: AppColors.textOnDark),
-      bodyLarge:
-          AppTextStyles.bodyLarge.copyWith(color: AppColors.textOnDark),
-      bodyMedium: AppTextStyles.bodyMedium
-          .copyWith(color: AppColors.textSecondaryOnDark),
-      labelLarge:
-          AppTextStyles.labelLarge.copyWith(color: AppColors.textOnDark),
+      displayLarge: AppTextStyles.displayLarge.copyWith(
+        color: AppColors.textOnDark,
+      ),
+      headlineMedium: AppTextStyles.headlineMedium.copyWith(
+        color: AppColors.textOnDark,
+      ),
+      bodyLarge: AppTextStyles.bodyLarge.copyWith(color: AppColors.textOnDark),
+      bodyMedium: AppTextStyles.bodyMedium.copyWith(
+        color: AppColors.textSecondaryOnDark,
+      ),
+      labelLarge: AppTextStyles.labelLarge.copyWith(
+        color: AppColors.textOnDark,
+      ),
     );
 
     return ThemeData(
@@ -446,68 +466,91 @@ class ICanTheme {
             }
             return AppColors.interactive;
           }),
-          foregroundColor:
-              const WidgetStatePropertyAll(AppColors.textOnDark),
+          foregroundColor: const WidgetStatePropertyAll(AppColors.textOnDark),
           minimumSize: const WidgetStatePropertyAll(
-              Size(double.infinity, _buttonHeight)),
+            Size(double.infinity, _buttonHeight),
+          ),
           textStyle: WidgetStatePropertyAll(AppTextStyles.labelLarge),
           shape: WidgetStateProperty.resolveWith((states) {
             if (states.contains(WidgetState.focused)) {
               return RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(_radius),
                 side: const BorderSide(
-                    color: AppColors.focusRingOnDark, width: _focusWidth),
+                  color: AppColors.focusRingOnDark,
+                  width: _focusWidth,
+                ),
               );
             }
             return RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(_radius));
+              borderRadius: BorderRadius.circular(_radius),
+            );
           }),
-          padding: const WidgetStatePropertyAll(EdgeInsets.symmetric(
-              horizontal: AppSpacing.md, vertical: AppSpacing.sm)),
+          padding: const WidgetStatePropertyAll(
+            EdgeInsets.symmetric(
+              horizontal: AppSpacing.md,
+              vertical: AppSpacing.sm,
+            ),
+          ),
         ),
       ),
 
       // ── Outlined Button ──
       outlinedButtonTheme: OutlinedButtonThemeData(
         style: ButtonStyle(
-          foregroundColor:
-              const WidgetStatePropertyAll(AppColors.interactiveOnDark),
+          foregroundColor: const WidgetStatePropertyAll(
+            AppColors.interactiveOnDark,
+          ),
           minimumSize: const WidgetStatePropertyAll(
-              Size(double.infinity, _buttonHeight)),
+            Size(double.infinity, _buttonHeight),
+          ),
           textStyle: WidgetStatePropertyAll(AppTextStyles.labelLarge),
           side: WidgetStateProperty.resolveWith((states) {
             if (states.contains(WidgetState.focused)) {
               return const BorderSide(
-                  color: AppColors.focusRingOnDark, width: _focusWidth);
+                color: AppColors.focusRingOnDark,
+                width: _focusWidth,
+              );
             }
             return const BorderSide(
-                color: AppColors.interactiveOnDark, width: 2);
+              color: AppColors.interactiveOnDark,
+              width: 2,
+            );
           }),
-          shape: WidgetStatePropertyAll(RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(_radius))),
-          padding: const WidgetStatePropertyAll(EdgeInsets.symmetric(
-              horizontal: AppSpacing.md, vertical: AppSpacing.sm)),
+          shape: WidgetStatePropertyAll(
+            RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(_radius),
+            ),
+          ),
+          padding: const WidgetStatePropertyAll(
+            EdgeInsets.symmetric(
+              horizontal: AppSpacing.md,
+              vertical: AppSpacing.sm,
+            ),
+          ),
         ),
       ),
 
       // ── Text Button ──
       textButtonTheme: TextButtonThemeData(
         style: ButtonStyle(
-          foregroundColor:
-              const WidgetStatePropertyAll(AppColors.interactiveOnDark),
-          minimumSize:
-              const WidgetStatePropertyAll(Size(_minTouch, _minTouch)),
+          foregroundColor: const WidgetStatePropertyAll(
+            AppColors.interactiveOnDark,
+          ),
+          minimumSize: const WidgetStatePropertyAll(Size(_minTouch, _minTouch)),
           textStyle: WidgetStatePropertyAll(AppTextStyles.labelLarge),
           shape: WidgetStateProperty.resolveWith((states) {
             if (states.contains(WidgetState.focused)) {
               return RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(_radius),
                 side: const BorderSide(
-                    color: AppColors.focusRingOnDark, width: _focusWidth),
+                  color: AppColors.focusRingOnDark,
+                  width: _focusWidth,
+                ),
               );
             }
             return RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(_radius));
+              borderRadius: BorderRadius.circular(_radius),
+            );
           }),
         ),
       ),
@@ -515,20 +558,23 @@ class ICanTheme {
       // ── Icon Button ──
       iconButtonTheme: IconButtonThemeData(
         style: ButtonStyle(
-          minimumSize:
-              const WidgetStatePropertyAll(Size(_minTouch, _minTouch)),
-          foregroundColor:
-              const WidgetStatePropertyAll(AppColors.interactiveOnDark),
+          minimumSize: const WidgetStatePropertyAll(Size(_minTouch, _minTouch)),
+          foregroundColor: const WidgetStatePropertyAll(
+            AppColors.interactiveOnDark,
+          ),
           shape: WidgetStateProperty.resolveWith((states) {
             if (states.contains(WidgetState.focused)) {
               return RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(_radius),
                 side: const BorderSide(
-                    color: AppColors.focusRingOnDark, width: _focusWidth),
+                  color: AppColors.focusRingOnDark,
+                  width: _focusWidth,
+                ),
               );
             }
             return RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(_radius));
+              borderRadius: BorderRadius.circular(_radius),
+            );
           }),
         ),
       ),
@@ -540,8 +586,9 @@ class ICanTheme {
         elevation: 0,
         scrolledUnderElevation: 0,
         systemOverlayStyle: SystemUiOverlayStyle.light,
-        titleTextStyle: AppTextStyles.headlineMedium
-            .copyWith(color: AppColors.textOnDark),
+        titleTextStyle: AppTextStyles.headlineMedium.copyWith(
+          color: AppColors.textOnDark,
+        ),
       ),
 
       // ── Card ──
@@ -574,16 +621,20 @@ class ICanTheme {
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(_radius),
           borderSide: const BorderSide(
-              color: AppColors.focusRingOnDark, width: _focusWidth),
+            color: AppColors.focusRingOnDark,
+            width: _focusWidth,
+          ),
         ),
         errorBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(_radius),
           borderSide: const BorderSide(color: AppColors.error, width: 2),
         ),
-        labelStyle: AppTextStyles.bodyMedium
-            .copyWith(color: AppColors.textSecondaryOnDark),
-        hintStyle: AppTextStyles.bodyMedium
-            .copyWith(color: AppColors.disabledOnDark),
+        labelStyle: AppTextStyles.bodyMedium.copyWith(
+          color: AppColors.textSecondaryOnDark,
+        ),
+        hintStyle: AppTextStyles.bodyMedium.copyWith(
+          color: AppColors.disabledOnDark,
+        ),
       ),
 
       // ── Switch ──
@@ -617,8 +668,9 @@ class ICanTheme {
 
       // ── Tooltip ──
       tooltipTheme: TooltipThemeData(
-        textStyle:
-            AppTextStyles.bodyMedium.copyWith(color: AppColors.textOnLight),
+        textStyle: AppTextStyles.bodyMedium.copyWith(
+          color: AppColors.textOnLight,
+        ),
         decoration: BoxDecoration(
           color: AppColors.backgroundLight,
           borderRadius: BorderRadius.circular(8),
@@ -628,11 +680,13 @@ class ICanTheme {
       // ── SnackBar ──
       snackBarTheme: SnackBarThemeData(
         backgroundColor: AppColors.backgroundLight,
-        contentTextStyle:
-            AppTextStyles.bodyMedium.copyWith(color: AppColors.textOnLight),
+        contentTextStyle: AppTextStyles.bodyMedium.copyWith(
+          color: AppColors.textOnLight,
+        ),
         behavior: SnackBarBehavior.floating,
         shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(_radius)),
+          borderRadius: BorderRadius.circular(_radius),
+        ),
       ),
     );
   }

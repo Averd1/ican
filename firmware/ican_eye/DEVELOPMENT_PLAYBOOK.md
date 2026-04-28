@@ -13,7 +13,7 @@ The project is built as a standard PlatformIO application:
 - **`test_scripts/`**: Contains Python helpers used by the host PC to act as a BLE client (e.g., `receive_photo_v2.py`).
 
 ### Supported Target
-- **Board:** Seeed XIAO ESP32-S3 Sense (with OV2640 camera and 8MB PSRAM).
+- **Board:** Seeed XIAO ESP32-S3 Sense with camera module and 8MB PSRAM.
 
 ### App Modes (Environments)
 Always use explicit environments when building/uploading to avoid compiling the wrong file.

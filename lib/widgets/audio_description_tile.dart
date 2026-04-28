@@ -146,16 +146,19 @@ class _TileContent extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final Color bg =
-        isDark ? AppColors.surfaceCardDark : AppColors.surfaceCardLight;
+    final Color bg = isDark
+        ? AppColors.surfaceCardDark
+        : AppColors.surfaceCardLight;
     final Color border = isDark ? AppColors.borderDark : AppColors.textOnLight;
-    final Color primaryText =
-        isDark ? AppColors.textOnDark : AppColors.textOnLight;
+    final Color primaryText = isDark
+        ? AppColors.textOnDark
+        : AppColors.textOnLight;
     final Color secondaryText = isDark
         ? AppColors.textSecondaryOnDark
         : AppColors.textSecondaryOnLight;
-    final Color interactive =
-        isDark ? AppColors.interactiveOnDark : AppColors.interactive;
+    final Color interactive = isDark
+        ? AppColors.interactiveOnDark
+        : AppColors.interactive;
 
     return Semantics(
       label: semanticLabel,
@@ -237,10 +240,7 @@ class _TileContent extends StatelessWidget {
         ],
         Text(
           formattedTime,
-          style: TextStyle(
-            fontSize: 13.sp,
-            color: secondaryText,
-          ),
+          style: TextStyle(fontSize: 13.sp, color: secondaryText),
         ),
       ],
     );

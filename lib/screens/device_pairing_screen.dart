@@ -23,11 +23,7 @@ class DevicePairingScreen extends StatefulWidget {
   final VoidCallback? onPairingComplete;
   final VoidCallback? onSkip;
 
-  const DevicePairingScreen({
-    super.key,
-    this.onPairingComplete,
-    this.onSkip,
-  });
+  const DevicePairingScreen({super.key, this.onPairingComplete, this.onSkip});
 
   @override
   State<DevicePairingScreen> createState() => _DevicePairingScreenState();
@@ -57,8 +53,7 @@ class _DevicePairingScreenState extends State<DevicePairingScreen>
     BleService.instance.addListener(_bleListener!);
 
     // Check if already connected (e.g. auto-reconnect from splash)
-    _eyeConnected =
-        BleService.instance.state == BleConnectionState.connected;
+    _eyeConnected = BleService.instance.state == BleConnectionState.connected;
     _caneConnected =
         BleService.instance.caneState == BleConnectionState.connected;
 
@@ -83,8 +78,7 @@ class _DevicePairingScreenState extends State<DevicePairingScreen>
   void _onBleStateChanged() {
     if (!mounted) return;
 
-    final eyeNow =
-        BleService.instance.state == BleConnectionState.connected;
+    final eyeNow = BleService.instance.state == BleConnectionState.connected;
     final caneNow =
         BleService.instance.caneState == BleConnectionState.connected;
 
@@ -92,14 +86,18 @@ class _DevicePairingScreenState extends State<DevicePairingScreen>
       _eyeConnected = true;
       HapticFeedback.heavyImpact();
       SemanticsService.announce(
-          'iCan Eye camera connected successfully.', TextDirection.ltr);
+        'iCan Eye camera connected successfully.',
+        TextDirection.ltr,
+      );
     }
 
     if (caneNow && !_caneConnected) {
       _caneConnected = true;
       HapticFeedback.heavyImpact();
       SemanticsService.announce(
-          'iCan Cane connected successfully.', TextDirection.ltr);
+        'iCan Cane connected successfully.',
+        TextDirection.ltr,
+      );
     }
 
     // Both connected — cancel timeout, announce
@@ -107,8 +105,9 @@ class _DevicePairingScreenState extends State<DevicePairingScreen>
       _scanTimeoutTimer?.cancel();
       _isScanning = false;
       SemanticsService.announce(
-          'Both devices connected. Tap Continue to proceed.',
-          TextDirection.ltr);
+        'Both devices connected. Tap Continue to proceed.',
+        TextDirection.ltr,
+      );
     }
 
     setState(() {});
@@ -122,8 +121,9 @@ class _DevicePairingScreenState extends State<DevicePairingScreen>
       _errorMessage = null;
     });
     SemanticsService.announce(
-        'Searching for devices. This may take a few seconds.',
-        TextDirection.ltr);
+      'Searching for devices. This may take a few seconds.',
+      TextDirection.ltr,
+    );
 
     BleService.instance.startScan();
     BleService.instance.startScanForCane();
@@ -158,8 +158,10 @@ class _DevicePairingScreenState extends State<DevicePairingScreen>
     if (_errorMessage != null) return 'Search failed';
     if (_hasBothConnections) return 'Both devices connected';
     if (_isScanning) return 'Searching for devices…';
-    if (_eyeConnected && !_caneConnected) return 'Camera connected. Cane not found.';
-    if (_caneConnected && !_eyeConnected) return 'Cane connected. Camera not found.';
+    if (_eyeConnected && !_caneConnected)
+      return 'Camera connected. Cane not found.';
+    if (_caneConnected && !_eyeConnected)
+      return 'Cane connected. Camera not found.';
     if (_scanTimedOut) return 'Search failed';
     return 'Ready to search';
   }
@@ -224,14 +226,16 @@ class _DevicePairingScreenState extends State<DevicePairingScreen>
                 FocusTraversalOrder(
                   order: const NumericFocusOrder(1),
                   child: Semantics(
-                    label: 'Instructions. '
+                    label:
+                        'Instructions. '
                         'First, turn on your iCan Cane and iCan Eye camera. '
                         'Then, tap the Search for devices button below. '
                         'You will hear a confirmation when each device connects.',
                     child: Container(
                       padding: const EdgeInsets.all(AppSpacing.sm),
                       margin: const EdgeInsets.symmetric(
-                          vertical: AppSpacing.sm),
+                        vertical: AppSpacing.sm,
+                      ),
                       decoration: BoxDecoration(
                         color: AppColors.surfaceCardLight,
                         borderRadius: BorderRadius.circular(12),
@@ -249,8 +253,7 @@ class _DevicePairingScreenState extends State<DevicePairingScreen>
                             const SizedBox(height: AppSpacing.xs),
                             _InstructionStep(
                               number: '2',
-                              text:
-                                  'Tap "Search for devices" below.',
+                              text: 'Tap "Search for devices" below.',
                             ),
                             const SizedBox(height: AppSpacing.xs),
                             _InstructionStep(
@@ -272,10 +275,10 @@ class _DevicePairingScreenState extends State<DevicePairingScreen>
                     label: _isScanning
                         ? 'Searching…'
                         : _scanTimedOut || _errorMessage != null
-                            ? 'Try Again'
-                            : _hasAnyConnection && !_hasBothConnections
-                                ? 'Search Again'
-                                : 'Search for Devices',
+                        ? 'Try Again'
+                        : _hasAnyConnection && !_hasBothConnections
+                        ? 'Search Again'
+                        : 'Search for Devices',
                     hint: _isScanning
                         ? 'Currently searching for nearby devices'
                         : 'Searches for iCan Cane and iCan Eye camera nearby',
@@ -334,15 +337,15 @@ class _DevicePairingScreenState extends State<DevicePairingScreen>
           color: isError
               ? const Color(0xFFFFF0F0)
               : _hasBothConnections
-                  ? const Color(0xFFF0F8F0)
-                  : AppColors.surfaceCardLight,
+              ? const Color(0xFFF0F8F0)
+              : AppColors.surfaceCardLight,
           borderRadius: BorderRadius.circular(12),
           border: Border.all(
             color: isError
                 ? AppColors.error
                 : _hasBothConnections
-                    ? AppColors.success
-                    : AppColors.borderLight,
+                ? AppColors.success
+                : AppColors.borderLight,
             width: isError || _hasBothConnections ? 2 : 1,
           ),
         ),
@@ -360,13 +363,15 @@ class _DevicePairingScreenState extends State<DevicePairingScreen>
                     const SizedBox(width: AppSpacing.xs),
                   ],
                   if (_hasBothConnections) ...[
-                    Icon(Icons.check_circle,
-                        color: AppColors.success, size: 24),
+                    Icon(
+                      Icons.check_circle,
+                      color: AppColors.success,
+                      size: 24,
+                    ),
                     const SizedBox(width: AppSpacing.xs),
                   ],
                   if (isError) ...[
-                    Icon(Icons.error_outline,
-                        color: AppColors.error, size: 24),
+                    Icon(Icons.error_outline, color: AppColors.error, size: 24),
                     const SizedBox(width: AppSpacing.xs),
                   ],
                   Expanded(
@@ -378,8 +383,8 @@ class _DevicePairingScreenState extends State<DevicePairingScreen>
                         color: isError
                             ? AppColors.error
                             : _hasBothConnections
-                                ? AppColors.success
-                                : AppColors.textOnLight,
+                            ? AppColors.success
+                            : AppColors.textOnLight,
                       ),
                     ),
                   ),
@@ -456,8 +461,7 @@ class _DevicePairingScreenState extends State<DevicePairingScreen>
               widget.onSkip?.call();
             },
             child: Container(
-              constraints:
-                  const BoxConstraints(minHeight: 48, minWidth: 48),
+              constraints: const BoxConstraints(minHeight: 48, minWidth: 48),
               alignment: Alignment.center,
               child: Text(
                 'Skip for now',
@@ -483,8 +487,7 @@ class _DevicePairingScreenState extends State<DevicePairingScreen>
               _showHelpDialog();
             },
             child: Container(
-              constraints:
-                  const BoxConstraints(minHeight: 48, minWidth: 48),
+              constraints: const BoxConstraints(minHeight: 48, minWidth: 48),
               alignment: Alignment.center,
               child: Text(
                 'Need help?',
@@ -507,8 +510,7 @@ class _DevicePairingScreenState extends State<DevicePairingScreen>
       context: context,
       builder: (_) => AlertDialog(
         backgroundColor: AppColors.backgroundLight,
-        shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
         title: Semantics(
           header: true,
           child: Text(
@@ -521,7 +523,8 @@ class _DevicePairingScreenState extends State<DevicePairingScreen>
           ),
         ),
         content: Semantics(
-          label: 'Troubleshooting tips. '
+          label:
+              'Troubleshooting tips. '
               'Make sure Bluetooth is turned on in your phone settings. '
               'Hold each device close to your phone, within 3 feet. '
               'The iCan Cane has a small power button on the handle. Press and hold it for 2 seconds. '
@@ -533,15 +536,18 @@ class _DevicePairingScreenState extends State<DevicePairingScreen>
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 _helpItem(
-                    'Make sure Bluetooth is turned on in your phone settings.'),
+                  'Make sure Bluetooth is turned on in your phone settings.',
+                ),
                 _helpItem(
-                    'Hold each device close to your phone — within 3 feet.'),
+                  'Hold each device close to your phone — within 3 feet.',
+                ),
                 _helpItem(
-                    'The Cane has a power button on the handle. Press and hold it for 2 seconds.'),
+                  'The Cane has a power button on the handle. Press and hold it for 2 seconds.',
+                ),
+                _helpItem('The Eye camera turns on when plugged in.'),
                 _helpItem(
-                    'The Eye camera turns on when plugged in.'),
-                _helpItem(
-                    'If devices still won\'t connect, turn them off, wait 5 seconds, then turn them back on.'),
+                  'If devices still won\'t connect, turn them off, wait 5 seconds, then turn them back on.',
+                ),
               ],
             ),
           ),
@@ -552,9 +558,7 @@ class _DevicePairingScreenState extends State<DevicePairingScreen>
             label: 'Close help',
             child: TextButton(
               onPressed: () => Navigator.pop(context),
-              style: TextButton.styleFrom(
-                minimumSize: const Size(48, 48),
-              ),
+              style: TextButton.styleFrom(minimumSize: const Size(48, 48)),
               child: Text(
                 'Close',
                 style: TextStyle(
@@ -576,9 +580,10 @@ class _DevicePairingScreenState extends State<DevicePairingScreen>
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('• ',
-              style: TextStyle(
-                  fontSize: 16.sp, color: AppColors.textOnLight)),
+          Text(
+            '• ',
+            style: TextStyle(fontSize: 16.sp, color: AppColors.textOnLight),
+          ),
           Expanded(
             child: Text(
               text,
@@ -616,8 +621,7 @@ class _ConnectionRow extends StatelessWidget {
     return 'Not connected';
   }
 
-  String get _semanticLabel =>
-      '$deviceName. $_statusLabel.';
+  String get _semanticLabel => '$deviceName. $_statusLabel.';
 
   @override
   Widget build(BuildContext context) {
@@ -636,9 +640,7 @@ class _ConnectionRow extends StatelessWidget {
               : AppColors.backgroundLight,
           borderRadius: BorderRadius.circular(12),
           border: Border.all(
-            color: isConnected
-                ? AppColors.success
-                : AppColors.borderLight,
+            color: isConnected ? AppColors.success : AppColors.borderLight,
             width: isConnected ? 2 : 1,
           ),
         ),
@@ -647,8 +649,7 @@ class _ConnectionRow extends StatelessWidget {
             children: [
               // Status icon — shape conveys meaning, not just color
               if (isConnected)
-                Icon(Icons.check_circle,
-                    color: AppColors.success, size: 28)
+                Icon(Icons.check_circle, color: AppColors.success, size: 28)
               else if (isSearching)
                 SizedBox(
                   width: 28,
@@ -659,8 +660,11 @@ class _ConnectionRow extends StatelessWidget {
                   ),
                 )
               else
-                Icon(Icons.circle_outlined,
-                    color: AppColors.disabledOnLight, size: 28),
+                Icon(
+                  Icons.circle_outlined,
+                  color: AppColors.disabledOnLight,
+                  size: 28,
+                ),
               const SizedBox(width: AppSpacing.xs),
 
               // Device name
@@ -684,8 +688,8 @@ class _ConnectionRow extends StatelessWidget {
                   color: isConnected
                       ? AppColors.success
                       : isSearching
-                          ? AppColors.interactive
-                          : AppColors.disabledOnLight,
+                      ? AppColors.interactive
+                      : AppColors.disabledOnLight,
                 ),
               ),
             ],

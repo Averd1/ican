@@ -77,8 +77,9 @@ class _DeviceStatusCardState extends State<DeviceStatusCard>
   // so VoiceOver / TalkBack delivers all info in one swipe-focus.
   String get _semanticLabel {
     final status = _statusText;
-    final battery =
-        _hasBattery ? ' Battery: ${widget.batteryPercent} percent.' : '';
+    final battery = _hasBattery
+        ? ' Battery: ${widget.batteryPercent} percent.'
+        : '';
     return '${widget.deviceName}. Status: $status.$battery';
   }
 
@@ -103,56 +104,58 @@ class _DeviceStatusCardState extends State<DeviceStatusCard>
     final Color bg = _pressed
         ? (isDark ? const Color(0xFF1A1A1A) : const Color(0xFFF0F0F0))
         : (isDark ? AppColors.backgroundDark : AppColors.backgroundLight);
-    final Color border =
-        isDark ? AppColors.borderDark : AppColors.textOnLight;
-    final Color focusColor =
-        isDark ? AppColors.focusRingOnDark : AppColors.focusRing;
+    final Color border = isDark ? AppColors.borderDark : AppColors.textOnLight;
+    final Color focusColor = isDark
+        ? AppColors.focusRingOnDark
+        : AppColors.focusRing;
 
     return Semantics(
       button: true,
       label: _semanticLabel,
       hint: widget.tapHint,
       child: Focus(
-        child: Builder(builder: (context) {
-          final focused = Focus.of(context).hasFocus;
+        child: Builder(
+          builder: (context) {
+            final focused = Focus.of(context).hasFocus;
 
-          return GestureDetector(
-            onTapDown: _handleTapDown,
-            onTapUp: _handleTapUp,
-            onTapCancel: _handleTapCancel,
-            onTap: _handleTap,
-            child: AnimatedContainer(
-              duration: AppAccessibility.reduceMotion(context)
-                  ? Duration.zero
-                  : const Duration(milliseconds: 100),
-              constraints: const BoxConstraints(minHeight: 80),
-              decoration: BoxDecoration(
-                color: bg,
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(
-                  color: focused ? focusColor : border,
-                  width: focused ? 3 : 1,
+            return GestureDetector(
+              onTapDown: _handleTapDown,
+              onTapUp: _handleTapUp,
+              onTapCancel: _handleTapCancel,
+              onTap: _handleTap,
+              child: AnimatedContainer(
+                duration: AppAccessibility.reduceMotion(context)
+                    ? Duration.zero
+                    : const Duration(milliseconds: 100),
+                constraints: const BoxConstraints(minHeight: 80),
+                decoration: BoxDecoration(
+                  color: bg,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                    color: focused ? focusColor : border,
+                    width: focused ? 3 : 1,
+                  ),
                 ),
-              ),
-              padding: const EdgeInsets.all(AppSpacing.sm),
-              child: ExcludeSemantics(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    _buildHeader(isDark),
-                    const SizedBox(height: AppSpacing.xs),
-                    _buildStatusRow(context, isDark),
-                    if (_hasBattery) ...[
+                padding: const EdgeInsets.all(AppSpacing.sm),
+                child: ExcludeSemantics(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      _buildHeader(isDark),
                       const SizedBox(height: AppSpacing.xs),
-                      _buildBatteryRow(isDark),
+                      _buildStatusRow(context, isDark),
+                      if (_hasBattery) ...[
+                        const SizedBox(height: AppSpacing.xs),
+                        _buildBatteryRow(isDark),
+                      ],
                     ],
-                  ],
+                  ),
                 ),
               ),
-            ),
-          );
-        }),
+            );
+          },
+        ),
       ),
     );
   }
@@ -169,8 +172,9 @@ class _DeviceStatusCardState extends State<DeviceStatusCard>
   }
 
   Widget _buildStatusRow(BuildContext context, bool isDark) {
-    final Color primaryText =
-        isDark ? AppColors.textOnDark : AppColors.textOnLight;
+    final Color primaryText = isDark
+        ? AppColors.textOnDark
+        : AppColors.textOnLight;
 
     if (_isConnected) {
       return Row(
@@ -236,9 +240,12 @@ class _DeviceStatusCardState extends State<DeviceStatusCard>
   Widget _buildBatteryRow(bool isDark) {
     final percent = widget.batteryPercent.clamp(0, 100);
     final Color barFill = _batteryColor(percent);
-    final Color barTrack = isDark ? AppColors.borderDark : AppColors.borderLight;
-    final Color text =
-        isDark ? AppColors.textSecondaryOnDark : AppColors.textSecondaryOnLight;
+    final Color barTrack = isDark
+        ? AppColors.borderDark
+        : AppColors.borderLight;
+    final Color text = isDark
+        ? AppColors.textSecondaryOnDark
+        : AppColors.textSecondaryOnLight;
 
     return Row(
       children: [

@@ -1,7 +1,7 @@
 /**
  * camera.cpp — Camera Module Implementation
  *
- * Handles OV2640 init, sensor tuning, profile switching, and frame capture
+ * Handles camera init, sensor tuning, profile switching, and frame capture
  * on the XIAO ESP32-S3 Sense.
  */
 
@@ -46,8 +46,8 @@ void initCamera() {
   config.pin_pclk     = PCLK_GPIO_NUM;
   config.pin_vsync    = VSYNC_GPIO_NUM;
   config.pin_href     = HREF_GPIO_NUM;
-  config.pin_sscb_sda = SIOD_GPIO_NUM;
-  config.pin_sscb_scl = SIOC_GPIO_NUM;
+  config.pin_sccb_sda = SIOD_GPIO_NUM;
+  config.pin_sccb_scl = SIOC_GPIO_NUM;
   config.pin_pwdn     = PWDN_GPIO_NUM;
   config.pin_reset    = RESET_GPIO_NUM;
   config.xclk_freq_hz = 20000000;
@@ -76,7 +76,7 @@ void initCamera() {
     return;
   }
 
-  // OV2640 sensor tuning — sharp, balanced exposure
+  // Sensor tuning: sharp, balanced exposure for readable text and hazards.
   sensor_t *s = esp_camera_sensor_get();
   if (s) {
     s->set_brightness(s, 1);             // +1 (was +2, too washed out)

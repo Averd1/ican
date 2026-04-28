@@ -54,7 +54,7 @@ class NavScreen extends StatelessWidget {
                         color: Colors.black.withAlpha(38),
                         blurRadius: 24,
                         offset: const Offset(0, 12),
-                      )
+                      ),
                     ],
                     border: Border.all(
                       color: theme.colorScheme.onSurface.withAlpha(13),
@@ -72,7 +72,8 @@ class NavScreen extends StatelessWidget {
                           shape: BoxShape.circle,
                         ),
                         child: Icon(
-                          Icons.arrow_upward_rounded, // TODO: Dynamic based on maneuver
+                          Icons
+                              .arrow_upward_rounded, // TODO: Dynamic based on maneuver
                           size: 80,
                           color: theme.colorScheme.secondary,
                         ),
@@ -111,7 +112,10 @@ class NavScreen extends StatelessWidget {
               Semantics(
                 label: 'Step 1 of 3',
                 child: Container(
-                  padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 24),
+                  padding: const EdgeInsets.symmetric(
+                    vertical: 12,
+                    horizontal: 24,
+                  ),
                   decoration: BoxDecoration(
                     color: theme.colorScheme.surface,
                     borderRadius: BorderRadius.circular(20),

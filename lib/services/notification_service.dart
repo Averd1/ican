@@ -46,17 +46,23 @@ class NotificationService {
 
   // flutter_local_notifications supports Android, iOS, macOS, Linux — not Windows.
   static bool get _supported =>
-      Platform.isAndroid || Platform.isIOS || Platform.isMacOS || Platform.isLinux;
+      Platform.isAndroid ||
+      Platform.isIOS ||
+      Platform.isMacOS ||
+      Platform.isLinux;
 
   /// Call once in main() before runApp().
   static Future<void> init() async {
     if (!_supported) {
-      debugPrint('[Notifications] Skipped — not supported on ${Platform.operatingSystem}.');
+      debugPrint(
+        '[Notifications] Skipped — not supported on ${Platform.operatingSystem}.',
+      );
       return;
     }
 
-    const initSettingsAndroid =
-        AndroidInitializationSettings('@mipmap/ic_launcher');
+    const initSettingsAndroid = AndroidInitializationSettings(
+      '@mipmap/ic_launcher',
+    );
     const initSettingsIOS = DarwinInitializationSettings(
       requestAlertPermission: true,
       requestBadgePermission: true,
@@ -71,7 +77,8 @@ class NotificationService {
 
     final androidPlugin = _plugin
         .resolvePlatformSpecificImplementation<
-            AndroidFlutterLocalNotificationsPlugin>();
+          AndroidFlutterLocalNotificationsPlugin
+        >();
     await androidPlugin?.createNotificationChannel(_androidChannel);
 
     debugPrint('[Notifications] Initialized.');
@@ -80,7 +87,9 @@ class NotificationService {
   /// Show an urgent fall-detected notification.
   static Future<void> showFallAlert() async {
     if (!_supported) {
-      debugPrint('[Notifications] Fall alert skipped on ${Platform.operatingSystem} — in-app dialog handles it.');
+      debugPrint(
+        '[Notifications] Fall alert skipped on ${Platform.operatingSystem} — in-app dialog handles it.',
+      );
       return;
     }
     debugPrint('[Notifications] Showing fall alert notification.');

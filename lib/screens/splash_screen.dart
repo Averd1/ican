@@ -46,9 +46,10 @@ class _SplashScreenState extends State<SplashScreen>
       vsync: this,
       duration: const Duration(milliseconds: 800),
     );
-    _textOpacity = Tween<double>(begin: 0.0, end: 1.0).animate(
-      CurvedAnimation(parent: _textController, curve: Curves.easeIn),
-    );
+    _textOpacity = Tween<double>(
+      begin: 0.0,
+      end: 1.0,
+    ).animate(CurvedAnimation(parent: _textController, curve: Curves.easeIn));
 
     _subtitleController = AnimationController(
       vsync: this,
@@ -104,8 +105,9 @@ class _SplashScreenState extends State<SplashScreen>
       // so the rest of the app still launches.
     }
     try {
-      final savedEyeMac = await DevicePrefsService.instance.getLastDeviceId()
-          ?? BleService.fallbackEyeDeviceId;
+      final savedEyeMac =
+          await DevicePrefsService.instance.getLastDeviceId() ??
+          BleService.fallbackEyeDeviceId;
       BleService.instance.connectToEyeByMac(savedEyeMac);
       BleService.instance.autoConnectToCane();
     } catch (e) {
@@ -138,10 +140,7 @@ class _SplashScreenState extends State<SplashScreen>
               builder: (context, child) {
                 return Transform.scale(
                   scale: _logoScale.value,
-                  child: Opacity(
-                    opacity: _logoOpacity.value,
-                    child: child,
-                  ),
+                  child: Opacity(opacity: _logoOpacity.value, child: child),
                 );
               },
               child: ClipRRect(
@@ -159,10 +158,7 @@ class _SplashScreenState extends State<SplashScreen>
             AnimatedBuilder(
               animation: _textController,
               builder: (context, child) {
-                return Opacity(
-                  opacity: _textOpacity.value,
-                  child: child,
-                );
+                return Opacity(opacity: _textOpacity.value, child: child);
               },
               child: Text(
                 'iCan',
@@ -180,19 +176,14 @@ class _SplashScreenState extends State<SplashScreen>
             AnimatedBuilder(
               animation: _subtitleController,
               builder: (context, child) {
-                return Opacity(
-                  opacity: _subtitleOpacity.value,
-                  child: child,
-                );
+                return Opacity(opacity: _subtitleOpacity.value, child: child);
               },
               child: Text(
                 'See the world, your way',
                 style: TextStyle(
                   fontSize: 18,
                   fontWeight: FontWeight.w400,
-                  color: isDark
-                      ? Colors.white70
-                      : Colors.black54,
+                  color: isDark ? Colors.white70 : Colors.black54,
                   letterSpacing: 0.5,
                 ),
               ),

@@ -105,7 +105,8 @@ class _HelpScreenState extends State<HelpScreen> {
                     ),
                     const SizedBox(height: AppSpacing.md),
                     Semantics(
-                      label: 'Contact support. Email help at ican app dot com for assistance.',
+                      label:
+                          'Contact support. Email help at ican app dot com for assistance.',
                       child: Container(
                         width: double.infinity,
                         padding: const EdgeInsets.all(AppSpacing.sm),
@@ -185,31 +186,33 @@ class _HelpSection extends StatelessWidget {
                 ),
               ),
               const SizedBox(height: AppSpacing.xs),
-              ...items.map((item) => Padding(
-                    padding: const EdgeInsets.only(bottom: 8),
-                    child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          '• ',
+              ...items.map(
+                (item) => Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        '• ',
+                        style: TextStyle(
+                          fontSize: 18.sp,
+                          color: AppColors.textOnLight,
+                        ),
+                      ),
+                      Expanded(
+                        child: Text(
+                          item,
                           style: TextStyle(
                             fontSize: 18.sp,
                             color: AppColors.textOnLight,
+                            height: 1.4,
                           ),
                         ),
-                        Expanded(
-                          child: Text(
-                            item,
-                            style: TextStyle(
-                              fontSize: 18.sp,
-                              color: AppColors.textOnLight,
-                              height: 1.4,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  )),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
             ],
           ),
         ),

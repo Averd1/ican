@@ -151,6 +151,7 @@ class CaptureCommandCallback : public BLECharacteristicCallbacks {
       Serial.println("[BLE] STATUS command received");
     } else {
       Serial.printf("[BLE] Unknown command: %s\n", cmd.c_str());
+      sendControlMessage("ERR:UNKNOWN_COMMAND");
     }
   }
 };
@@ -296,6 +297,21 @@ void sendControlMessage(const char *msg) {
 // Public API — Image Streaming
 // =========================================================================
 
+static uint32_t crc32(const uint8_t *data, size_t len) {
+  uint32_t crc = 0xFFFFFFFF;
+  for (size_t i = 0; i < len; i++) {
+    crc ^= data[i];
+    for (int bit = 0; bit < 8; bit++) {
+      if (crc & 1) {
+        crc = (crc >> 1) ^ 0xEDB88320;
+      } else {
+        crc >>= 1;
+      }
+    }
+  }
+  return crc ^ 0xFFFFFFFF;
+}
+
 size_t sendImageChunk(uint16_t seqNum, const uint8_t *data, size_t dataLen) {
   if (!clientConnected)
     return 0;
@@ -357,11 +373,17 @@ void streamImageViaBle(const uint8_t *jpegBuf, size_t jpegLen,
   sendControlMessage(ctrlMsg);
   vTaskDelay(pdMS_TO_TICKS(30)); // Let client process SIZE before chunks arrive
 
+  const uint32_t crc = crc32(jpegBuf, jpegLen);
+  snprintf(ctrlMsg, sizeof(ctrlMsg), "CRC:%08X", (unsigned)crc);
+  sendControlMessage(ctrlMsg);
+  vTaskDelay(pdMS_TO_TICKS(20));
+
   // 2. Stream image chunks with retry on failure
   const unsigned long startMs = millis();
   uint16_t seqNum = 0;
   size_t offset = 0;
   int consecutiveFails = 0;
+  bool aborted = false;
 
   while (offset < jpegLen) {
     if (!isBleEyeConnected()) {
@@ -375,6 +397,10 @@ void streamImageViaBle(const uint8_t *jpegBuf, size_t jpegLen,
       if (consecutiveFails > 3) {
         Serial.printf("[BLE] %d consecutive failures — aborting stream.\n",
                       consecutiveFails);
+        snprintf(ctrlMsg, sizeof(ctrlMsg), "ERR:CHUNK_NOTIFY_FAILED:%u",
+                 seqNum);
+        sendControlMessage(ctrlMsg);
+        aborted = true;
         break;
       }
       // Wait and retry the SAME chunk — don't skip data
@@ -392,6 +418,16 @@ void streamImageViaBle(const uint8_t *jpegBuf, size_t jpegLen,
   }
 
   const unsigned long elapsed = millis() - startMs;
+
+  if (aborted || offset < jpegLen) {
+    char abortMsg[64];
+    snprintf(abortMsg, sizeof(abortMsg), "ERR:STREAM_ABORTED:%u:%u:%u",
+             seqNum, (unsigned)offset, (unsigned)jpegLen);
+    sendControlMessage(abortMsg);
+    Serial.printf("[BLE] Stream aborted: %u chunks, %u/%u bytes\n",
+                  seqNum, (unsigned)offset, (unsigned)jpegLen);
+    return;
+  }
 
   // 3. Send END — repeated 3× with gaps to survive BLE notification loss
   vTaskDelay(pdMS_TO_TICKS(30));

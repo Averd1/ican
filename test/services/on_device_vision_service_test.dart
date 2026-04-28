@@ -1,0 +1,250 @@
+import 'package:flutter/services.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:ican/services/on_device_vision_service.dart';
+
+void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
+  const channel = MethodChannel('com.ican/on_device_vision');
+  const downloadChannel = EventChannel('com.ican/model_download_progress');
+
+  tearDown(() {
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(channel, null);
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockStreamHandler(downloadChannel, null);
+  });
+
+  test(
+    'reports vision-only when all advanced offline artifacts are missing',
+    () async {
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(channel, (call) async {
+            return switch (call.method) {
+              'isFoundationModelsAvailable' => false,
+              'getModelStatus' => 'not_available',
+              'isObjectDetectionAvailable' => false,
+              'isDepthEstimationAvailable' => false,
+              'getNativeModelDiagnostics' => _diagnostics,
+              _ => throw PlatformException(code: 'unexpected'),
+            };
+          });
+
+      final status = await OnDeviceVisionService().getOfflineVisionStatus();
+
+      expect(status.foundationModelsAvailable, isFalse);
+      expect(status.modelStatus, ModelStatus.notAvailable);
+      expect(status.objectDetectionAvailable, isFalse);
+      expect(status.depthEstimationAvailable, isFalse);
+      expect(status.bestLocalBackendLabel, 'Local basic vision');
+      expect(
+        status.missingRequirements,
+        containsAll([
+          'Foundation Models unavailable',
+          'SmolVLM unavailable',
+          'YOLOv3Tiny model missing',
+          'Depth Anything model missing',
+        ]),
+      );
+    },
+  );
+
+  test('pings native channel and Apple Vision availability', () async {
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(channel, (call) async {
+          return switch (call.method) {
+            'ping' => true,
+            'isAppleVisionAvailable' => true,
+            _ => throw PlatformException(code: 'unexpected'),
+          };
+        });
+
+    final service = OnDeviceVisionService();
+
+    expect(await service.pingNativeChannel(), isTrue);
+    expect(await service.isAppleVisionAvailable(), isTrue);
+  });
+
+  test(
+    'reports spatial perception when object and depth models are present',
+    () async {
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(channel, (call) async {
+            return switch (call.method) {
+              'isFoundationModelsAvailable' => false,
+              'getModelStatus' => 'not_downloaded',
+              'isObjectDetectionAvailable' => true,
+              'isDepthEstimationAvailable' => true,
+              'getNativeModelDiagnostics' => _diagnostics,
+              _ => throw PlatformException(code: 'unexpected'),
+            };
+          });
+
+      final status = await OnDeviceVisionService().getOfflineVisionStatus();
+
+      expect(status.bestLocalBackendLabel, 'Core ML spatial perception');
+      expect(status.hasSpatialPerception, isTrue);
+      expect(
+        status.missingRequirements,
+        contains('SmolVLM model not downloaded'),
+      );
+    },
+  );
+
+  test(
+    'reports Foundation Models as the best local backend when available',
+    () async {
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(channel, (call) async {
+            return switch (call.method) {
+              'isFoundationModelsAvailable' => true,
+              'getModelStatus' => 'loaded',
+              'isObjectDetectionAvailable' => true,
+              'isDepthEstimationAvailable' => true,
+              'getNativeModelDiagnostics' => _diagnostics,
+              _ => throw PlatformException(code: 'unexpected'),
+            };
+          });
+
+      final status = await OnDeviceVisionService().getOfflineVisionStatus();
+
+      expect(status.bestLocalBackendLabel, 'Foundation Models');
+      expect(status.modelStatus, ModelStatus.loaded);
+      expect(status.missingRequirements, isEmpty);
+    },
+  );
+
+  test('returns native model diagnostics', () async {
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(channel, (call) async {
+          return switch (call.method) {
+            'getNativeModelDiagnostics' => _diagnostics,
+            _ => throw PlatformException(code: 'unexpected'),
+          };
+        });
+
+    final diagnostics = await OnDeviceVisionService()
+        .getOfflineVisionDiagnostics();
+
+    expect(diagnostics.objectDetector.name, 'YOLOv3Tiny');
+    expect(diagnostics.objectDetector.loaded, isFalse);
+    expect(diagnostics.objectDetector.message, contains('not found'));
+  });
+
+  test('parses validated SmolVLM model info from native channel', () async {
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(channel, (call) async {
+          return switch (call.method) {
+            'getModelInfo' => _modelInfo,
+            _ => throw PlatformException(code: 'unexpected'),
+          };
+        });
+
+    final info = await OnDeviceVisionService().getSmolVlmModelInfo();
+
+    expect(info.downloaded, isTrue);
+    expect(info.valid, isTrue);
+    expect(info.requiredBytes, 545590272);
+    expect(info.files, hasLength(2));
+    expect(info.files.first.downloaded, isTrue);
+  });
+
+  test(
+    'model download subscribes to progress before invoking native download',
+    () async {
+      final order = <String>[];
+
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockStreamHandler(
+            downloadChannel,
+            MockStreamHandler.inline(
+              onListen: (_, events) {
+                order.add('listen');
+                Future<void>.microtask(() {
+                  events.success({
+                    'status': 'downloading',
+                    'phase': 'downloading',
+                    'progress': 0.5,
+                    'filesDownloaded': 0,
+                    'totalFiles': 2,
+                    'requiredBytes': 545590272,
+                    'fileName': 'SmolVLM-500M-Instruct-Q8_0.gguf',
+                  });
+                  events.success({
+                    'status': 'complete',
+                    'phase': 'validated',
+                    'progress': 1.0,
+                    'filesDownloaded': 2,
+                    'totalFiles': 2,
+                    'requiredBytes': 545590272,
+                  });
+                  events.endOfStream();
+                });
+              },
+            ),
+          );
+
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(channel, (call) async {
+            if (call.method == 'downloadModel') {
+              order.add('invoke');
+              return true;
+            }
+            throw PlatformException(code: 'unexpected');
+          });
+
+      final events = await OnDeviceVisionService()
+          .startModelDownload()
+          .toList();
+
+      expect(order.take(2), ['listen', 'invoke']);
+      expect(events.first.progress, 0.5);
+      expect(events.last.isComplete, isTrue);
+    },
+  );
+}
+
+const _diagnostics = {
+  'object_detector': {
+    'name': 'YOLOv3Tiny',
+    'bundle_found': false,
+    'compiled_model_found': false,
+    'loaded': false,
+    'message': 'YOLOv3Tiny was not found in the app bundle.',
+  },
+  'depth_estimator': {
+    'name': 'DepthAnythingV2SmallF16P6',
+    'bundle_found': false,
+    'compiled_model_found': false,
+    'loaded': false,
+    'message': 'DepthAnythingV2SmallF16P6 was not found in the app bundle.',
+  },
+};
+
+const _modelInfo = {
+  'downloaded': true,
+  'valid': true,
+  'downloading': false,
+  'sizeBytes': 545590272,
+  'requiredBytes': 545590272,
+  'path': '/Documents/models',
+  'modelName': 'SmolVLM-500M-Instruct Q8_0',
+  'files': [
+    {
+      'name': 'SmolVLM-500M-Instruct-Q8_0.gguf',
+      'downloaded': true,
+      'sizeBytes': 436806912,
+      'expectedSizeBytes': 436806912,
+      'sha256':
+          '9d4612de6a42214499e301494a3ecc2be0abdd9de44e663bda63f1152fad1bf4',
+    },
+    {
+      'name': 'mmproj-SmolVLM-500M-Instruct-Q8_0.gguf',
+      'downloaded': true,
+      'sizeBytes': 108783360,
+      'expectedSizeBytes': 108783360,
+      'sha256':
+          'd1eb8b6b23979205fdf63703ed10f788131a3f812c7b1f72e0119d5d81295150',
+    },
+  ],
+};

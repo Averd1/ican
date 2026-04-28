@@ -32,6 +32,7 @@ class VisionDiagnosticScreen extends StatefulWidget {
 class _VisionDiagnosticScreenState extends State<VisionDiagnosticScreen> {
   final ImagePicker _picker = ImagePicker();
   late final SceneDescriptionService _sceneService;
+  late final OnDeviceVisionService _onDeviceService;
 
   Uint8List? _imageBytes;
   String _imageSource = '';
@@ -44,27 +45,112 @@ class _VisionDiagnosticScreenState extends State<VisionDiagnosticScreen> {
   int? _totalTimeMs;
 
   StreamSubscription<Uint8List>? _bleSub;
+  StreamSubscription<ModelDownloadEvent>? _downloadSub;
   Uint8List? _lastBleImage;
+  SmolVlmModelInfo? _smolVlmInfo;
+  ModelStatus? _smolVlmStatus;
+  double _smolVlmProgress = 0;
+  bool _isDownloadingModel = false;
+  bool _isLoadingModel = false;
+  String _modelSetupMessage = '';
 
   @override
   void initState() {
     super.initState();
     final aiService = VertexAiService()..loadSavedModel();
-    final onDeviceService = OnDeviceVisionService();
+    _onDeviceService = OnDeviceVisionService();
     _sceneService = SceneDescriptionService(
       cloudService: aiService,
-      onDeviceService: onDeviceService,
+      onDeviceService: _onDeviceService,
     )..loadSavedMode();
 
     _bleSub = BleService.instance.imageStream.listen((bytes) {
       _lastBleImage = bytes;
     });
+    unawaited(_refreshSmolVlmInfo());
   }
 
   @override
   void dispose() {
     _bleSub?.cancel();
+    _downloadSub?.cancel();
     super.dispose();
+  }
+
+  Future<void> _refreshSmolVlmInfo() async {
+    final status = await _onDeviceService.getModelStatus();
+    final info = await _onDeviceService.getSmolVlmModelInfo();
+    if (!mounted) return;
+    setState(() {
+      _smolVlmStatus = status;
+      _smolVlmInfo = info;
+      _smolVlmProgress = info.progress;
+      _isDownloadingModel = status == ModelStatus.downloading;
+    });
+  }
+
+  Future<void> _downloadSmolVlm() async {
+    if (_isDownloadingModel) return;
+    await _downloadSub?.cancel();
+    setState(() {
+      _isDownloadingModel = true;
+      _smolVlmProgress = 0;
+      _modelSetupMessage = 'Starting model download...';
+    });
+
+    _downloadSub = _onDeviceService.startModelDownload().listen(
+      (event) {
+        if (!mounted) return;
+        setState(() {
+          _smolVlmProgress = event.progress;
+          _modelSetupMessage = _modelDownloadMessage(event);
+        });
+        if (event.isComplete) {
+          unawaited(_refreshSmolVlmInfo());
+        }
+      },
+      onError: (Object error) {
+        if (!mounted) return;
+        setState(() {
+          _isDownloadingModel = false;
+          _modelSetupMessage = 'Download failed: $error';
+        });
+      },
+      onDone: () {
+        if (!mounted) return;
+        setState(() {
+          _isDownloadingModel = false;
+        });
+        unawaited(_refreshSmolVlmInfo());
+      },
+    );
+  }
+
+  Future<void> _loadSmolVlm() async {
+    if (_isLoadingModel) return;
+    setState(() {
+      _isLoadingModel = true;
+      _modelSetupMessage = 'Loading SmolVLM into memory...';
+    });
+
+    final loaded = await _onDeviceService.loadVlmModel();
+    final status = await _onDeviceService.getModelStatus();
+    if (!mounted) return;
+    setState(() {
+      _isLoadingModel = false;
+      _smolVlmStatus = status;
+      _modelSetupMessage = loaded
+          ? 'SmolVLM loaded. Pick an image and run the SmolVLM backend.'
+          : 'SmolVLM failed to load. Check free memory and model integrity.';
+    });
+    unawaited(_refreshSmolVlmInfo());
+  }
+
+  String _modelDownloadMessage(ModelDownloadEvent event) {
+    if (event.isComplete) return 'Download verified.';
+    final percent = (event.progress * 100).clamp(0, 100).round();
+    final file = event.fileName == null ? '' : ' ${event.fileName}';
+    return 'Downloading$file: $percent%';
   }
 
   Future<void> _pickFromGallery() async {
@@ -174,7 +260,10 @@ class _VisionDiagnosticScreenState extends State<VisionDiagnosticScreen> {
 
     Clipboard.setData(ClipboardData(text: text.toString().trim()));
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Copied to clipboard'), duration: Duration(seconds: 2)),
+      const SnackBar(
+        content: Text('Copied to clipboard'),
+        duration: Duration(seconds: 2),
+      ),
     );
   }
 
@@ -198,6 +287,8 @@ class _VisionDiagnosticScreenState extends State<VisionDiagnosticScreen> {
               _buildImageSection(),
               const SizedBox(height: AppSpacing.md),
               _buildBackendSelector(),
+              const SizedBox(height: AppSpacing.md),
+              _buildSmolVlmSetupSection(),
               const SizedBox(height: AppSpacing.md),
               _buildRunButton(),
               const SizedBox(height: AppSpacing.md),
@@ -248,7 +339,10 @@ class _VisionDiagnosticScreenState extends State<VisionDiagnosticScreen> {
             const SizedBox(height: 4),
             Text(
               _imageSource,
-              style: TextStyle(fontSize: 13.sp, color: AppColors.textSecondaryOnLight),
+              style: TextStyle(
+                fontSize: 13.sp,
+                color: AppColors.textSecondaryOnLight,
+              ),
             ),
             const SizedBox(height: AppSpacing.xs),
           ],
@@ -310,13 +404,12 @@ class _VisionDiagnosticScreenState extends State<VisionDiagnosticScreen> {
               ),
             ),
             items: _DiagBackend.values
-                .map((b) => DropdownMenuItem(
-                      value: b,
-                      child: Text(
-                        b.label,
-                        style: TextStyle(fontSize: 16.sp),
-                      ),
-                    ))
+                .map(
+                  (b) => DropdownMenuItem(
+                    value: b,
+                    child: Text(b.label, style: TextStyle(fontSize: 16.sp)),
+                  ),
+                )
                 .toList(),
             onChanged: _isRunning
                 ? null
@@ -327,6 +420,107 @@ class _VisionDiagnosticScreenState extends State<VisionDiagnosticScreen> {
         ],
       ),
     );
+  }
+
+  Widget _buildSmolVlmSetupSection() {
+    final info = _smolVlmInfo;
+    final status = _smolVlmStatus;
+    final downloaded = info?.downloaded ?? false;
+    final loaded = status == ModelStatus.loaded;
+    final canDownload = !_isDownloadingModel && !downloaded && !_isRunning;
+    final canLoad = !_isLoadingModel && downloaded && !loaded && !_isRunning;
+    final requiredBytes = info?.requiredBytes ?? 545590272;
+
+    return Container(
+      padding: const EdgeInsets.all(AppSpacing.sm),
+      decoration: BoxDecoration(
+        color: AppColors.surfaceCardLight,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppColors.borderLight),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  'SmolVLM Setup',
+                  style: TextStyle(
+                    fontSize: 18.sp,
+                    fontWeight: FontWeight.w600,
+                    color: AppColors.textOnLight,
+                  ),
+                ),
+              ),
+              _DiagButton(
+                label: 'Refresh',
+                onPressed: _isRunning ? null : _refreshSmolVlmInfo,
+              ),
+            ],
+          ),
+          const SizedBox(height: AppSpacing.xs),
+          _ResultRow(label: 'Status', value: _modelStatusLabel(status)),
+          _ResultRow(
+            label: 'Files',
+            value: downloaded
+                ? 'Verified'
+                : '${_formatBytes(info?.sizeBytes ?? 0)} of ${_formatBytes(requiredBytes)}',
+          ),
+          if (info?.path.isNotEmpty ?? false)
+            _ResultRow(label: 'Path', value: info!.path),
+          const SizedBox(height: AppSpacing.xs),
+          LinearProgressIndicator(
+            value: downloaded || loaded ? 1 : _smolVlmProgress,
+            minHeight: 8,
+            backgroundColor: AppColors.borderLight,
+          ),
+          const SizedBox(height: AppSpacing.xs),
+          Wrap(
+            spacing: AppSpacing.xs,
+            runSpacing: AppSpacing.xs,
+            children: [
+              _DiagButton(
+                label: _isDownloadingModel ? 'Downloading...' : 'Download',
+                onPressed: canDownload ? _downloadSmolVlm : null,
+              ),
+              _DiagButton(
+                label: _isLoadingModel ? 'Loading...' : 'Load',
+                onPressed: canLoad ? _loadSmolVlm : null,
+              ),
+            ],
+          ),
+          if (_modelSetupMessage.isNotEmpty) ...[
+            const SizedBox(height: AppSpacing.xs),
+            Text(
+              _modelSetupMessage,
+              style: TextStyle(
+                fontSize: 14.sp,
+                color: AppColors.textSecondaryOnLight,
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  String _modelStatusLabel(ModelStatus? status) {
+    return switch (status) {
+      ModelStatus.loaded => 'Loaded',
+      ModelStatus.ready => 'Downloaded',
+      ModelStatus.downloading => 'Downloading',
+      ModelStatus.notAvailable => 'Runtime unavailable',
+      ModelStatus.notDownloaded => 'Not downloaded',
+      null => 'Checking',
+    };
+  }
+
+  String _formatBytes(int bytes) {
+    if (bytes <= 0) return '0 MB';
+    final mb = bytes / (1024 * 1024);
+    if (mb >= 1024) return '${(mb / 1024).toStringAsFixed(1)} GB';
+    return '${mb.round()} MB';
   }
 
   Widget _buildRunButton() {
@@ -388,7 +582,9 @@ class _VisionDiagnosticScreenState extends State<VisionDiagnosticScreen> {
           _ResultRow(label: 'Backend', value: _selectedBackend.label),
           _ResultRow(
             label: 'First token',
-            value: _timeToFirstTokenMs != null ? '${_timeToFirstTokenMs} ms' : '--',
+            value: _timeToFirstTokenMs != null
+                ? '${_timeToFirstTokenMs} ms'
+                : '--',
           ),
           _ResultRow(
             label: 'Total time',

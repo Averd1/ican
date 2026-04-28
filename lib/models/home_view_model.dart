@@ -1,15 +1,18 @@
 import 'dart:async';
-import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart';
 import 'package:image/image.dart' as img;
 
+import '../protocol/eye_capture_diagnostics.dart';
 import '../protocol/ble_protocol.dart';
 import '../services/ble_service.dart';
 import '../services/on_device_vision_service.dart';
 import '../services/scene_description_service.dart';
+import '../services/scene_prompt_builder.dart';
 import '../services/tts_service.dart';
-import 'font_scale.dart';
+import '../services/vertex_ai_service.dart';
+import '../services/vision_health_service.dart';
+import 'settings_provider.dart';
 
 export 'font_scale.dart';
 
@@ -25,14 +28,22 @@ class DescriptionEntry {
   });
 }
 
+enum _CapturedImageFailure { corrupt, incomplete }
+
+enum _LiveVisionMode { full, basic }
+
 class HomeViewModel extends ChangeNotifier {
   final SceneDescriptionService sceneService;
-  final TtsService ttsService;
+  final SpeechOutput ttsService;
+  final SettingsProvider settingsProvider;
+  final Duration _processingTimeoutDuration;
 
   HomeViewModel({
     required this.sceneService,
     required this.ttsService,
-  }) {
+    required this.settingsProvider,
+    Duration processingTimeout = const Duration(seconds: 60),
+  }) : _processingTimeoutDuration = processingTimeout {
     _init();
   }
 
@@ -40,24 +51,34 @@ class HomeViewModel extends ChangeNotifier {
   String _lastDescription = '';
   bool _isPaused = false;
   bool _isProcessing = false;
+  bool _waitingForCaptureImage = false;
+  bool _disposed = false;
   String? _lastImageFingerprint;
   DateTime? _lastImageTime;
   int _batteryPercent = -1;
   Timer? _processingTimeout;
+  final ScenePromptBuilder _promptBuilder = const ScenePromptBuilder();
 
   StreamSubscription<ObstacleAlert>? _obstacleSub;
   StreamSubscription<Uint8List>? _imageSub;
+  StreamSubscription<EyeCaptureDiagnostic>? _eyeDiagnosticSub;
   StreamSubscription<void>? _captureSub;
   StreamSubscription<TelemetryPacket>? _telemetrySub;
   VoidCallback? _bleListener;
+  VoidCallback? _sceneServiceListener;
+  Completer<String>? _describeNowCompleter;
+  String _lastDiagnostic = '';
 
   // ── Live vision mode state ──
   bool _liveVisionActive = false;
   bool get liveVisionActive => _liveVisionActive;
   final OnDeviceVisionService _onDeviceVision = OnDeviceVisionService();
+  OfflineVisionStatus? _offlineVisionStatus;
+  VisionRuntimeStatus? _visionRuntimeStatus;
   StreamSubscription<Uint8List>? _liveImageSub;
   final Map<String, DateTime> _liveLastAnnounced = {};
   bool _liveProcessing = false;
+  _LiveVisionMode _liveMode = _LiveVisionMode.basic;
 
   // ── Public getters ──
   BleConnectionState get caneConnection => BleService.instance.caneState;
@@ -65,10 +86,24 @@ class HomeViewModel extends ChangeNotifier {
   int get batteryPercent => _batteryPercent;
 
   String get lastDescription => _lastDescription;
+  String get lastDiagnostic => _lastDiagnostic;
+  String get latestFailureSummary =>
+      _lastDiagnostic.isEmpty ? 'No failure recorded.' : _lastDiagnostic;
+  String get visionStatusSummary {
+    final backend = sceneService.lastBackend?.name ?? 'none yet';
+    final cloudFailure = sceneService.lastCloudFailure == null
+        ? 'no cloud failure'
+        : _cloudFailureDiagnostic(sceneService.lastCloudFailure!);
+    return 'Vision mode ${sceneService.mode.label}. Last backend $backend. $cloudFailure.';
+  }
+
+  VisionMode get visionMode => sceneService.mode;
   bool get isPaused => _isPaused;
   bool get isProcessing => _isProcessing;
   List<DescriptionEntry> get history => List.unmodifiable(_history);
   bool get hasAnyDevice => isEyeConnected || isCaneConnected;
+  OfflineVisionStatus? get offlineVisionStatus => _offlineVisionStatus;
+  VisionRuntimeStatus? get visionRuntimeStatus => _visionRuntimeStatus;
 
   bool get isEyeConnected =>
       BleService.instance.state == BleConnectionState.connected;
@@ -85,12 +120,36 @@ class HomeViewModel extends ChangeNotifier {
       }
       // Reset stuck processing if Eye disconnects mid-capture
       if (!isEyeConnected && _isProcessing) {
+        final wasWaitingForCapture = _waitingForCaptureImage;
         _isProcessing = false;
+        _waitingForCaptureImage = false;
         _processingTimeout?.cancel();
+        if (wasWaitingForCapture) {
+          unawaited(
+            _speakEyeCaptureDiagnostic(
+              const EyeCaptureDiagnostic(
+                code: EyeCaptureDiagnosticCode.streamStalled,
+                captureStarted: false,
+                sizeArrived: false,
+                expectedBytes: 0,
+                receivedBytes: 0,
+                uniqueChunks: 0,
+                duplicateChunks: 0,
+                endArrived: false,
+                jpegMagicValid: false,
+                jpegEndValid: false,
+                timeoutStage: EyeTransferTimeoutStage.awaitingCaptureStart,
+              ),
+            ),
+          );
+        }
       }
       notifyListeners();
     };
     BleService.instance.addListener(_bleListener!);
+
+    _sceneServiceListener = notifyListeners;
+    sceneService.addListener(_sceneServiceListener!);
 
     _obstacleSub = BleService.instance.obstacleStream.listen((alert) {
       notifyListeners();
@@ -99,8 +158,9 @@ class HomeViewModel extends ChangeNotifier {
     _captureSub = BleService.instance.captureStartedStream.listen((_) {
       if (!_liveVisionActive) {
         _isProcessing = true;
+        _waitingForCaptureImage = true;
         notifyListeners();
-        _startProcessingTimeout();
+        _startProcessingTimeout(cameraTransfer: true);
       }
     });
 
@@ -109,9 +169,10 @@ class HomeViewModel extends ChangeNotifier {
       notifyListeners();
     });
 
-    _imageSub =
-        BleService.instance.imageStream.listen((Uint8List imageBytes) async {
-      if (_isPaused || _liveVisionActive || _isProcessing) return;
+    _imageSub = BleService.instance.imageStream.listen((
+      Uint8List imageBytes,
+    ) async {
+      if (_isPaused || _liveVisionActive) return;
       final now = DateTime.now();
       final fingerprint = _computeFingerprint(imageBytes);
       if (_lastImageFingerprint == fingerprint &&
@@ -121,18 +182,61 @@ class HomeViewModel extends ChangeNotifier {
       }
       _lastImageFingerprint = fingerprint;
       _lastImageTime = now;
+      _waitingForCaptureImage = false;
       await _processImage(imageBytes);
     });
 
+    _eyeDiagnosticSub = BleService.instance.eyeCaptureDiagnosticStream.listen((
+      diagnostic,
+    ) {
+      if (_liveVisionActive) return;
+      _handleEyeCaptureDiagnostic(diagnostic);
+    });
+
     _announceStartup();
+    unawaited(refreshOfflineVisionStatus());
   }
 
-  void _startProcessingTimeout() {
+  Future<void> refreshOfflineVisionStatus() async {
+    final status = await _onDeviceVision.getOfflineVisionStatus();
+    final runtimeStatus = await VisionHealthService(
+      onDeviceService: _onDeviceVision,
+      cloudService: sceneService.cloudService,
+    ).check(eyeConnected: isEyeConnected, includeNetworkCheck: false);
+    if (_disposed) return;
+    _offlineVisionStatus = status;
+    _visionRuntimeStatus = runtimeStatus;
+    notifyListeners();
+  }
+
+  void _startProcessingTimeout({bool cameraTransfer = false}) {
     _processingTimeout?.cancel();
-    _processingTimeout = Timer(const Duration(seconds: 15), () {
+    _processingTimeout = Timer(_processingTimeoutDuration, () {
       if (_isProcessing) {
+        final wasWaitingForCapture = cameraTransfer && _waitingForCaptureImage;
         _isProcessing = false;
+        _waitingForCaptureImage = false;
+        _processingTimeout?.cancel();
         notifyListeners();
+        if (wasWaitingForCapture) {
+          unawaited(
+            _speakEyeCaptureDiagnostic(
+              const EyeCaptureDiagnostic(
+                code: EyeCaptureDiagnosticCode.noCaptureStartOrSize,
+                captureStarted: false,
+                sizeArrived: false,
+                expectedBytes: 0,
+                receivedBytes: 0,
+                uniqueChunks: 0,
+                duplicateChunks: 0,
+                endArrived: false,
+                jpegMagicValid: false,
+                jpegEndValid: false,
+                timeoutStage: EyeTransferTimeoutStage.awaitingCaptureStart,
+              ),
+            ),
+          );
+        }
       }
     });
   }
@@ -151,6 +255,11 @@ class HomeViewModel extends ChangeNotifier {
 
   Future<void> startLiveVision() async {
     if (_liveVisionActive || !isEyeConnected) return;
+    final status = await _onDeviceVision.getOfflineVisionStatus();
+    _offlineVisionStatus = status;
+    _liveMode = status.objectDetectionAvailable
+        ? _LiveVisionMode.full
+        : _LiveVisionMode.basic;
     _liveVisionActive = true;
     _liveLastAnnounced.clear();
     notifyListeners();
@@ -158,8 +267,9 @@ class HomeViewModel extends ChangeNotifier {
     await BleService.instance.setEyeProfile(0);
     await BleService.instance.startLiveCapture(intervalMs: 1500);
 
-    _liveImageSub =
-        BleService.instance.imageStream.listen((Uint8List imageBytes) async {
+    _liveImageSub = BleService.instance.imageStream.listen((
+      Uint8List imageBytes,
+    ) async {
       if (!_liveVisionActive || _liveProcessing) return;
       _liveProcessing = true;
       try {
@@ -171,7 +281,11 @@ class HomeViewModel extends ChangeNotifier {
     });
 
     try {
-      await ttsService.speak('Live vision started.');
+      await ttsService.speak(
+        _liveMode == _LiveVisionMode.full
+            ? 'Full live detection started.'
+            : 'Basic live mode started. Object detection is degraded.',
+      );
     } catch (_) {}
   }
 
@@ -197,22 +311,30 @@ class HomeViewModel extends ChangeNotifier {
   Future<void> _processLiveFrame(Uint8List imageBytes) async {
     if (imageBytes.length < 2 ||
         imageBytes[0] != 0xFF ||
-        imageBytes[1] != 0xD8) return;
+        imageBytes[1] != 0xD8) {
+      return;
+    }
 
     final result = await _onDeviceVision.analyzeScene(imageBytes);
     if (!_liveVisionActive) return;
 
-    final filtered = result.detectedObjects
-        .where((o) => o.confidence >= 0.5)
-        .toList()
-      ..sort((a, b) => b.confidence.compareTo(a.confidence));
+    if (_liveMode == _LiveVisionMode.basic) {
+      await _processBasicLiveFrame(result);
+      return;
+    }
+
+    final filtered =
+        result.detectedObjects.where((o) => o.confidence >= 0.5).toList()
+          ..sort((a, b) => b.confidence.compareTo(a.confidence));
 
     if (filtered.isEmpty) return;
 
     final now = DateTime.now();
     final toAnnounce = <String>[];
+    final verbosity = settingsProvider.liveDetectionVerbosity;
+    final maxObjects = verbosity == LiveDetectionVerbosity.full ? 3 : 1;
 
-    for (final det in filtered.take(3)) {
+    for (final det in filtered.take(maxObjects)) {
       final lastTime = _liveLastAnnounced[det.label];
       if (lastTime != null &&
           now.difference(lastTime) < const Duration(seconds: 3)) {
@@ -220,7 +342,13 @@ class HomeViewModel extends ChangeNotifier {
       }
       _liveLastAnnounced[det.label] = now;
       final position = _positionFromCenterX(det.centerX);
-      toAnnounce.add('${det.label} $position');
+      switch (verbosity) {
+        case LiveDetectionVerbosity.minimal:
+          toAnnounce.add(det.label);
+        case LiveDetectionVerbosity.positional:
+        case LiveDetectionVerbosity.full:
+          toAnnounce.add('${det.label} $position');
+      }
     }
 
     if (toAnnounce.isNotEmpty && _liveVisionActive) {
@@ -228,6 +356,39 @@ class HomeViewModel extends ChangeNotifier {
         await ttsService.speak(toAnnounce.join(', '));
       } catch (_) {}
     }
+  }
+
+  Future<void> _processBasicLiveFrame(ScenePerceptionResult result) async {
+    final now = DateTime.now();
+    final cues = <String>[];
+
+    if (result.personCount > 0) {
+      final people = result.personCount == 1
+          ? '1 person detected'
+          : '${result.personCount} people detected';
+      cues.add(people);
+    }
+
+    if (result.ocrTexts.isNotEmpty) {
+      cues.add('Text reads ${result.ocrTexts.take(2).join(', ')}');
+    }
+
+    if (result.sceneClassification != 'unknown' &&
+        result.sceneConfidence > 0.25) {
+      cues.add('${result.sceneClassification.replaceAll('_', ' ')} setting');
+    }
+
+    if (cues.isEmpty) return;
+    final key = cues.join('|');
+    final lastTime = _liveLastAnnounced[key];
+    if (lastTime != null &&
+        now.difference(lastTime) < const Duration(seconds: 4)) {
+      return;
+    }
+    _liveLastAnnounced[key] = now;
+    try {
+      await ttsService.speak('Basic live mode: ${cues.join(', ')}.');
+    } catch (_) {}
   }
 
   static String _positionFromCenterX(double cx) {
@@ -254,12 +415,23 @@ class HomeViewModel extends ChangeNotifier {
     }
   }
 
-  void describeNow() {
-    if (!canDescribe) return;
+  Future<String> describeNow() {
+    if (!canDescribe) {
+      const message =
+          'Eye E01: no capture start or SIZE from Eye. Stage: camera not ready; received 0/unknown bytes across 0 chunks.';
+      _setLastDiagnostic(message);
+      return Future.value(message);
+    }
+    if (_describeNowCompleter != null && !_describeNowCompleter!.isCompleted) {
+      return _describeNowCompleter!.future;
+    }
+    _describeNowCompleter = Completer<String>();
     _isProcessing = true;
+    _waitingForCaptureImage = true;
     notifyListeners();
-    _startProcessingTimeout();
-    BleService.instance.triggerEyeCapture();
+    _startProcessingTimeout(cameraTransfer: true);
+    unawaited(BleService.instance.triggerEyeCapture());
+    return _describeNowCompleter!.future;
   }
 
   void removeDescription(int index) {
@@ -280,30 +452,26 @@ class HomeViewModel extends ChangeNotifier {
   void startScanForCane() => BleService.instance.startScanForCane();
 
   // ── Image processing ──
-  static const _systemPrompt =
-      'You are the vision system for a blind person wearing a chest camera. '
-      'Speak in plain, conversational English — no markdown, no bullet points, no lists — '
-      'everything you say is read aloud by a text-to-speech engine. '
-      'Describe the scene in 4–6 sentences:\n'
-      '1) Start with WHERE you are (room type, indoor/outdoor, general setting).\n'
-      '2) SAFETY: name any obstacles, steps, edges, vehicles, or people. '
-      'Use clock positions for direction (e.g. "chair at 2 o\'clock").\n'
-      '3) Describe what is DIRECTLY AHEAD and within arm\'s reach.\n'
-      '4) Read any visible text verbatim — signs, labels, screens, buttons.\n'
-      '5) Mention notable objects, colors, or landmarks that help orientation.\n'
-      'Be specific and spatial. Never say "I see" — describe as if you are the person\'s eyes.';
+  @visibleForTesting
+  Future<void> processImageForTesting(Uint8List imageBytes) {
+    return _processImage(imageBytes);
+  }
+
+  @visibleForTesting
+  void startCaptureTimeoutForTesting() {
+    _isProcessing = true;
+    _waitingForCaptureImage = true;
+    _startProcessingTimeout(cameraTransfer: true);
+  }
 
   Future<void> _processImage(Uint8List imageBytes) async {
-    if (imageBytes.length < 2 ||
-        imageBytes[0] != 0xFF ||
-        imageBytes[1] != 0xD8) {
+    _waitingForCaptureImage = false;
+    final imageFailure = _validateCapturedJpeg(imageBytes);
+    if (imageFailure != null) {
       _isProcessing = false;
       _processingTimeout?.cancel();
       notifyListeners();
-      try {
-        await ttsService
-            .speak('The image was corrupted. Please try again.');
-      } catch (_) {}
+      await _speakImageFailure(imageFailure, imageBytes.length);
       return;
     }
 
@@ -311,64 +479,190 @@ class HomeViewModel extends ChangeNotifier {
     notifyListeners();
     _startProcessingTimeout();
 
-    final enhancedBytes = await compute(_enhanceImageForApi, imageBytes);
-
     try {
-      final textBuffer = StringBuffer();
+      final enhancedBytes = await compute(_enhanceImageForApi, imageBytes);
       final fullTextBuffer = StringBuffer();
-      final sentenceEnd = RegExp(r'[.!?](?:\s|$)');
+      final prompt = _promptBuilder.build(
+        detailLevel: settingsProvider.detailLevel,
+        promptProfile: settingsProvider.promptProfile,
+      );
 
       await for (final chunk in sceneService.describeScene(
         enhancedBytes,
-        systemPrompt: _systemPrompt,
+        systemPrompt: prompt.systemPrompt,
+        userPrompt: prompt.userPrompt,
+        maxOutputTokens: prompt.maxOutputTokens,
         onStatusUpdate: (_, __) {},
       )) {
         if (_isPaused) continue;
-        textBuffer.write(chunk);
         fullTextBuffer.write(chunk);
-
-        while (true) {
-          final accumulated = textBuffer.toString();
-          final match = sentenceEnd.firstMatch(accumulated);
-          if (match == null) break;
-          final sentence = accumulated.substring(0, match.end).trim();
-          final leftover = accumulated.substring(match.end);
-          textBuffer.clear();
-          textBuffer.write(leftover);
-          try {
-            await ttsService.speak(sentence);
-          } catch (_) {}
-        }
-      }
-
-      final remaining = textBuffer.toString().trim();
-      if (remaining.isNotEmpty && !_isPaused) {
-        try {
-          await ttsService.speak(remaining);
-        } catch (_) {}
       }
 
       final fullText = fullTextBuffer.toString().trim();
       if (fullText.isNotEmpty) {
+        if (!_isPaused) {
+          try {
+            await ttsService.speak(fullText);
+          } catch (_) {}
+        }
         _lastDescription = fullText;
+        _clearLastDiagnostic();
         _history.insert(
-            0,
-            DescriptionEntry(
-              text: fullText,
-              timestamp: DateTime.now(),
-            ));
+          0,
+          DescriptionEntry(text: fullText, timestamp: DateTime.now()),
+        );
+        _completeDescribeNow('Scene description complete.');
       }
     } catch (e) {
       debugPrint('[HomeViewModel] Error processing image: $e');
-      try {
-        await ttsService
-            .speak('Sorry, there was an error processing the image.');
-      } catch (_) {}
+      await _speakProcessingError(e);
+    } finally {
+      _isProcessing = false;
+      _waitingForCaptureImage = false;
+      _processingTimeout?.cancel();
+      if (_describeNowCompleter != null &&
+          !_describeNowCompleter!.isCompleted) {
+        _completeDescribeNow('Scene description produced no output.');
+      }
+      notifyListeners();
     }
+  }
 
+  _CapturedImageFailure? _validateCapturedJpeg(Uint8List imageBytes) {
+    if (imageBytes.length < 2 ||
+        imageBytes[0] != 0xFF ||
+        imageBytes[1] != 0xD8) {
+      return _CapturedImageFailure.corrupt;
+    }
+    if (imageBytes.length < 4 ||
+        imageBytes[imageBytes.length - 2] != 0xFF ||
+        imageBytes[imageBytes.length - 1] != 0xD9) {
+      return _CapturedImageFailure.incomplete;
+    }
+    return null;
+  }
+
+  Future<void> _speakImageFailure(
+    _CapturedImageFailure failure,
+    int receivedBytes,
+  ) async {
+    final diagnostic = EyeCaptureDiagnostic(
+      code: EyeCaptureDiagnosticCode.corruptOrIncompleteJpeg,
+      captureStarted: true,
+      sizeArrived: true,
+      expectedBytes: receivedBytes,
+      receivedBytes: receivedBytes,
+      uniqueChunks: 0,
+      duplicateChunks: 0,
+      endArrived: true,
+      jpegMagicValid: failure != _CapturedImageFailure.corrupt,
+      jpegEndValid: failure != _CapturedImageFailure.incomplete,
+    );
+    await _speakEyeCaptureDiagnostic(diagnostic);
+  }
+
+  void _handleEyeCaptureDiagnostic(EyeCaptureDiagnostic diagnostic) {
+    if (!_isProcessing && !_waitingForCaptureImage) return;
     _isProcessing = false;
+    _waitingForCaptureImage = false;
     _processingTimeout?.cancel();
     notifyListeners();
+    unawaited(_speakEyeCaptureDiagnostic(diagnostic));
+  }
+
+  Future<void> _speakEyeCaptureDiagnostic(
+    EyeCaptureDiagnostic diagnostic,
+  ) async {
+    final message = diagnostic.spokenMessage;
+    _setLastDiagnostic(message);
+    _completeDescribeNow(message);
+    try {
+      await ttsService.speak(message);
+    } catch (_) {}
+  }
+
+  @visibleForTesting
+  Future<void> handleEyeCaptureDiagnosticForTesting(
+    EyeCaptureDiagnostic diagnostic,
+  ) async {
+    _handleEyeCaptureDiagnostic(diagnostic);
+    await Future<void>.value();
+  }
+
+  Future<void> _speakProcessingError(Object error) async {
+    final message = _processingErrorMessage(error);
+    _setLastDiagnostic(message);
+    _completeDescribeNow(message);
+    try {
+      await ttsService.speak(message);
+    } catch (_) {}
+  }
+
+  String _processingErrorMessage(Object error) {
+    if (error is CloudVisionException) {
+      return _cloudFailureDiagnostic(error);
+    }
+    if (error is SceneDescriptionException) {
+      if (error.stage == SceneDescriptionFailureStage.cloudVision) {
+        final cause = error.cause;
+        if (cause is CloudVisionException) {
+          return _cloudFailureDiagnostic(cause);
+        }
+        return 'Cloud C03: cloud timeout/network failure.';
+      }
+      final local = _localFailureDiagnostic(error.cause);
+      if (error.cloudFailure != null) {
+        return '${_cloudFailureDiagnostic(error.cloudFailure!)} $local';
+      }
+      return local;
+    }
+    return _localFailureDiagnostic(error);
+  }
+
+  static String _localFailureDiagnostic(Object failure) {
+    if (failure is LocalVisionException) return failure.userMessage;
+    return 'Local L03: Apple Vision or Core ML failed.';
+  }
+
+  static String _cloudFailureDiagnostic(Object failure) {
+    if (failure is SceneDescriptionException) {
+      return failure.userMessage;
+    }
+    if (failure is! CloudVisionException) {
+      return 'Cloud C03: cloud timeout/network failure.';
+    }
+    final error = failure;
+    switch (error.kind) {
+      case CloudVisionFailureKind.missingApiKey:
+        return 'Cloud C01: missing API key/config.';
+      case CloudVisionFailureKind.httpStatus:
+        return 'Cloud C02: Gemini HTTP status failure ${error.statusCode}.';
+      case CloudVisionFailureKind.timeout:
+      case CloudVisionFailureKind.network:
+        return 'Cloud C03: cloud timeout/network failure.';
+      case CloudVisionFailureKind.malformedResponse:
+        return 'Cloud C03: cloud timeout/network failure.';
+    }
+  }
+
+  void _completeDescribeNow(String message) {
+    final completer = _describeNowCompleter;
+    if (completer != null && !completer.isCompleted) {
+      completer.complete(message);
+    }
+    _describeNowCompleter = null;
+  }
+
+  void _setLastDiagnostic(String message) {
+    if (_lastDiagnostic == message) return;
+    _lastDiagnostic = message;
+    if (!_disposed) notifyListeners();
+  }
+
+  void _clearLastDiagnostic() {
+    if (_lastDiagnostic.isEmpty) return;
+    _lastDiagnostic = '';
+    if (!_disposed) notifyListeners();
   }
 
   String _computeFingerprint(Uint8List data) {
@@ -385,8 +679,10 @@ class HomeViewModel extends ChangeNotifier {
     if (_liveVisionActive) {
       _stopLiveVisionInternal();
     }
+    _disposed = true;
     _obstacleSub?.cancel();
     _imageSub?.cancel();
+    _eyeDiagnosticSub?.cancel();
     _liveImageSub?.cancel();
     _captureSub?.cancel();
     _telemetrySub?.cancel();
@@ -394,6 +690,10 @@ class HomeViewModel extends ChangeNotifier {
     if (_bleListener != null) {
       BleService.instance.removeListener(_bleListener!);
     }
+    if (_sceneServiceListener != null) {
+      sceneService.removeListener(_sceneServiceListener!);
+    }
+    _completeDescribeNow('Home closed before scene description completed.');
     super.dispose();
   }
 }
@@ -406,7 +706,8 @@ Uint8List _enhanceImageForApi(Uint8List rawBytes) {
 
   var image = decoded;
 
-  final isTruncated = rawBytes.length < 2 ||
+  final isTruncated =
+      rawBytes.length < 2 ||
       rawBytes[rawBytes.length - 2] != 0xFF ||
       rawBytes[rawBytes.length - 1] != 0xD9;
   if (isTruncated) {
@@ -420,7 +721,8 @@ Uint8List _enhanceImageForApi(Uint8List rawBytes) {
     image = img.adjustColor(image, contrast: 1.1);
   }
 
-  image = img.convolution(image,
+  image = img.convolution(
+    image,
     filter: [0, -1, 0, -1, 5, -1, 0, -1, 0],
     amount: 0.3,
   );
@@ -435,7 +737,9 @@ double _computeMeanLuminance(img.Image src) {
     for (int x = 0; x < src.width; x += 8) {
       final p = src.getPixel(x, y);
       sum +=
-          0.299 * p.r.toDouble() + 0.587 * p.g.toDouble() + 0.114 * p.b.toDouble();
+          0.299 * p.r.toDouble() +
+          0.587 * p.g.toDouble() +
+          0.114 * p.b.toDouble();
       count++;
     }
   }
@@ -452,8 +756,13 @@ img.Image _cropBottomBlackBar(img.Image src) {
           p.b > brightnessThreshold) {
         final cropTo = y + 1;
         if (cropTo < src.height - 8) {
-          return img.copyCrop(src,
-              x: 0, y: 0, width: src.width, height: cropTo);
+          return img.copyCrop(
+            src,
+            x: 0,
+            y: 0,
+            width: src.width,
+            height: cropTo,
+          );
         }
         return src;
       }

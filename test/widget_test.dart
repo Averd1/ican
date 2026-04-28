@@ -1,13 +1,38 @@
+import 'package:flutter/material.dart';
+import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:ican/main.dart';
+import 'package:ican/core/theme.dart';
+import 'package:ican/services/ble_service.dart';
+import 'package:ican/widgets/device_status_card.dart';
 
 void main() {
-  testWidgets('iCan app smoke test', (WidgetTester tester) async {
-    // Build the app and trigger a frame.
-    await tester.pumpWidget(const ICanApp());
+  Widget buildTestApp(Widget child) {
+    return ScreenUtilInit(
+      designSize: const Size(375, 812),
+      builder: (_, __) => MaterialApp(
+        theme: ICanTheme.lightTheme,
+        home: Scaffold(body: child),
+      ),
+    );
+  }
 
-    // Verify the home screen loads with the "Say a Location" button.
-    expect(find.text('Say a Location'), findsOneWidget);
-    expect(find.text('iCan'), findsOneWidget);
+  testWidgets('device status card renders connected state and battery', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      buildTestApp(
+        DeviceStatusCard(
+          deviceName: 'iCan Cane',
+          connectionState: BleConnectionState.connected,
+          batteryPercent: 84,
+          onTap: () {},
+          tapHint: 'Scans for iCan Cane',
+        ),
+      ),
+    );
+
+    expect(find.text('iCan Cane'), findsOneWidget);
+    expect(find.text('Connected'), findsOneWidget);
+    expect(find.text('Battery: 84%'), findsOneWidget);
   });
 }

@@ -2,6 +2,22 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
+class LocalVisionException implements Exception {
+  const LocalVisionException(this.code, this.message, {this.detail});
+
+  final String code;
+  final String message;
+  final String? detail;
+
+  String get userMessage {
+    final suffix = detail == null || detail!.isEmpty ? '' : ' $detail';
+    return '$code: $message$suffix';
+  }
+
+  @override
+  String toString() => userMessage;
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Data models
 // ─────────────────────────────────────────────────────────────────────────────
@@ -24,7 +40,8 @@ class VisionAnalysis {
 
   factory VisionAnalysis.fromMap(Map<dynamic, dynamic> map) {
     return VisionAnalysis(
-      ocrTexts: (map['ocr_texts'] as List<dynamic>?)
+      ocrTexts:
+          (map['ocr_texts'] as List<dynamic>?)
               ?.map((e) => e.toString())
               .toList() ??
           [],
@@ -32,9 +49,13 @@ class VisionAnalysis {
           (map['scene_classification'] as String?) ?? 'unknown',
       sceneConfidence: (map['scene_confidence'] as num?)?.toDouble() ?? 0.0,
       personCount: (map['person_count'] as int?) ?? 0,
-      personRects: (map['person_rects'] as List<dynamic>?)
-              ?.map((r) => (r as Map<dynamic, dynamic>)
-                  .map((k, v) => MapEntry(k.toString(), (v as num).toDouble())))
+      personRects:
+          (map['person_rects'] as List<dynamic>?)
+              ?.map(
+                (r) => (r as Map<dynamic, dynamic>).map(
+                  (k, v) => MapEntry(k.toString(), (v as num).toDouble()),
+                ),
+              )
               .toList() ??
           [],
     );
@@ -68,11 +89,13 @@ class VisionAnalysis {
 class SpatialObjectData {
   final String label;
   final double confidence;
-  final int clockPosition;     // 9=left, 12=center, 3=right
-  final double? relativeDepth; // 0.0=closest, 1.0=farthest; null if depth unavailable
+  final int clockPosition; // 9=left, 12=center, 3=right
+  final double?
+  relativeDepth; // 0.0=closest, 1.0=farthest; null if depth unavailable
   final double centerX;
   final double centerY;
-  final double? bboxX;         // image-space bounding box (top-left origin, normalised 0–1)
+  final double?
+  bboxX; // image-space bounding box (top-left origin, normalised 0–1)
   final double? bboxY;
   final double? bboxW;
   final double? bboxH;
@@ -92,16 +115,16 @@ class SpatialObjectData {
 
   factory SpatialObjectData.fromMap(Map<dynamic, dynamic> map) {
     return SpatialObjectData(
-      label:         (map['label'] as String?) ?? 'object',
-      confidence:    (map['confidence'] as num?)?.toDouble() ?? 0.0,
+      label: (map['label'] as String?) ?? 'object',
+      confidence: (map['confidence'] as num?)?.toDouble() ?? 0.0,
       clockPosition: (map['clock_position'] as int?) ?? 12,
       relativeDepth: (map['relative_depth'] as num?)?.toDouble(),
-      centerX:       (map['center_x'] as num?)?.toDouble() ?? 0.5,
-      centerY:       (map['center_y'] as num?)?.toDouble() ?? 0.5,
-      bboxX:         (map['bbox_x'] as num?)?.toDouble(),
-      bboxY:         (map['bbox_y'] as num?)?.toDouble(),
-      bboxW:         (map['bbox_w'] as num?)?.toDouble(),
-      bboxH:         (map['bbox_h'] as num?)?.toDouble(),
+      centerX: (map['center_x'] as num?)?.toDouble() ?? 0.5,
+      centerY: (map['center_y'] as num?)?.toDouble() ?? 0.5,
+      bboxX: (map['bbox_x'] as num?)?.toDouble(),
+      bboxY: (map['bbox_y'] as num?)?.toDouble(),
+      bboxW: (map['bbox_w'] as num?)?.toDouble(),
+      bboxH: (map['bbox_h'] as num?)?.toDouble(),
     );
   }
 
@@ -116,7 +139,9 @@ class SpatialObjectData {
 
   String get spatialLabel {
     final tier = distanceTier;
-    return tier != null ? '$label at $clockPosition o\'clock, $tier' : '$label at $clockPosition o\'clock';
+    return tier != null
+        ? '$label at $clockPosition o\'clock, $tier'
+        : '$label at $clockPosition o\'clock';
   }
 }
 
@@ -137,20 +162,29 @@ class ScenePerceptionResult extends VisionAnalysis {
 
   factory ScenePerceptionResult.fromMap(Map<dynamic, dynamic> map) {
     return ScenePerceptionResult(
-      ocrTexts: (map['ocr_texts'] as List<dynamic>?)
+      ocrTexts:
+          (map['ocr_texts'] as List<dynamic>?)
               ?.map((e) => e.toString())
               .toList() ??
           [],
-      sceneClassification: (map['scene_classification'] as String?) ?? 'unknown',
-      sceneConfidence:     (map['scene_confidence'] as num?)?.toDouble() ?? 0.0,
-      personCount:         (map['person_count'] as int?) ?? 0,
-      personRects:         (map['person_rects'] as List<dynamic>?)
-              ?.map((r) => (r as Map<dynamic, dynamic>)
-                  .map((k, v) => MapEntry(k.toString(), (v as num).toDouble())))
+      sceneClassification:
+          (map['scene_classification'] as String?) ?? 'unknown',
+      sceneConfidence: (map['scene_confidence'] as num?)?.toDouble() ?? 0.0,
+      personCount: (map['person_count'] as int?) ?? 0,
+      personRects:
+          (map['person_rects'] as List<dynamic>?)
+              ?.map(
+                (r) => (r as Map<dynamic, dynamic>).map(
+                  (k, v) => MapEntry(k.toString(), (v as num).toDouble()),
+                ),
+              )
               .toList() ??
           [],
-      detectedObjects: (map['detected_objects'] as List<dynamic>?)
-              ?.map((o) => SpatialObjectData.fromMap(o as Map<dynamic, dynamic>))
+      detectedObjects:
+          (map['detected_objects'] as List<dynamic>?)
+              ?.map(
+                (o) => SpatialObjectData.fromMap(o as Map<dynamic, dynamic>),
+              )
               .toList() ??
           [],
       hasDepthMap: (map['has_depth_map'] as bool?) ?? false,
@@ -164,21 +198,31 @@ class ScenePerceptionResult extends VisionAnalysis {
 
     if (sceneClassification != 'unknown' && sceneConfidence > 0.15) {
       final label = sceneClassification.replaceAll('_', ' ');
-      lines.add('- Scene type: $label (${(sceneConfidence * 100).round()}% confidence)');
+      lines.add(
+        '- Scene type: $label (${(sceneConfidence * 100).round()}% confidence)',
+      );
     }
 
     if (personCount > 0) {
       lines.add('- People detected: $personCount');
     }
 
-    final close = detectedObjects.where((o) => (o.relativeDepth ?? 1.0) < 0.50).toList();
+    final close = detectedObjects
+        .where((o) => (o.relativeDepth ?? 1.0) < 0.50)
+        .toList();
     if (close.isNotEmpty) {
-      lines.add('- Close obstacles: ${close.map((o) => o.spatialLabel).join('; ')}');
+      lines.add(
+        '- Close obstacles: ${close.map((o) => o.spatialLabel).join('; ')}',
+      );
     }
 
-    final others = detectedObjects.where((o) => (o.relativeDepth ?? 0.0) >= 0.50).take(6);
+    final others = detectedObjects
+        .where((o) => (o.relativeDepth ?? 0.0) >= 0.50)
+        .take(6);
     if (others.isNotEmpty) {
-      lines.add('- Nearby objects: ${others.map((o) => o.spatialLabel).join('; ')}');
+      lines.add(
+        '- Nearby objects: ${others.map((o) => o.spatialLabel).join('; ')}',
+      );
     }
 
     if (ocrTexts.isNotEmpty) {
@@ -197,18 +241,124 @@ class ScenePerceptionResult extends VisionAnalysis {
 
 /// Status of the on-device VLM (SmolVLM) model.
 enum ModelStatus {
+  notAvailable,
   notDownloaded,
   downloading,
-  ready,   // downloaded but not loaded into memory
-  loaded,  // in memory, ready for inference
+  ready, // downloaded but not loaded into memory
+  loaded, // in memory, ready for inference
 }
 
 ModelStatus _parseModelStatus(String raw) {
   switch (raw) {
-    case 'loaded':      return ModelStatus.loaded;
-    case 'ready':       return ModelStatus.ready;
-    case 'downloading': return ModelStatus.downloading;
-    default:            return ModelStatus.notDownloaded;
+    case 'not_available':
+      return ModelStatus.notAvailable;
+    case 'loaded':
+      return ModelStatus.loaded;
+    case 'ready':
+      return ModelStatus.ready;
+    case 'downloading':
+      return ModelStatus.downloading;
+    default:
+      return ModelStatus.notDownloaded;
+  }
+}
+
+class OfflineVisionStatus {
+  final bool foundationModelsAvailable;
+  final ModelStatus modelStatus;
+  final bool objectDetectionAvailable;
+  final bool depthEstimationAvailable;
+
+  const OfflineVisionStatus({
+    required this.foundationModelsAvailable,
+    required this.modelStatus,
+    required this.objectDetectionAvailable,
+    required this.depthEstimationAvailable,
+  });
+
+  bool get smolVlmAvailable =>
+      modelStatus == ModelStatus.loaded || modelStatus == ModelStatus.ready;
+
+  bool get hasSpatialPerception =>
+      objectDetectionAvailable && depthEstimationAvailable;
+
+  String get bestLocalBackendLabel {
+    if (foundationModelsAvailable) return 'Foundation Models';
+    if (modelStatus == ModelStatus.loaded) return 'SmolVLM';
+    if (hasSpatialPerception) return 'Core ML spatial perception';
+    return 'Local basic vision';
+  }
+
+  List<String> get missingRequirements {
+    final missing = <String>[];
+    if (!foundationModelsAvailable) {
+      missing.add('Foundation Models unavailable');
+    }
+    switch (modelStatus) {
+      case ModelStatus.notAvailable:
+        missing.add('SmolVLM unavailable');
+      case ModelStatus.notDownloaded:
+        missing.add('SmolVLM model not downloaded');
+      case ModelStatus.downloading:
+        missing.add('SmolVLM model still downloading');
+      case ModelStatus.ready:
+      case ModelStatus.loaded:
+        break;
+    }
+    if (!objectDetectionAvailable) {
+      missing.add('YOLOv3Tiny model missing');
+    }
+    if (!depthEstimationAvailable) {
+      missing.add('Depth Anything model missing');
+    }
+    return missing;
+  }
+}
+
+class NativeModelDiagnostic {
+  const NativeModelDiagnostic({
+    required this.name,
+    required this.bundleFound,
+    required this.compiledModelFound,
+    required this.loaded,
+    required this.message,
+  });
+
+  final String name;
+  final bool bundleFound;
+  final bool compiledModelFound;
+  final bool loaded;
+  final String message;
+
+  factory NativeModelDiagnostic.fromMap(Map<dynamic, dynamic> map) {
+    return NativeModelDiagnostic(
+      name: map['name']?.toString() ?? 'Unknown model',
+      bundleFound: map['bundle_found'] as bool? ?? false,
+      compiledModelFound: map['compiled_model_found'] as bool? ?? false,
+      loaded: map['loaded'] as bool? ?? false,
+      message: map['message']?.toString() ?? 'No diagnostic message.',
+    );
+  }
+}
+
+class OfflineVisionDiagnostics {
+  const OfflineVisionDiagnostics({
+    required this.objectDetector,
+    required this.depthEstimator,
+  });
+
+  final NativeModelDiagnostic objectDetector;
+  final NativeModelDiagnostic depthEstimator;
+
+  factory OfflineVisionDiagnostics.fromMap(Map<dynamic, dynamic> map) {
+    return OfflineVisionDiagnostics(
+      objectDetector: NativeModelDiagnostic.fromMap(
+        map['object_detector'] as Map<dynamic, dynamic>? ?? const {},
+      ),
+      depthEstimator: NativeModelDiagnostic.fromMap(
+        map['depth_estimator'] as Map<dynamic, dynamic>? ?? const {},
+      ),
+    );
   }
 }
 
@@ -216,13 +366,178 @@ ModelStatus _parseModelStatus(String raw) {
 // Service
 // ─────────────────────────────────────────────────────────────────────────────
 
+class ModelFileDownloadInfo {
+  const ModelFileDownloadInfo({
+    required this.name,
+    required this.downloaded,
+    required this.sizeBytes,
+    required this.expectedSizeBytes,
+    required this.sha256,
+  });
+
+  final String name;
+  final bool downloaded;
+  final int sizeBytes;
+  final int expectedSizeBytes;
+  final String sha256;
+
+  factory ModelFileDownloadInfo.fromMap(Map<dynamic, dynamic> map) {
+    return ModelFileDownloadInfo(
+      name: map['name']?.toString() ?? 'Unknown file',
+      downloaded: map['downloaded'] as bool? ?? false,
+      sizeBytes: _asInt(map['sizeBytes']),
+      expectedSizeBytes: _asInt(map['expectedSizeBytes']),
+      sha256: map['sha256']?.toString() ?? '',
+    );
+  }
+}
+
+class SmolVlmModelInfo {
+  const SmolVlmModelInfo({
+    required this.downloaded,
+    required this.valid,
+    required this.downloading,
+    required this.sizeBytes,
+    required this.requiredBytes,
+    required this.path,
+    required this.modelName,
+    required this.files,
+  });
+
+  final bool downloaded;
+  final bool valid;
+  final bool downloading;
+  final int sizeBytes;
+  final int requiredBytes;
+  final String path;
+  final String modelName;
+  final List<ModelFileDownloadInfo> files;
+
+  double get progress {
+    if (requiredBytes <= 0) return downloaded ? 1 : 0;
+    return (sizeBytes / requiredBytes).clamp(0, 1).toDouble();
+  }
+
+  factory SmolVlmModelInfo.fromMap(Map<dynamic, dynamic> map) {
+    final rawFiles = map['files'];
+    final files = rawFiles is List
+        ? rawFiles
+              .whereType<Map<dynamic, dynamic>>()
+              .map(ModelFileDownloadInfo.fromMap)
+              .toList()
+        : const <ModelFileDownloadInfo>[];
+    return SmolVlmModelInfo(
+      downloaded: map['downloaded'] as bool? ?? false,
+      valid: map['valid'] as bool? ?? map['downloaded'] as bool? ?? false,
+      downloading: map['downloading'] as bool? ?? false,
+      sizeBytes: _asInt(map['sizeBytes']),
+      requiredBytes: _asInt(map['requiredBytes']),
+      path: map['path']?.toString() ?? '',
+      modelName: map['modelName']?.toString() ?? 'SmolVLM',
+      files: files,
+    );
+  }
+}
+
+class ModelDownloadEvent {
+  const ModelDownloadEvent({
+    required this.status,
+    required this.phase,
+    required this.progress,
+    required this.filesDownloaded,
+    required this.totalFiles,
+    required this.requiredBytes,
+    this.fileName,
+  });
+
+  final String status;
+  final String phase;
+  final double progress;
+  final int filesDownloaded;
+  final int totalFiles;
+  final int requiredBytes;
+  final String? fileName;
+
+  bool get isComplete => status == 'complete';
+
+  factory ModelDownloadEvent.fromNative(Object? event) {
+    if (event is double) {
+      return ModelDownloadEvent(
+        status: event >= 1 ? 'complete' : 'downloading',
+        phase: 'downloading',
+        progress: event.clamp(0, 1).toDouble(),
+        filesDownloaded: 0,
+        totalFiles: 0,
+        requiredBytes: 0,
+      );
+    }
+    if (event is int) {
+      final progress = event.toDouble().clamp(0, 1).toDouble();
+      return ModelDownloadEvent(
+        status: progress >= 1 ? 'complete' : 'downloading',
+        phase: 'downloading',
+        progress: progress,
+        filesDownloaded: 0,
+        totalFiles: 0,
+        requiredBytes: 0,
+      );
+    }
+    final map = event is Map ? event : const <Object?, Object?>{};
+    return ModelDownloadEvent(
+      status: map['status']?.toString() ?? 'downloading',
+      phase: map['phase']?.toString() ?? '',
+      progress: _asDouble(map['progress']).clamp(0, 1).toDouble(),
+      filesDownloaded: _asInt(map['filesDownloaded']),
+      totalFiles: _asInt(map['totalFiles']),
+      requiredBytes: _asInt(map['requiredBytes']),
+      fileName: map['fileName']?.toString(),
+    );
+  }
+}
+
+int _asInt(Object? value) {
+  if (value is int) return value;
+  if (value is num) return value.round();
+  return int.tryParse(value?.toString() ?? '') ?? 0;
+}
+
+double _asDouble(Object? value) {
+  if (value is double) return value;
+  if (value is num) return value.toDouble();
+  return double.tryParse(value?.toString() ?? '') ?? 0;
+}
+
 /// Dart-side client for the native on-device vision MethodChannel.
 /// Handles all three pipeline layers exposed by OnDeviceVisionChannel.swift.
 class OnDeviceVisionService {
-  static const _method         = MethodChannel('com.ican/on_device_vision');
-  static const _vlmStream      = EventChannel('com.ican/vlm_stream');
-  static const _fmStream       = EventChannel('com.ican/fm_stream');
-  static const _downloadStream = EventChannel('com.ican/model_download_progress');
+  static const _method = MethodChannel('com.ican/on_device_vision');
+  static const _vlmStream = EventChannel('com.ican/vlm_stream');
+  static const _fmStream = EventChannel('com.ican/fm_stream');
+  static const _downloadStream = EventChannel(
+    'com.ican/model_download_progress',
+  );
+
+  Future<bool> pingNativeChannel() async {
+    try {
+      final result = await _method.invokeMethod<bool>('ping');
+      return result ?? false;
+    } on MissingPluginException {
+      return false;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Future<bool> isAppleVisionAvailable() async {
+    try {
+      final result = await _method.invokeMethod<bool>('isAppleVisionAvailable');
+      return result ?? false;
+    } on MissingPluginException {
+      return false;
+    } catch (_) {
+      return false;
+    }
+  }
 
   // ── Layer 1 (legacy) ────────────────────────────────────────────────────
 
@@ -235,13 +550,31 @@ class OnDeviceVisionService {
         {'imageBytes': jpegBytes},
       );
       if (result == null || result.containsKey('error')) {
-        debugPrint('[OnDeviceVision] analyzeWithVision error: ${result?['error']}');
-        return _emptyVisionAnalysis();
+        debugPrint(
+          '[OnDeviceVision] analyzeWithVision error: ${result?['error']}',
+        );
+        throw LocalVisionException(
+          'Local L02',
+          'Apple Vision could not analyze this image.',
+          detail: result?['error']?.toString(),
+        );
       }
       return VisionAnalysis.fromMap(result);
+    } on LocalVisionException {
+      rethrow;
+    } on MissingPluginException catch (e) {
+      debugPrint('[OnDeviceVision] Missing plugin: $e');
+      throw const LocalVisionException(
+        'Local L01',
+        'native vision channel is not registered.',
+      );
     } on PlatformException catch (e) {
       debugPrint('[OnDeviceVision] Platform error: ${e.message}');
-      return _emptyVisionAnalysis();
+      throw LocalVisionException(
+        'Local L03',
+        'Apple Vision or Core ML failed.',
+        detail: _platformDetail(e),
+      );
     }
   }
 
@@ -257,12 +590,28 @@ class OnDeviceVisionService {
       );
       if (result == null || result.containsKey('error')) {
         debugPrint('[OnDeviceVision] analyzeScene error: ${result?['error']}');
-        return _emptySceneResult();
+        throw LocalVisionException(
+          'Local L02',
+          'Apple Vision could not analyze this image.',
+          detail: result?['error']?.toString(),
+        );
       }
       return ScenePerceptionResult.fromMap(result);
+    } on LocalVisionException {
+      rethrow;
+    } on MissingPluginException catch (e) {
+      debugPrint('[OnDeviceVision] Missing plugin: $e');
+      throw const LocalVisionException(
+        'Local L01',
+        'native vision channel is not registered.',
+      );
     } on PlatformException catch (e) {
       debugPrint('[OnDeviceVision] Platform error: ${e.message}');
-      return _emptySceneResult();
+      throw LocalVisionException(
+        'Local L03',
+        'Apple Vision or Core ML failed.',
+        detail: _platformDetail(e),
+      );
     }
   }
 
@@ -270,10 +619,103 @@ class OnDeviceVisionService {
 
   Future<bool> isObjectDetectionAvailable() async {
     try {
-      final result = await _method.invokeMethod<bool>('isObjectDetectionAvailable');
+      final result = await _method.invokeMethod<bool>(
+        'isObjectDetectionAvailable',
+      );
       return result ?? false;
     } catch (_) {
       return false;
+    }
+  }
+
+  Future<bool> isDepthEstimationAvailable() async {
+    try {
+      final result = await _method.invokeMethod<bool>(
+        'isDepthEstimationAvailable',
+      );
+      return result ?? false;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Future<OfflineVisionStatus> getOfflineVisionStatus() async {
+    final results = await Future.wait<Object>([
+      isFoundationModelsAvailable(),
+      getModelStatus(),
+      isObjectDetectionAvailable(),
+      isDepthEstimationAvailable(),
+    ]);
+
+    return OfflineVisionStatus(
+      foundationModelsAvailable: results[0] as bool,
+      modelStatus: results[1] as ModelStatus,
+      objectDetectionAvailable: results[2] as bool,
+      depthEstimationAvailable: results[3] as bool,
+    );
+  }
+
+  Future<OfflineVisionDiagnostics> getOfflineVisionDiagnostics() async {
+    try {
+      final result = await _method.invokeMethod<Map<dynamic, dynamic>>(
+        'getNativeModelDiagnostics',
+      );
+      return OfflineVisionDiagnostics.fromMap(result ?? const {});
+    } on MissingPluginException catch (e) {
+      debugPrint('[OnDeviceVision] Diagnostics unavailable: $e');
+      return const OfflineVisionDiagnostics(
+        objectDetector: NativeModelDiagnostic(
+          name: 'YOLOv3Tiny',
+          bundleFound: false,
+          compiledModelFound: false,
+          loaded: false,
+          message: 'Native vision channel is not registered.',
+        ),
+        depthEstimator: NativeModelDiagnostic(
+          name: 'DepthAnythingV2SmallF16P6',
+          bundleFound: false,
+          compiledModelFound: false,
+          loaded: false,
+          message: 'Native vision channel is not registered.',
+        ),
+      );
+    } on PlatformException catch (e) {
+      debugPrint('[OnDeviceVision] Diagnostics unavailable: $e');
+      final detail = _platformDetail(e);
+      return OfflineVisionDiagnostics(
+        objectDetector: NativeModelDiagnostic(
+          name: 'YOLOv3Tiny',
+          bundleFound: false,
+          compiledModelFound: false,
+          loaded: false,
+          message: 'Native model diagnostics failed. $detail',
+        ),
+        depthEstimator: NativeModelDiagnostic(
+          name: 'DepthAnythingV2SmallF16P6',
+          bundleFound: false,
+          compiledModelFound: false,
+          loaded: false,
+          message: 'Native model diagnostics failed. $detail',
+        ),
+      );
+    } catch (e) {
+      debugPrint('[OnDeviceVision] Diagnostics unavailable: $e');
+      return OfflineVisionDiagnostics(
+        objectDetector: NativeModelDiagnostic(
+          name: 'YOLOv3Tiny',
+          bundleFound: false,
+          compiledModelFound: false,
+          loaded: false,
+          message: 'Native model diagnostics failed. $e',
+        ),
+        depthEstimator: NativeModelDiagnostic(
+          name: 'DepthAnythingV2SmallF16P6',
+          bundleFound: false,
+          compiledModelFound: false,
+          loaded: false,
+          message: 'Native model diagnostics failed. $e',
+        ),
+      );
     }
   }
 
@@ -282,7 +724,9 @@ class OnDeviceVisionService {
   /// Returns true if Apple Foundation Models is available on this device (iOS 26+).
   Future<bool> isFoundationModelsAvailable() async {
     try {
-      final result = await _method.invokeMethod<bool>('isFoundationModelsAvailable');
+      final result = await _method.invokeMethod<bool>(
+        'isFoundationModelsAvailable',
+      );
       return result ?? false;
     } catch (_) {
       return false;
@@ -297,7 +741,7 @@ class OnDeviceVisionService {
   }) async* {
     try {
       await _method.invokeMethod<bool>('synthesizeDescription', {
-        'context':      context,
+        'context': context,
         'systemPrompt': systemPrompt,
       });
 
@@ -346,8 +790,8 @@ class OnDeviceVisionService {
   }) async* {
     try {
       await _method.invokeMethod<bool>('describeImage', {
-        'imageBytes':    jpegBytes,
-        'systemPrompt':  systemPrompt,
+        'imageBytes': jpegBytes,
+        'systemPrompt': systemPrompt,
         'visionContext': visionContext,
       });
 
@@ -361,19 +805,39 @@ class OnDeviceVisionService {
 
   // ── Download management ──────────────────────────────────────────────────
 
-  Stream<dynamic> startModelDownload() async* {
-    try {
-      await _method.invokeMethod<bool>('downloadModel');
-      await for (final event in _downloadStream.receiveBroadcastStream()) {
-        yield event;
-      }
-    } on PlatformException catch (e) {
-      debugPrint('[OnDeviceVision] Download error: ${e.message}');
-    }
+  Stream<ModelDownloadEvent> startModelDownload() {
+    late final StreamController<ModelDownloadEvent> controller;
+    StreamSubscription<dynamic>? progressSub;
+
+    controller = StreamController<ModelDownloadEvent>(
+      onListen: () async {
+        progressSub = _downloadStream.receiveBroadcastStream().listen(
+          (event) => controller.add(ModelDownloadEvent.fromNative(event)),
+          onError: controller.addError,
+          onDone: controller.close,
+        );
+
+        try {
+          await _method.invokeMethod<bool>('downloadModel');
+        } on PlatformException catch (e, stackTrace) {
+          debugPrint('[OnDeviceVision] Download error: ${e.message}');
+          await progressSub?.cancel();
+          controller.addError(e, stackTrace);
+          await controller.close();
+        }
+      },
+      onCancel: () async {
+        await progressSub?.cancel();
+      },
+    );
+
+    return controller.stream;
   }
 
   Future<void> cancelModelDownload() async {
-    try { await _method.invokeMethod<bool>('cancelDownload'); } catch (_) {}
+    try {
+      await _method.invokeMethod<bool>('cancelDownload');
+    } catch (_) {}
   }
 
   Future<bool> deleteModel() async {
@@ -387,21 +851,43 @@ class OnDeviceVisionService {
 
   Future<Map<String, dynamic>> getModelInfo() async {
     try {
-      final result = await _method.invokeMethod<Map<dynamic, dynamic>>('getModelInfo');
+      final result = await _method.invokeMethod<Map<dynamic, dynamic>>(
+        'getModelInfo',
+      );
       return result?.map((k, v) => MapEntry(k.toString(), v)) ?? {};
     } catch (_) {
       return {};
     }
   }
 
+  Future<SmolVlmModelInfo> getSmolVlmModelInfo() async {
+    try {
+      final result = await _method.invokeMethod<Map<dynamic, dynamic>>(
+        'getModelInfo',
+      );
+      return SmolVlmModelInfo.fromMap(result ?? const {});
+    } catch (_) {
+      return const SmolVlmModelInfo(
+        downloaded: false,
+        valid: false,
+        downloading: false,
+        sizeBytes: 0,
+        requiredBytes: 0,
+        path: '',
+        modelName: 'SmolVLM',
+        files: [],
+      );
+    }
+  }
+
   // ── Private helpers ──────────────────────────────────────────────────────
 
-  VisionAnalysis _emptyVisionAnalysis() => const VisionAnalysis(
-        ocrTexts: [], sceneClassification: 'unknown',
-        sceneConfidence: 0, personCount: 0, personRects: []);
-
-  ScenePerceptionResult _emptySceneResult() => const ScenePerceptionResult(
-        ocrTexts: [], sceneClassification: 'unknown',
-        sceneConfidence: 0, personCount: 0, personRects: [],
-        detectedObjects: [], hasDepthMap: false);
+  static String _platformDetail(PlatformException e) {
+    final parts = <String>[e.code];
+    final message = e.message;
+    if (message != null && message.isNotEmpty) parts.add(message);
+    final details = e.details;
+    if (details != null) parts.add(details.toString());
+    return parts.join(': ');
+  }
 }

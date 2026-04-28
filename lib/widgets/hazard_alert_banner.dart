@@ -48,10 +48,7 @@ import '../protocol/ble_protocol.dart';
 class HazardAlertBanner extends StatefulWidget {
   final VoidCallback? onDismissed;
 
-  const HazardAlertBanner({
-    super.key,
-    this.onDismissed,
-  });
+  const HazardAlertBanner({super.key, this.onDismissed});
 
   @override
   State<HazardAlertBanner> createState() => HazardAlertBannerState();
@@ -78,14 +75,14 @@ class HazardAlertBannerState extends State<HazardAlertBanner>
       vsync: this,
       duration: const Duration(milliseconds: 250),
     );
-    _slideAnimation = Tween<Offset>(
-      begin: const Offset(0, -1),
-      end: Offset.zero,
-    ).animate(CurvedAnimation(
-      parent: _slideController,
-      curve: Curves.easeOut,
-      reverseCurve: Curves.easeIn,
-    ));
+    _slideAnimation =
+        Tween<Offset>(begin: const Offset(0, -1), end: Offset.zero).animate(
+          CurvedAnimation(
+            parent: _slideController,
+            curve: Curves.easeOut,
+            reverseCurve: Curves.easeIn,
+          ),
+        );
   }
 
   @override
@@ -154,8 +151,7 @@ class HazardAlertBannerState extends State<HazardAlertBanner>
     widget.onDismissed?.call();
   }
 
-  bool get _isReduceMotion =>
-      AppAccessibility.reduceMotion(context);
+  bool get _isReduceMotion => AppAccessibility.reduceMotion(context);
 
   bool get _isAccessibilityActive =>
       MediaQuery.of(context).accessibleNavigation;
@@ -202,10 +198,7 @@ class HazardAlertBannerState extends State<HazardAlertBanner>
             constraints: const BoxConstraints(minHeight: 80),
             decoration: BoxDecoration(
               color: AppColors.backgroundDark,
-              border: Border.all(
-                color: const Color(0xFFCC0000),
-                width: 3,
-              ),
+              border: Border.all(color: const Color(0xFFCC0000), width: 3),
               borderRadius: BorderRadius.circular(12),
             ),
             margin: const EdgeInsets.symmetric(

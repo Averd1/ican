@@ -9,7 +9,7 @@ class DevicePrefsService {
   DevicePrefsService._internal();
   static final DevicePrefsService instance = DevicePrefsService._internal();
 
-  static const String _lastEyeDeviceIdKey  = 'last_eye_device_id';
+  static const String _lastEyeDeviceIdKey = 'last_eye_device_id';
   static const String _lastCaneDeviceIdKey = 'last_cane_device_id';
   static const String _userRoleKey = 'user_role';
 

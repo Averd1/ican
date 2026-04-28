@@ -30,7 +30,7 @@ class BleCharacteristics {
   static const String obstacleAlertTx = '10000003-1000-1000-1000-100000000000';
   static const String imuTelemetryTx = '10000004-1000-1000-1000-100000000000';
   static const String caneStatusTx = '10000005-1000-1000-1000-100000000000';
-  static const String gpsDataTx    = '10000006-1000-1000-1000-100000000000';
+  static const String gpsDataTx = '10000006-1000-1000-1000-100000000000';
 
   // ---- Eye ----
   static const String eyeInstantTextTx = '20000002-2000-2000-2000-200000000000';
@@ -70,7 +70,10 @@ enum ObstacleSide {
   final int code;
 
   static ObstacleSide fromCode(int code) {
-    return ObstacleSide.values.firstWhere((s) => s.code == code, orElse: () => ObstacleSide.none);
+    return ObstacleSide.values.firstWhere(
+      (s) => s.code == code,
+      orElse: () => ObstacleSide.none,
+    );
   }
 }
 
@@ -153,13 +156,13 @@ class GpsPacket {
     }
     final bd = ByteData.sublistView(data);
     return GpsPacket(
-      latitude:   bd.getFloat32(0,  Endian.little),
-      longitude:  bd.getFloat32(4,  Endian.little),
-      altitudeM:  bd.getFloat32(8,  Endian.little),
+      latitude: bd.getFloat32(0, Endian.little),
+      longitude: bd.getFloat32(4, Endian.little),
+      altitudeM: bd.getFloat32(8, Endian.little),
       speedKnots: bd.getFloat32(12, Endian.little),
       satellites: data[16],
       fixQuality: data[17],
-      fixValid:   data[18] != 0,
+      fixValid: data[18] != 0,
     );
   }
 
@@ -167,9 +170,9 @@ class GpsPacket {
   final double longitude;
   final double altitudeM;
   final double speedKnots;
-  final int    satellites;
-  final int    fixQuality;
-  final bool   fixValid;
+  final int satellites;
+  final int fixQuality;
+  final bool fixValid;
 
   @override
   String toString() =>
@@ -192,6 +195,21 @@ class EyeCommands {
   static const String status = 'STATUS';
 }
 
+class EyeEvents {
+  EyeEvents._();
+
+  static const String buttonDouble = 'BUTTON:DOUBLE';
+  static const String captureStart = 'CAPTURE:START';
+  static const String sizePrefix = 'SIZE:';
+  static const String crcPrefix = 'CRC:';
+  static const String endPrefix = 'END:';
+  static const String statusPrefix = 'STATUS:';
+  static const String errorPrefix = 'ERR:';
+  static const String cameraCaptureFailed = 'CAMERA_CAPTURE_FAILED';
+  static const String streamAborted = 'STREAM_ABORTED';
+  static const String chunkNotifyFailed = 'CHUNK_NOTIFY_FAILED';
+}
+
 // ===========================================================================
 // Image Stream Packet Codec
 // ===========================================================================
@@ -204,9 +222,7 @@ class ImagePacketHeader {
       throw ArgumentError('Image header must be at least $headerSize bytes');
     }
     final bd = ByteData.sublistView(data);
-    return ImagePacketHeader(
-      sequenceNumber: bd.getUint16(0, Endian.little),
-    );
+    return ImagePacketHeader(sequenceNumber: bd.getUint16(0, Endian.little));
   }
 
   static const int headerSize = 2;

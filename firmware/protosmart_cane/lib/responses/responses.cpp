@@ -251,8 +251,20 @@ static void updateWaistLEDs() {
 
 void handleResponses() {
 #if ISOLATED_SENSOR_TEST_MODE
-    vibrationDiskOff();
-    updateIsolatedTestHaptics();
+    if (currentSituation == FALL_DETECTED) {
+        handleFallResponse();
+        return;
+    }
+
+    if (currentSituation == HIGH_STRESS_EVENT) {
+        vibrationDiskOff();
+        emergencyActive = true;
+        emergencyStartTime = millis();
+    } else {
+        emergencyActive = false;
+        vibrationDiskOff();
+    }
+
     updateHapticFeedback();
     return;
 #endif

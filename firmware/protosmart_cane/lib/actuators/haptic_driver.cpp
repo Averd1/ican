@@ -81,6 +81,9 @@ void hapticDriverInit() {
         } else if (i == DRIVER_LEFT_ULTRASONIC) {
             selectHapticLeftUltrasonic();
         }
+
+        // Let mux channel switching settle before probing device on shared bus.
+        delay(3);
         
         // Debug: show which channel we're on and attempt to find device
         if (DEBUG_MODE) {
@@ -91,11 +94,20 @@ void hapticDriverInit() {
             Serial.print("): ");
         }
         
-        // Check if DRV2605 is present on this channel
-        Wire.beginTransmission(DRV2605_ADDR);
-        uint8_t result = Wire.endTransmission();
+        // Check if DRV2605 is present on this channel with retries.
+        uint8_t result = 4;
+        bool found = false;
+        for (uint8_t attempt = 0; attempt < 4; attempt++) {
+            Wire.beginTransmission(DRV2605_ADDR);
+            result = Wire.endTransmission();
+            if (result == 0) {
+                found = true;
+                break;
+            }
+            delay(2);
+        }
         
-        if (result == 0) {
+        if (found) {
             // Initialize DRV2605L - Set to RTP (real-time playback) mode
             Wire.beginTransmission(DRV2605_ADDR);
             Wire.write(0x01);  // Mode register
@@ -160,41 +172,52 @@ void hapticDriverInit() {
 }
 
 void updateHapticFeedback() {
-    // Distance-based haptic scaling for obstacle and stress responses
-    // EXCLUSION: FALL_DETECTED - no haptic feedback during fall (not useful for safety)
-    // In LOW_POWER mode: reduce intensity by 40% and increase intervals for less frequent feedback
-    // Closer object = higher intensity + faster pulses
+    // Priority-based policy adapted from detection logic:
+    // 1) Head obstacle (8x8 top rows) -> channel 1 only
+    // 2) Waist/front obstacle (8x8 lower rows) -> channels 0 + 2 only
+    // 3) Left obstacle -> channel 0 only
+    // 4) Right obstacle -> channel 2 only
+    // Only one source is active at a time, except front which drives both side motors.
+    float intensityModifier = (currentMode == LOW_POWER) ? 0.6f : 1.0f;
+    unsigned long intervalModifier = (currentMode == LOW_POWER) ? 1.5f : 1.0f;
 
-    float intensityModifier = (currentMode == LOW_POWER) ? 0.6f : 1.0f;  // 40% reduction in LOW_POWER
-    unsigned long intervalModifier = (currentMode == LOW_POWER) ? 1.5f : 1.0f;  // 50% more time between pulses
+    enum ActiveSource : uint8_t {
+        SOURCE_NONE = 0,
+        SOURCE_HEAD,
+        SOURCE_FRONT,
+        SOURCE_LEFT,
+        SOURCE_RIGHT,
+    };
 
-    auto driveDriverFromZone = [&](uint8_t driverIndex, ObstacleZone zone) {
-        uint8_t intensity = HAPTIC_OFF;
-        uint16_t interval = 0;
+    auto isValidDistance = [&](uint16_t mm) {
+        return (mm != SENSOR_ERROR_DISTANCE) && (mm <= MATRIX_SENSOR_MAX_DISTANCE_MM);
+    };
 
-        if (zone == OBSTACLE_FAR) {
-            intensity = (uint8_t)(HAPTIC_LIGHT * intensityModifier);
-            interval = (uint16_t)(RESPONSE_PULSE_FAR_MS * intervalModifier);
-        } else if (zone == OBSTACLE_NEAR) {
-            intensity = (uint8_t)(HAPTIC_MEDIUM * intensityModifier);
-            interval = (uint16_t)(RESPONSE_PULSE_NEAR_MS * intervalModifier);
-        } else if (zone == OBSTACLE_IMMINENT) {
-            intensity = (uint8_t)(HAPTIC_STRONG * 0.85f);
-            interval = (uint16_t)(RESPONSE_PULSE_IMMINENT_MS * 1.2f);
+    auto computePulseInterval = [&](uint16_t distanceMm) {
+        if (!isValidDistance(distanceMm)) return 0UL;
+        uint16_t constrained = distanceMm < 400 ? 400 : distanceMm;
+        long mapped = map(constrained, 400, MATRIX_SENSOR_MAX_DISTANCE_MM, 50, 500);
+        unsigned long interval = (unsigned long)mapped;
+        interval = (unsigned long)(interval * intervalModifier);
+        return interval;
+    };
+
+    auto computePulseIntensity = [&](uint16_t distanceMm) {
+        if (!isValidDistance(distanceMm)) return (uint8_t)HAPTIC_OFF;
+        uint16_t constrained = distanceMm < 200 ? 200 : distanceMm;
+        if (constrained > MATRIX_SENSOR_MAX_DISTANCE_MM) {
+            constrained = MATRIX_SENSOR_MAX_DISTANCE_MM;
         }
-
-        if (interval == 0 || intensity == HAPTIC_OFF) {
-            hapticStop(driverIndex);
-            return;
-        }
-
-        unsigned long now = millis();
-        HapticDriverState &driver = hapticDrivers[driverIndex];
-        if (now - driver.lastPulse >= interval) {
-            hapticPulse(driverIndex, intensity, interval / 2);
-            driver.lastPulse = now;
-            driver.pulseInterval = interval;
-        }
+        // DRV2605 RTP uses a signed amplitude domain; keeping values <= 0x7F
+        // avoids non-linear/braking behavior seen with higher byte values.
+        const uint8_t rtpStrong = 0x7F;
+        const uint8_t rtpLight = 0x20;
+        long mapped = map(constrained, 200, MATRIX_SENSOR_MAX_DISTANCE_MM, rtpStrong, rtpLight);
+        uint8_t intensity = (uint8_t)mapped;
+        intensity = (uint8_t)(intensity * intensityModifier);
+        if (intensity > 0x7F) intensity = 0x7F;
+        if (intensity != 0 && intensity < 0x10) intensity = 0x10;
+        return intensity;
     };
 
     if (currentSituation == FALL_DETECTED) {
@@ -217,10 +240,85 @@ void updateHapticFeedback() {
         return;
     }
 
-    // Drive each DRV2605 by its corresponding sensor zone.
-    driveDriverFromZone(DRIVER_8X8, currentSensors.matrixSensorZone);
-    driveDriverFromZone(DRIVER_LEFT_ULTRASONIC, currentSensors.ultrasonicZones[0]);
-    driveDriverFromZone(DRIVER_RIGHT_ULTRASONIC, currentSensors.ultrasonicZones[1]);
+    const uint16_t headMm = currentSensors.matrixSensorHeadDetected ? currentSensors.matrixSensorHeadDistance : SENSOR_ERROR_DISTANCE;
+    const uint16_t frontMm = currentSensors.matrixSensorWaistDetected ? currentSensors.matrixSensorWaistDistance : SENSOR_ERROR_DISTANCE;
+    const uint16_t leftMm = currentSensors.ultrasonicDistances[0];
+    const uint16_t rightMm = currentSensors.ultrasonicDistances[1];
+
+    uint16_t closestWaist = SENSOR_ERROR_DISTANCE;
+    if (isValidDistance(frontMm)) closestWaist = frontMm;
+    if (isValidDistance(leftMm) && (closestWaist == SENSOR_ERROR_DISTANCE || leftMm < closestWaist)) {
+        closestWaist = leftMm;
+    }
+    if (isValidDistance(rightMm) && (closestWaist == SENSOR_ERROR_DISTANCE || rightMm < closestWaist)) {
+        closestWaist = rightMm;
+    }
+
+    ActiveSource activeSource = SOURCE_NONE;
+    uint16_t activeDistanceMm = SENSOR_ERROR_DISTANCE;
+
+    if (isValidDistance(headMm)) {
+        activeSource = SOURCE_HEAD;
+        activeDistanceMm = headMm;
+    } else if (closestWaist != SENSOR_ERROR_DISTANCE) {
+        if (isValidDistance(frontMm) && frontMm == closestWaist) {
+            activeSource = SOURCE_FRONT;
+            activeDistanceMm = frontMm;
+        } else if (isValidDistance(leftMm) && (!isValidDistance(rightMm) || leftMm <= rightMm)) {
+            activeSource = SOURCE_LEFT;
+            activeDistanceMm = leftMm;
+        } else if (isValidDistance(rightMm)) {
+            activeSource = SOURCE_RIGHT;
+            activeDistanceMm = rightMm;
+        }
+    }
+
+    // Ensure non-selected channels are off before applying current source pulse.
+    auto stopAll = [&]() {
+        hapticStop(DRIVER_8X8);
+        hapticStop(DRIVER_LEFT_ULTRASONIC);
+        hapticStop(DRIVER_RIGHT_ULTRASONIC);
+    };
+
+    if (activeSource == SOURCE_NONE) {
+        stopAll();
+        return;
+    }
+
+    unsigned long interval = computePulseInterval(activeDistanceMm);
+    uint8_t intensity = computePulseIntensity(activeDistanceMm);
+    if (interval == 0 || intensity == HAPTIC_OFF) {
+        stopAll();
+        return;
+    }
+
+    static unsigned long lastPriorityToggle = 0;
+    static bool priorityOnPhase = false;
+    unsigned long now = millis();
+
+    if (now - lastPriorityToggle < interval) {
+        return;
+    }
+
+    lastPriorityToggle = now;
+    priorityOnPhase = !priorityOnPhase;
+
+    if (!priorityOnPhase) {
+        stopAll();
+        return;
+    }
+
+    stopAll();
+    if (activeSource == SOURCE_HEAD) {
+        hapticPulse(DRIVER_8X8, intensity, (uint16_t)(interval / 2));
+    } else if (activeSource == SOURCE_FRONT) {
+        hapticPulse(DRIVER_LEFT_ULTRASONIC, intensity, (uint16_t)(interval / 2));
+        hapticPulse(DRIVER_RIGHT_ULTRASONIC, intensity, (uint16_t)(interval / 2));
+    } else if (activeSource == SOURCE_LEFT) {
+        hapticPulse(DRIVER_LEFT_ULTRASONIC, intensity, (uint16_t)(interval / 2));
+    } else if (activeSource == SOURCE_RIGHT) {
+        hapticPulse(DRIVER_RIGHT_ULTRASONIC, intensity, (uint16_t)(interval / 2));
+    }
 }
 
 void hapticPulse(uint8_t driverIndex, uint8_t intensity, uint16_t durationMs) {
@@ -230,6 +328,10 @@ void hapticPulse(uint8_t driverIndex, uint8_t intensity, uint16_t durationMs) {
     if (driverIndex >= 3 || intensity == 0) {
         hapticStop(driverIndex);
         return;
+    }
+
+    if (intensity > 0x7F) {
+        intensity = 0x7F;
     }
 
     HapticDriverState &driver = hapticDrivers[driverIndex];

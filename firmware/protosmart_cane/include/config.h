@@ -69,9 +69,17 @@
 // === FALL DETECTION PARAMETERS ===
 #define FALL_FREEFALL_THRESHOLD 4.0f     // m/s² (~0.4g) - start of free fall
 #define FALL_IMPACT_THRESHOLD 25.0f      // m/s² (~2.5g) - impact detection
+#define FALL_GYRO_THRESHOLD_DPS 180.0f   // deg/s - rotational impact confirmation
 #define FALL_IMPACT_WINDOW 500           // ms - max time between freefall and impact
 #define FALL_INACTIVITY_TIMEOUT 2000     // ms - inactivity detection
 #define FALL_COOLDOWN 5000               // ms - prevent fall spam detection
+
+// === IMU ORIENTATION STATUS (PHONE TELEMETRY) ===
+// IMU_UP_AXIS_SIGN controls which Z direction is considered "cane facing correctly".
+// Keep at +1 unless your board is physically mounted upside-down.
+#define IMU_UP_AXIS_SIGN 1
+#define IMU_ORIENTATION_Z_THRESHOLD 2.5f // m/s² projected on up-axis to count as correctly oriented
+#define IMU_ORIENTATION_FILTER_ALPHA 0.15f // 0..1 low-pass factor for orientation stability
 
 // === OBSTACLE DETECTION THRESHOLDS ===
 #define OBSTACLE_FAR_MM 1000             // mm - far obstacle detection

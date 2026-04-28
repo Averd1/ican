@@ -1,5 +1,8 @@
 import Foundation
+
+#if canImport(llama)
 import llama
+#endif
 
 /// Wraps the llama.cpp mtmd C API for SmolVLM-500M on-device multimodal inference.
 ///
@@ -7,6 +10,7 @@ import llama
 /// 1. Build llama.xcframework: `./scripts/build_llama_ios.sh ~/path/to/llama.cpp`
 /// 2. Add ios/Frameworks/llama.xcframework to the Runner target in Xcode
 /// 3. Download model files via ModelDownloadManager (or manually place in Documents/models/)
+#if canImport(llama)
 final class LlamaService {
 
     static let shared = LlamaService()
@@ -221,3 +225,45 @@ final class LlamaService {
         }.value
     }
 }
+#else
+final class LlamaService {
+
+    static let shared = LlamaService()
+
+    static let textModelFilename       = "SmolVLM-500M-Instruct-Q8_0.gguf"
+    static let visionProjectorFilename = "mmproj-SmolVLM-500M-Instruct-Q8_0.gguf"
+
+    private init() {}
+
+    func getModelStatus() -> String {
+        "not_available"
+    }
+
+    func modelsExistOnDisk() -> Bool {
+        false
+    }
+
+    static func modelsDirectory() -> URL {
+        let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
+        return docs.appendingPathComponent("models", isDirectory: true)
+    }
+
+    func loadModel() async -> Bool {
+        print("[LlamaService] llama.xcframework is not linked; SmolVLM disabled")
+        return false
+    }
+
+    func unloadModel() {}
+
+    func describeImage(
+        jpegData: Data,
+        systemPrompt: String,
+        visionContext: String?,
+        onToken: @escaping (String) -> Void,
+        onComplete: @escaping () -> Void,
+        onError: @escaping (String) -> Void
+    ) async {
+        onError("SmolVLM is unavailable because llama.xcframework is not linked")
+    }
+}
+#endif

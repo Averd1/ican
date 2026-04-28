@@ -65,6 +65,10 @@ final class OnDeviceVisionChannel: NSObject {
         case "isObjectDetectionAvailable":
             result(ObjectDetector.shared.isAvailable)
 
+        // ── Depth Anything availability ─────────────────────────────────────
+        case "isDepthEstimationAvailable":
+            result(DepthEstimator.shared.isAvailable)
+
         // ── Layer 3: Foundation Models availability check ────────────────────
         case "isFoundationModelsAvailable":
             result(FoundationModelSynthesizer.isAvailable)

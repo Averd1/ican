@@ -78,6 +78,7 @@ struct FaultState {
     bool ultrasonic_fail;
     bool matrixSensor_fail;
     bool heart_fail;
+    bool mux_fail;
     unsigned long lastRecoveryAttempt;
 };
 
@@ -96,8 +97,9 @@ struct __attribute__((packed)) TelemetryPacket {
     uint16_t ultrasonicRightMm;// Right ultrasonic distance (mm)
     uint16_t matrixHeadMm;     // 8x8 head-zone distance (mm), 0xFFFF when unavailable
     uint16_t matrixWaistMm;    // 8x8 waist-zone distance (mm), 0xFFFF when unavailable
+    uint16_t healthFlags;      // HEALTH_* bits from config.h; 1=healthy/usable
 };
-// Total: 19 bytes
+// Total: 21 bytes
 
 // === LIGHT SENSOR STATUS (NEW) ===
 struct LightStatus {

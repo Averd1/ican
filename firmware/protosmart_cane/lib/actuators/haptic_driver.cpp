@@ -1,9 +1,9 @@
 /*
  * Haptic Driver Implementation (DRV2605L)
  * 3 independent DRV2605 drivers: 
- *   - Channel 0: Left ultrasonic sensor haptic
- *   - Channel 2: Right ultrasonic sensor haptic
- *   - Channel 3: 8x8 sensor haptic
+ *   - Head haptic motor
+ *   - Left haptic motor
+ *   - Right haptic motor
  */
 
 #include "haptic_driver.h"
@@ -14,19 +14,30 @@ uint8_t hapticIntensity = 0;
 unsigned long lastHapticPulse = 0;
 uint16_t hapticPulseInterval = 0;
 
+#define HAPTIC_DETECTION_LOGIC_MAX_MM 800
+#define HAPTIC_DETECTION_LOGIC_MIN_MM 400
+#define HAPTIC_DETECTION_LOGIC_INVALID_MM 9999
+#define HAPTIC_DETECTION_LOGIC_ON_INTENSITY HAPTIC_MEDIUM
+
 // Track state for each haptic driver
 struct HapticDriverState {
     bool initialized;
     uint8_t channel;
     unsigned long lastPulse;
+    unsigned long pulseStopAt;
     uint16_t pulseInterval;
     uint8_t currentIntensity;
     bool active;
 } hapticDrivers[3] = {
-    {false, HAPTIC_8X8_CHANNEL, 0, 0, 0, false},
-    {false, HAPTIC_RIGHT_ULTRASONIC_CHANNEL, 0, 0, 0, false},
-    {false, HAPTIC_LEFT_ULTRASONIC_CHANNEL, 0, 0, 0, false}
+    {false, HAPTIC_HEAD_CHANNEL, 0, 0, 0, 0, false},
+    {false, HAPTIC_LEFT_CHANNEL, 0, 0, 0, 0, false},
+    {false, HAPTIC_RIGHT_CHANNEL, 0, 0, 0, 0, false}
 };
+
+static unsigned long headTimer = 0;
+static unsigned long waistTimer = 0;
+static bool headState = false;
+static bool waistState = false;
 
 void hapticDriverInit() {
     // Diagnostic: I2C bus scan to find what devices are present
@@ -74,16 +85,13 @@ void hapticDriverInit() {
         HapticDriverState &driver = hapticDrivers[i];
         
         // Select appropriate mux channel
-        if (i == DRIVER_8X8) {
-            selectHaptic8x8();
-        } else if (i == DRIVER_RIGHT_ULTRASONIC) {
-            selectHapticRightUltrasonic();
-        } else if (i == DRIVER_LEFT_ULTRASONIC) {
-            selectHapticLeftUltrasonic();
+        if (i == DRIVER_HEAD) {
+            selectHapticHead();
+        } else if (i == DRIVER_LEFT) {
+            selectHapticLeft();
+        } else if (i == DRIVER_RIGHT) {
+            selectHapticRight();
         }
-
-        // Let mux channel switching settle before probing device on shared bus.
-        delay(3);
         
         // Debug: show which channel we're on and attempt to find device
         if (DEBUG_MODE) {
@@ -94,20 +102,11 @@ void hapticDriverInit() {
             Serial.print("): ");
         }
         
-        // Check if DRV2605 is present on this channel with retries.
-        uint8_t result = 4;
-        bool found = false;
-        for (uint8_t attempt = 0; attempt < 4; attempt++) {
-            Wire.beginTransmission(DRV2605_ADDR);
-            result = Wire.endTransmission();
-            if (result == 0) {
-                found = true;
-                break;
-            }
-            delay(2);
-        }
+        // Check if DRV2605 is present on this channel
+        Wire.beginTransmission(DRV2605_ADDR);
+        uint8_t result = Wire.endTransmission();
         
-        if (found) {
+        if (result == 0) {
             // Initialize DRV2605L - Set to RTP (real-time playback) mode
             Wire.beginTransmission(DRV2605_ADDR);
             Wire.write(0x01);  // Mode register
@@ -117,8 +116,8 @@ void hapticDriverInit() {
             driver.initialized = true;
             detectedDrivers++;
 
-            // Strong startup pulse on each detected driver channel so wiring can be
-            // validated without relying on serial output.
+#if BOOT_HAPTIC_SELF_TEST
+            // Optional physical confirmation for wiring bring-up.
             Wire.beginTransmission(DRV2605_ADDR);
             Wire.write(0x02);  // RTP input register
             Wire.write(HAPTIC_STRONG);
@@ -129,6 +128,7 @@ void hapticDriverInit() {
             Wire.write(0x00);  // stop
             Wire.endTransmission();
             delay(180);
+#endif
             
             if (DEBUG_MODE) {
                 Serial.println("initialized (DRV2605L)");
@@ -142,9 +142,10 @@ void hapticDriverInit() {
         }
     }
 
-    // Physical confirmation code on center disk (works even if serial output is unavailable)
+    // Optional physical confirmation code on center disk.
+#if BOOT_HAPTIC_SELF_TEST
     // Format: preamble (2 long pulses), then 3 slots:
-    // slot1=8x8 driver, slot2=right ultrasonic driver, slot3=left ultrasonic driver
+    // slot1=head driver, slot2=left driver, slot3=right driver
     // In each slot: long pulse = detected, short pulse = not detected
     for (uint8_t i = 0; i < 2; i++) {
         digitalWrite(HAPTIC_DISK_PIN, HIGH);
@@ -169,155 +170,152 @@ void hapticDriverInit() {
         digitalWrite(HAPTIC_DISK_PIN, LOW);
         delay(100);
     }
+#endif
+}
+
+void hapticDriverUpdate() {
+    unsigned long now = millis();
+    for (uint8_t driverIndex = 0; driverIndex < 3; driverIndex++) {
+        HapticDriverState &driver = hapticDrivers[driverIndex];
+        if (driver.active && driver.pulseStopAt != 0 && now >= driver.pulseStopAt) {
+            hapticStop(driverIndex);
+        }
+    }
 }
 
 void updateHapticFeedback() {
-    // Priority-based policy adapted from detection logic:
-    // 1) Head obstacle (8x8 top rows) -> channel 1 only
-    // 2) Waist/front obstacle (8x8 lower rows) -> channels 0 + 2 only
-    // 3) Left obstacle -> channel 0 only
-    // 4) Right obstacle -> channel 2 only
-    // Only one source is active at a time, except front which drives both side motors.
-    float intensityModifier = (currentMode == LOW_POWER) ? 0.6f : 1.0f;
-    unsigned long intervalModifier = (currentMode == LOW_POWER) ? 1.5f : 1.0f;
+    hapticDriverUpdate();
 
-    enum ActiveSource : uint8_t {
-        SOURCE_NONE = 0,
-        SOURCE_HEAD,
-        SOURCE_FRONT,
-        SOURCE_LEFT,
-        SOURCE_RIGHT,
-    };
-
-    auto isValidDistance = [&](uint16_t mm) {
-        return (mm != SENSOR_ERROR_DISTANCE) && (mm <= MATRIX_SENSOR_MAX_DISTANCE_MM);
-    };
-
-    auto computePulseInterval = [&](uint16_t distanceMm) {
-        if (!isValidDistance(distanceMm)) return 0UL;
-        uint16_t constrained = distanceMm < 400 ? 400 : distanceMm;
-        long mapped = map(constrained, 400, MATRIX_SENSOR_MAX_DISTANCE_MM, 50, 500);
-        unsigned long interval = (unsigned long)mapped;
-        interval = (unsigned long)(interval * intervalModifier);
-        return interval;
-    };
-
-    auto computePulseIntensity = [&](uint16_t distanceMm) {
-        if (!isValidDistance(distanceMm)) return (uint8_t)HAPTIC_OFF;
-        uint16_t constrained = distanceMm < 200 ? 200 : distanceMm;
-        if (constrained > MATRIX_SENSOR_MAX_DISTANCE_MM) {
-            constrained = MATRIX_SENSOR_MAX_DISTANCE_MM;
-        }
-        // DRV2605 RTP uses a signed amplitude domain; keeping values <= 0x7F
-        // avoids non-linear/braking behavior seen with higher byte values.
-        const uint8_t rtpStrong = 0x7F;
-        const uint8_t rtpLight = 0x20;
-        long mapped = map(constrained, 200, MATRIX_SENSOR_MAX_DISTANCE_MM, rtpStrong, rtpLight);
-        uint8_t intensity = (uint8_t)mapped;
-        intensity = (uint8_t)(intensity * intensityModifier);
-        if (intensity > 0x7F) intensity = 0x7F;
-        if (intensity != 0 && intensity < 0x10) intensity = 0x10;
-        return intensity;
-    };
-
+    // Mirrors ReferencedLogic/detection_logic.ino LED behavior:
+    // binary on/off toggles, one closest-obstacle interval, independent head,
+    // and waist priority of front -> both, left -> left, right -> right.
+    // EXCLUSION: FALL_DETECTED - no haptic feedback during fall (not useful for safety)
     if (currentSituation == FALL_DETECTED) {
-        hapticStop(DRIVER_8X8);
-        hapticStop(DRIVER_RIGHT_ULTRASONIC);
-        hapticStop(DRIVER_LEFT_ULTRASONIC);
+        hapticStop(DRIVER_HEAD);
+        hapticStop(DRIVER_LEFT);
+        hapticStop(DRIVER_RIGHT);
+        headState = false;
+        waistState = false;
         return;
     }
 
     if (currentSituation == HIGH_STRESS_EVENT) {
-        uint8_t stressIntensity = (uint8_t)(HAPTIC_STRONG * intensityModifier);
-        uint16_t stressInterval = (uint16_t)(RESPONSE_PULSE_STRESS_MS * intervalModifier);
         unsigned long now = millis();
-        if (now - lastHapticPulse >= stressInterval) {
-            hapticPulse(DRIVER_8X8, stressIntensity, stressInterval / 2);
-            hapticPulse(DRIVER_RIGHT_ULTRASONIC, stressIntensity, stressInterval / 2);
-            hapticPulse(DRIVER_LEFT_ULTRASONIC, stressIntensity, stressInterval / 2);
+        if (now - lastHapticPulse >= RESPONSE_PULSE_STRESS_MS) {
+            bool on = !hapticDrivers[DRIVER_HEAD].active;
+            hapticSet(DRIVER_HEAD, on ? HAPTIC_STRONG : HAPTIC_OFF);
+            hapticSet(DRIVER_LEFT, on ? HAPTIC_STRONG : HAPTIC_OFF);
+            hapticSet(DRIVER_RIGHT, on ? HAPTIC_STRONG : HAPTIC_OFF);
             lastHapticPulse = now;
         }
         return;
     }
 
-    const uint16_t headMm = currentSensors.matrixSensorHeadDetected ? currentSensors.matrixSensorHeadDistance : SENSOR_ERROR_DISTANCE;
-    const uint16_t frontMm = currentSensors.matrixSensorWaistDetected ? currentSensors.matrixSensorWaistDistance : SENSOR_ERROR_DISTANCE;
-    const uint16_t leftMm = currentSensors.ultrasonicDistances[0];
-    const uint16_t rightMm = currentSensors.ultrasonicDistances[1];
-
-    uint16_t closestWaist = SENSOR_ERROR_DISTANCE;
-    if (isValidDistance(frontMm)) closestWaist = frontMm;
-    if (isValidDistance(leftMm) && (closestWaist == SENSOR_ERROR_DISTANCE || leftMm < closestWaist)) {
-        closestWaist = leftMm;
-    }
-    if (isValidDistance(rightMm) && (closestWaist == SENSOR_ERROR_DISTANCE || rightMm < closestWaist)) {
-        closestWaist = rightMm;
-    }
-
-    ActiveSource activeSource = SOURCE_NONE;
-    uint16_t activeDistanceMm = SENSOR_ERROR_DISTANCE;
-
-    if (isValidDistance(headMm)) {
-        activeSource = SOURCE_HEAD;
-        activeDistanceMm = headMm;
-    } else if (closestWaist != SENSOR_ERROR_DISTANCE) {
-        if (isValidDistance(frontMm) && frontMm == closestWaist) {
-            activeSource = SOURCE_FRONT;
-            activeDistanceMm = frontMm;
-        } else if (isValidDistance(leftMm) && (!isValidDistance(rightMm) || leftMm <= rightMm)) {
-            activeSource = SOURCE_LEFT;
-            activeDistanceMm = leftMm;
-        } else if (isValidDistance(rightMm)) {
-            activeSource = SOURCE_RIGHT;
-            activeDistanceMm = rightMm;
-        }
-    }
-
-    // Ensure non-selected channels are off before applying current source pulse.
-    auto stopAll = [&]() {
-        hapticStop(DRIVER_8X8);
-        hapticStop(DRIVER_LEFT_ULTRASONIC);
-        hapticStop(DRIVER_RIGHT_ULTRASONIC);
+    auto inFeedbackWindow = [](uint16_t distanceMm) {
+        return distanceMm != SENSOR_ERROR_DISTANCE &&
+               distanceMm <= HAPTIC_DETECTION_LOGIC_MAX_MM;
     };
 
-    if (activeSource == SOURCE_NONE) {
-        stopAll();
-        return;
+    bool headDetected = currentSensors.matrixSensorHeadDetected &&
+                        inFeedbackWindow(currentSensors.matrixSensorHeadDistance);
+    bool waistFrontDetected = currentSensors.matrixSensorWaistDetected &&
+                              inFeedbackWindow(currentSensors.matrixSensorWaistDistance);
+
+    uint16_t headMm = currentSensors.matrixSensorHeadDetected ?
+                      currentSensors.matrixSensorHeadDistance :
+                      HAPTIC_DETECTION_LOGIC_INVALID_MM;
+    (void)headMm;
+
+    uint16_t frontMm = waistFrontDetected ?
+                       currentSensors.matrixSensorWaistDistance :
+                       HAPTIC_DETECTION_LOGIC_INVALID_MM;
+    uint16_t leftMm = inFeedbackWindow(currentSensors.ultrasonicDistances[0]) ?
+                      currentSensors.ultrasonicDistances[0] :
+                      HAPTIC_DETECTION_LOGIC_INVALID_MM;
+    uint16_t rightMm = inFeedbackWindow(currentSensors.ultrasonicDistances[1]) ?
+                       currentSensors.ultrasonicDistances[1] :
+                       HAPTIC_DETECTION_LOGIC_INVALID_MM;
+
+    uint16_t closest = min(frontMm, min(leftMm, rightMm));
+    unsigned long interval = 500;
+    if (closest < HAPTIC_DETECTION_LOGIC_INVALID_MM) {
+        uint16_t constrainedDistance = max<uint16_t>(closest, HAPTIC_DETECTION_LOGIC_MIN_MM);
+        interval = map(constrainedDistance,
+                       HAPTIC_DETECTION_LOGIC_MIN_MM,
+                       HAPTIC_DETECTION_LOGIC_MAX_MM,
+                       50,
+                       500);
     }
 
-    unsigned long interval = computePulseInterval(activeDistanceMm);
-    uint8_t intensity = computePulseIntensity(activeDistanceMm);
-    if (interval == 0 || intensity == HAPTIC_OFF) {
-        stopAll();
-        return;
-    }
-
-    static unsigned long lastPriorityToggle = 0;
-    static bool priorityOnPhase = false;
     unsigned long now = millis();
 
-    if (now - lastPriorityToggle < interval) {
+    if (headDetected) {
+        if (now - headTimer >= interval) {
+            headTimer = now;
+            headState = !headState;
+            hapticSet(DRIVER_HEAD, headState ? HAPTIC_DETECTION_LOGIC_ON_INTENSITY : HAPTIC_OFF);
+        }
+    } else {
+        headState = false;
+        hapticStop(DRIVER_HEAD);
+    }
+
+    if (closest < HAPTIC_DETECTION_LOGIC_INVALID_MM) {
+        if (now - waistTimer >= interval) {
+            waistTimer = now;
+            waistState = !waistState;
+
+            hapticStop(DRIVER_LEFT);
+            hapticStop(DRIVER_RIGHT);
+
+            if (closest == frontMm) {
+                hapticSet(DRIVER_LEFT, waistState ? HAPTIC_DETECTION_LOGIC_ON_INTENSITY : HAPTIC_OFF);
+                hapticSet(DRIVER_RIGHT, waistState ? HAPTIC_DETECTION_LOGIC_ON_INTENSITY : HAPTIC_OFF);
+            } else if (closest == leftMm) {
+                hapticSet(DRIVER_LEFT, waistState ? HAPTIC_DETECTION_LOGIC_ON_INTENSITY : HAPTIC_OFF);
+            } else if (closest == rightMm) {
+                hapticSet(DRIVER_RIGHT, waistState ? HAPTIC_DETECTION_LOGIC_ON_INTENSITY : HAPTIC_OFF);
+            }
+        }
+    } else {
+        waistState = false;
+        hapticStop(DRIVER_LEFT);
+        hapticStop(DRIVER_RIGHT);
+    }
+}
+
+void hapticSet(uint8_t driverIndex, uint8_t intensity) {
+    if (driverIndex >= 3 || intensity == HAPTIC_OFF) {
+        hapticStop(driverIndex);
         return;
     }
 
-    lastPriorityToggle = now;
-    priorityOnPhase = !priorityOnPhase;
+    HapticDriverState &driver = hapticDrivers[driverIndex];
+    if (!driver.initialized) return;
+    if (driver.active && driver.currentIntensity == intensity && driver.pulseStopAt == 0) return;
 
-    if (!priorityOnPhase) {
-        stopAll();
-        return;
+    if (driverIndex == DRIVER_HEAD) {
+        selectHapticHead();
+    } else if (driverIndex == DRIVER_LEFT) {
+        selectHapticLeft();
+    } else if (driverIndex == DRIVER_RIGHT) {
+        selectHapticRight();
     }
 
-    stopAll();
-    if (activeSource == SOURCE_HEAD) {
-        hapticPulse(DRIVER_8X8, intensity, (uint16_t)(interval / 2));
-    } else if (activeSource == SOURCE_FRONT) {
-        hapticPulse(DRIVER_LEFT_ULTRASONIC, intensity, (uint16_t)(interval / 2));
-        hapticPulse(DRIVER_RIGHT_ULTRASONIC, intensity, (uint16_t)(interval / 2));
-    } else if (activeSource == SOURCE_LEFT) {
-        hapticPulse(DRIVER_LEFT_ULTRASONIC, intensity, (uint16_t)(interval / 2));
-    } else if (activeSource == SOURCE_RIGHT) {
-        hapticPulse(DRIVER_RIGHT_ULTRASONIC, intensity, (uint16_t)(interval / 2));
+    Wire.beginTransmission(DRV2605_ADDR);
+    Wire.write(0x02);
+    Wire.write(intensity);
+    Wire.endTransmission();
+
+    driver.active = true;
+    driver.currentIntensity = intensity;
+    driver.pulseStopAt = 0;
+
+    if (DEBUG_MODE) {
+        Serial.print("Haptic driver ");
+        Serial.print(driverIndex);
+        Serial.print(" state: ");
+        Serial.println(intensity > 0 ? "ON" : "OFF");
     }
 }
 
@@ -330,20 +328,21 @@ void hapticPulse(uint8_t driverIndex, uint8_t intensity, uint16_t durationMs) {
         return;
     }
 
-    if (intensity > 0x7F) {
-        intensity = 0x7F;
-    }
-
     HapticDriverState &driver = hapticDrivers[driverIndex];
     if (!driver.initialized) return;
 
+    unsigned long now = millis();
+    if (driver.active && driver.currentIntensity == intensity && now < driver.pulseStopAt) {
+        return;
+    }
+
     // Select correct mux channel
-    if (driverIndex == DRIVER_8X8) {
-        selectHaptic8x8();
-    } else if (driverIndex == DRIVER_RIGHT_ULTRASONIC) {
-        selectHapticRightUltrasonic();
-    } else if (driverIndex == DRIVER_LEFT_ULTRASONIC) {
-        selectHapticLeftUltrasonic();
+    if (driverIndex == DRIVER_HEAD) {
+        selectHapticHead();
+    } else if (driverIndex == DRIVER_LEFT) {
+        selectHapticLeft();
+    } else if (driverIndex == DRIVER_RIGHT) {
+        selectHapticRight();
     }
 
     // Write to DRV2605L RTP data register
@@ -354,6 +353,7 @@ void hapticPulse(uint8_t driverIndex, uint8_t intensity, uint16_t durationMs) {
 
     driver.active = true;
     driver.currentIntensity = intensity;
+    driver.pulseStopAt = now + durationMs;
 
     if (DEBUG_MODE && intensity > 0) {
         Serial.print("Haptic driver ");
@@ -373,12 +373,12 @@ void hapticStop(uint8_t driverIndex) {
     if (!driver.active || !driver.initialized) return;
 
     // Select correct mux channel
-    if (driverIndex == DRIVER_8X8) {
-        selectHaptic8x8();
-    } else if (driverIndex == DRIVER_RIGHT_ULTRASONIC) {
-        selectHapticRightUltrasonic();
-    } else if (driverIndex == DRIVER_LEFT_ULTRASONIC) {
-        selectHapticLeftUltrasonic();
+    if (driverIndex == DRIVER_HEAD) {
+        selectHapticHead();
+    } else if (driverIndex == DRIVER_LEFT) {
+        selectHapticLeft();
+    } else if (driverIndex == DRIVER_RIGHT) {
+        selectHapticRight();
     }
 
     // Stop haptic vibration
@@ -389,18 +389,33 @@ void hapticStop(uint8_t driverIndex) {
 
     driver.active = false;
     driver.currentIntensity = 0;
+    driver.pulseStopAt = 0;
 }
 
 uint8_t hapticDriverStatusBits() {
     uint8_t bits = 0;
-    if (hapticDrivers[DRIVER_8X8].initialized) {
+    if (hapticDrivers[DRIVER_HEAD].initialized) {
         bits |= 0x10;
     }
-    if (hapticDrivers[DRIVER_RIGHT_ULTRASONIC].initialized) {
+    if (hapticDrivers[DRIVER_LEFT].initialized) {
         bits |= 0x20;
     }
-    if (hapticDrivers[DRIVER_LEFT_ULTRASONIC].initialized) {
+    if (hapticDrivers[DRIVER_RIGHT].initialized) {
         bits |= 0x40;
     }
     return bits;
+}
+
+uint16_t hapticDriverHealthFlags() {
+    uint16_t flags = 0;
+    if (hapticDrivers[DRIVER_HEAD].initialized) {
+        flags |= HEALTH_HAPTIC_HEAD_OK;
+    }
+    if (hapticDrivers[DRIVER_LEFT].initialized) {
+        flags |= HEALTH_HAPTIC_LEFT_OK;
+    }
+    if (hapticDrivers[DRIVER_RIGHT].initialized) {
+        flags |= HEALTH_HAPTIC_RIGHT_OK;
+    }
+    return flags;
 }

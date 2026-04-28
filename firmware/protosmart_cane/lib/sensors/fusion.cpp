@@ -6,9 +6,9 @@
 #include "fusion.h"
 
 void fuseSituations() {
-    // PRIORITY 1: IMU fall detection overrides all other situation fusion.
-    if (imuFallDetected) {
-        currentSituation = FALL_DETECTED;
+    // Fall detection is set by the IMU path and has higher priority than
+    // obstacle fusion, including in isolated sensor test mode.
+    if (currentSituation == FALL_DETECTED) {
         return;
     }
 
@@ -28,6 +28,9 @@ void fuseSituations() {
         currentSensors.matrixSensorDistance < minDistance) {
         minDistance = currentSensors.matrixSensorDistance;
     }
+
+    // PRIORITY 1: FALL DETECTION (highest priority - triggers emergency)
+    // This is handled by the IMU update function directly
 
     // PRIORITY 2: HIGH STRESS CONDITION
     // Close obstacle + abnormal heart rate

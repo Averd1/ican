@@ -30,7 +30,10 @@ void bleInit() {
     BLE.addService(*caneService);
 
     // Initialize telemetry packet
-    TelemetryPacket initialPacket = {BLE_TELEMETRY_VERSION, 100, (uint8_t)NORMAL, 0, 0};
+    TelemetryPacket initialPacket = {};
+    initialPacket.version = BLE_TELEMETRY_VERSION;
+    initialPacket.batteryPercent = 100;
+    initialPacket.currentMode = (uint8_t)NORMAL;
     telemetryCharacteristic->writeValue((uint8_t*)&initialPacket, sizeof(TelemetryPacket));
 
     BLE.advertise();
@@ -39,12 +42,8 @@ void bleInit() {
 }
 
 void updateBLETelemetry() {
-    // OPTIMIZED Telemetry packet (v2)
-    // Minimal data sent to reduce BLE power consumption
-    // App calculates battery lifetime using power profile lookup table
-    
-    TelemetryPacket packet;
-    packet.version = BLE_TELEMETRY_VERSION;  // v2
+    TelemetryPacket packet = {};
+    packet.version = BLE_TELEMETRY_VERSION;
     
     // Primary: Battery percentage (app uses this to estimate runtime)
     packet.batteryPercent = (uint8_t)currentSensors.batteryLevel;
@@ -62,10 +61,48 @@ void updateBLETelemetry() {
     if (currentSituation == HIGH_STRESS_EVENT) packet.flags |= 0x02;
     if (obstacleNear) packet.flags |= 0x04;
     if (obstacleImminent) packet.flags |= 0x08;
-    packet.flags |= hapticDriverStatusBits();
-    if (imuOrientationOk) packet.flags |= 0x80;
+
+    packet.imuAxCms2 = isnan(currentSensors.imu.ax) ? 0 : (int16_t)(currentSensors.imu.ax * 100.0f);
+    packet.imuAyCms2 = isnan(currentSensors.imu.ay) ? 0 : (int16_t)(currentSensors.imu.ay * 100.0f);
+    packet.imuAzCms2 = isnan(currentSensors.imu.az) ? 0 : (int16_t)(currentSensors.imu.az * 100.0f);
+    packet.ultrasonicLeftMm = currentSensors.ultrasonicDistances[0];
+    packet.ultrasonicRightMm = currentSensors.ultrasonicDistances[1];
+    packet.matrixHeadMm = currentSensors.matrixSensorHeadDetected ?
+                          currentSensors.matrixSensorHeadDistance :
+                          SENSOR_ERROR_DISTANCE;
+    packet.matrixWaistMm = currentSensors.matrixSensorWaistDetected ?
+                           currentSensors.matrixSensorWaistDistance :
+                           SENSOR_ERROR_DISTANCE;
+
+    packet.healthFlags = 0;
+    if (!systemFaults.imu_fail) packet.healthFlags |= HEALTH_IMU_OK;
+    if (!systemFaults.ultrasonic_fail) packet.healthFlags |= HEALTH_ULTRASONIC_OK;
+    if (!systemFaults.matrixSensor_fail) packet.healthFlags |= HEALTH_MATRIX_SENSOR_OK;
+#if !ISOLATED_SENSOR_TEST_MODE
+    if (!systemFaults.heart_fail) packet.healthFlags |= HEALTH_PULSE_OK;
+#endif
+    if (!systemFaults.mux_fail) packet.healthFlags |= HEALTH_MUX_OK;
+    packet.healthFlags |= hapticDriverHealthFlags();
+
+    if (DEBUG_MODE) {
+        Serial.print("BLE_TX flags=0x");
+        if (packet.flags < 0x10) Serial.print("0");
+        Serial.print(packet.flags, HEX);
+        Serial.print(" fall=");
+        Serial.print((packet.flags & 0x01) ? 1 : 0);
+        Serial.print(" stress=");
+        Serial.print((packet.flags & 0x02) ? 1 : 0);
+        Serial.print(" near=");
+        Serial.print((packet.flags & 0x04) ? 1 : 0);
+        Serial.print(" imminent=");
+        Serial.print((packet.flags & 0x08) ? 1 : 0);
+        Serial.print(" health=0x");
+        if (packet.healthFlags < 0x1000) Serial.print("0");
+        if (packet.healthFlags < 0x0100) Serial.print("0");
+        if (packet.healthFlags < 0x0010) Serial.print("0");
+        Serial.println(packet.healthFlags, HEX);
+    }
     
-    // Send the simplified packet
     if (telemetryCharacteristic) {
         telemetryCharacteristic->writeValue((uint8_t*)&packet, sizeof(TelemetryPacket));
     }

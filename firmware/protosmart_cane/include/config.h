@@ -14,10 +14,10 @@
 #define LED_HEAD_PIN 47        // Nano D12
 #define LED_LEFT_PIN 48        // Nano D13
 #define LED_RIGHT_PIN 46       // Nano LED_RED pin location (previous pin ID 14)
-#define LED_HAPTIC_FRONT_PIN 18  // Nano D9
+#define LED_HAPTIC_HEAD_PIN 18   // Nano D9
 #define LED_HAPTIC_LEFT_PIN 21   // Nano D10
 #define LED_HAPTIC_RIGHT_PIN 38  // Nano D11
-#define HAPTIC_TOP_PIN LED_HAPTIC_FRONT_PIN
+#define HAPTIC_HEAD_PIN LED_HAPTIC_HEAD_PIN
 #define HAPTIC_LEFT_PIN LED_HAPTIC_LEFT_PIN
 #define HAPTIC_RIGHT_PIN LED_HAPTIC_RIGHT_PIN
 #define BATTERY_PIN 2          // Nano A1
@@ -53,9 +53,9 @@
 
 // === MUX CHANNEL ASSIGNMENTS ===
 // I2C Mux channels for primary I2C bus (3 DRV2605 haptic drivers)
-#define HAPTIC_LEFT_ULTRASONIC_CHANNEL 0   // Left ultrasonic sensor haptic driver
-#define HAPTIC_RIGHT_ULTRASONIC_CHANNEL 2  // Right ultrasonic sensor haptic driver
-#define HAPTIC_8X8_CHANNEL 1               // 8x8 matrix sensor haptic driver
+#define HAPTIC_LEFT_CHANNEL 3    // Left haptic driver
+#define HAPTIC_HEAD_CHANNEL 1    // Head haptic driver
+#define HAPTIC_RIGHT_CHANNEL 2   // Right haptic driver
 #define LIGHT_CHANNEL 4                    // Ambient light sensor
 
 // Secondary I2C bus (IMU + 8x8 sensor on GPIO9/10)
@@ -63,23 +63,18 @@
 #define IMU_CHANNEL 2
 
 // === 8x8 MATRIX SENSOR CONFIGURATION ===
-#define MATRIX_SENSOR_MAX_DISTANCE_MM 1500  // mm - ignore far readings beyond useful range
+#define MATRIX_SENSOR_MAX_DISTANCE_MM 800   // mm - ignore far readings beyond useful range
 #define MATRIX_SENSOR_ZONE_THRESHOLD_MM 1000 // mm - use this for far obstacle classification
+#define MATRIX_SENSOR_INIT_RETRY_DELAY_MS 200 // keep failed recovery attempts responsive
 
 // === FALL DETECTION PARAMETERS ===
-#define FALL_FREEFALL_THRESHOLD 4.0f     // m/s² (~0.4g) - start of free fall
-#define FALL_IMPACT_THRESHOLD 25.0f      // m/s² (~2.5g) - impact detection
-#define FALL_GYRO_THRESHOLD_DPS 180.0f   // deg/s - rotational impact confirmation
+// Matches ReferencedLogic/Arduino Codes/fall_detection/fall_detection.ino.
+#define FALL_FREEFALL_THRESHOLD_G 0.5f   // g - start of free fall
+#define FALL_IMPACT_THRESHOLD_G 2.5f     // g - impact detection
+#define FALL_GYRO_THRESHOLD_DPS 180.0f   // deg/s - rotation during impact
 #define FALL_IMPACT_WINDOW 500           // ms - max time between freefall and impact
 #define FALL_INACTIVITY_TIMEOUT 2000     // ms - inactivity detection
-#define FALL_COOLDOWN 5000               // ms - prevent fall spam detection
-
-// === IMU ORIENTATION STATUS (PHONE TELEMETRY) ===
-// IMU_UP_AXIS_SIGN controls which Z direction is considered "cane facing correctly".
-// Keep at +1 unless your board is physically mounted upside-down.
-#define IMU_UP_AXIS_SIGN 1
-#define IMU_ORIENTATION_Z_THRESHOLD 2.5f // m/s² projected on up-axis to count as correctly oriented
-#define IMU_ORIENTATION_FILTER_ALPHA 0.15f // 0..1 low-pass factor for orientation stability
+#define FALL_COOLDOWN 2000               // ms - prevent fall spam detection
 
 // === OBSTACLE DETECTION THRESHOLDS ===
 #define OBSTACLE_FAR_MM 1000             // mm - far obstacle detection
@@ -88,7 +83,7 @@
 
 // === ULTRASONIC CONFIGURATION ===
 #define NUM_ULTRASONIC_SENSORS 2         // Number of ultrasonic sensors
-#define ULTRASONIC_MAX_RANGE_MM 800      // Maximum reliable range
+#define ULTRASONIC_MAX_RANGE_MM 800      // Experimental feedback range
 
 // === HEART RATE MONITORING ===
 #define HEART_THRESHOLD 2000             // PulseSensor threshold
@@ -163,13 +158,23 @@
 
 // === FAULT DETECTION ===
 #define SENSOR_FAIL_THRESHOLD 5          // Consecutive failures before fault
-#define SENSOR_RECOVERY_TIME_MS 2000     // Time to attempt recovery
+#define SENSOR_RECOVERY_TIME_MS 10000    // Backoff between recovery attempts
+
+// BLE healthFlags bits: 1 = device/branch healthy and usable
+#define HEALTH_IMU_OK 0x0001
+#define HEALTH_ULTRASONIC_OK 0x0002
+#define HEALTH_MATRIX_SENSOR_OK 0x0004
+#define HEALTH_PULSE_OK 0x0008
+#define HEALTH_MUX_OK 0x0010
+#define HEALTH_HAPTIC_HEAD_OK 0x0020
+#define HEALTH_HAPTIC_LEFT_OK 0x0040
+#define HEALTH_HAPTIC_RIGHT_OK 0x0080
 
 // === BLE CONFIGURATION ===
 #define BLE_DEVICE_NAME "ProtoSmartCane"
 #define BLE_SERVICE_UUID "12345678-1234-1234-1234-123456789abc"
 #define BLE_CHARACTERISTIC_UUID "abcd1234-5678-5678-5678-abcd12345678"
-#define BLE_TELEMETRY_VERSION 0x02    // v2: Simplified for battery calc on app
+#define BLE_TELEMETRY_VERSION 0x03    // v3: Sensor telemetry + health flags
 
 // === BLE TELEMETRY OPTIMIZATION ===
 // The cane sends minimal data; the app calculates battery lifetime using this power profile:
@@ -193,7 +198,8 @@
 #endif
 
 #define DEBUG_WAIT_FOR_SERIAL_MS 3000
-#define BOOT_LED_SELF_TEST true
+#define BOOT_LED_SELF_TEST false
+#define BOOT_HAPTIC_SELF_TEST false
 #define BOOT_MINIMAL_MODE false
 
 // === ISOLATED SENSOR TEST MODE ===
@@ -201,8 +207,7 @@
 #define ISOLATED_SENSOR_TEST_MODE true
 #define SENSOR_DEBUG_PRINT_INTERVAL_MS 250
 
-// Three currently wired indicator LEDs.
-// These names are kept for compatibility with isolated-test logic, but they are haptic outputs.
-#define TEST_LED_TOP_PIN HAPTIC_TOP_PIN
-#define TEST_LED_RIGHT_PIN HAPTIC_LEFT_PIN
-#define TEST_LED_LEFT_PIN HAPTIC_RIGHT_PIN
+// Three currently wired directional haptic outputs.
+#define TEST_HAPTIC_HEAD_PIN HAPTIC_HEAD_PIN
+#define TEST_HAPTIC_LEFT_PIN HAPTIC_LEFT_PIN
+#define TEST_HAPTIC_RIGHT_PIN HAPTIC_RIGHT_PIN

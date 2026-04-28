@@ -16,9 +16,9 @@
 
 // Haptic driver indices
 enum HapticDriverIndex {
-    DRIVER_8X8 = 0,
-    DRIVER_RIGHT_ULTRASONIC = 1,
-    DRIVER_LEFT_ULTRASONIC = 2
+    DRIVER_HEAD = 0,
+    DRIVER_LEFT = 1,
+    DRIVER_RIGHT = 2
 };
 
 // Haptic effect intensity levels
@@ -28,10 +28,13 @@ enum HapticDriverIndex {
 #define HAPTIC_STRONG 255
 
 void hapticDriverInit();
+void hapticDriverUpdate();
 void updateHapticFeedback();
+void hapticSet(uint8_t driverIndex, uint8_t intensity);
 void hapticPulse(uint8_t driverIndex, uint8_t intensity, uint16_t durationMs);
 void hapticStop(uint8_t driverIndex);
 uint8_t hapticDriverStatusBits();
+uint16_t hapticDriverHealthFlags();
 
 extern uint8_t hapticIntensity;
 extern unsigned long lastHapticPulse;

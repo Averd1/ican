@@ -10,13 +10,13 @@
 static unsigned long lastDiskToggle = 0;
 static bool diskState = false;
 
-// === INDEPENDENT LED CONTROL (detection_logic approach) ===
-static unsigned long lastHeadLEDToggle = 0;
-static unsigned long lastLeftLEDToggle = 0;
-static unsigned long lastRightLEDToggle = 0;
-static bool headLEDState = false;
-static bool leftLEDState = false;
-static bool rightLEDState = false;
+// === PRIORITY-BASED HAPTIC CONTROL (detection_logic approach) ===
+static unsigned long lastHeadHapticToggle = 0;
+static unsigned long lastLeftHapticToggle = 0;
+static unsigned long lastRightHapticToggle = 0;
+static bool headHapticState = false;
+static bool leftHapticState = false;
+static bool rightHapticState = false;
 
 static unsigned long isolatedHeadTimer = 0;
 static unsigned long isolatedWaistTimer = 0;
@@ -30,13 +30,13 @@ static void runBootHapticTest() {
 
 #if ISOLATED_SENSOR_TEST_MODE
     const uint8_t hapticPins[] = {
-        HAPTIC_TOP_PIN,
+        HAPTIC_HEAD_PIN,
         HAPTIC_LEFT_PIN,
         HAPTIC_RIGHT_PIN,
     };
 #else
     const uint8_t hapticPins[] = {
-        HAPTIC_TOP_PIN,
+        HAPTIC_HEAD_PIN,
         HAPTIC_LEFT_PIN,
         HAPTIC_RIGHT_PIN,
     };
@@ -74,10 +74,10 @@ static void updateIsolatedTestHaptics() {
         if (now - isolatedHeadTimer >= interval) {
             isolatedHeadTimer = now;
             isolatedHeadState = !isolatedHeadState;
-            digitalWrite(HAPTIC_TOP_PIN, isolatedHeadState);
+            digitalWrite(HAPTIC_HEAD_PIN, isolatedHeadState);
         }
     } else {
-        digitalWrite(HAPTIC_TOP_PIN, LOW);
+        digitalWrite(HAPTIC_HEAD_PIN, LOW);
         isolatedHeadState = false;
     }
 
@@ -108,11 +108,11 @@ static void updateIsolatedTestHaptics() {
 void responsesInit() {
     pinMode(HAPTIC_DISK_PIN, OUTPUT);
 #if ISOLATED_SENSOR_TEST_MODE
-    pinMode(HAPTIC_TOP_PIN, OUTPUT);
+    pinMode(HAPTIC_HEAD_PIN, OUTPUT);
     pinMode(HAPTIC_LEFT_PIN, OUTPUT);
     pinMode(HAPTIC_RIGHT_PIN, OUTPUT);
 #else
-    pinMode(HAPTIC_TOP_PIN, OUTPUT);
+    pinMode(HAPTIC_HEAD_PIN, OUTPUT);
     pinMode(HAPTIC_LEFT_PIN, OUTPUT);
     pinMode(HAPTIC_RIGHT_PIN, OUTPUT);
 #endif
@@ -120,11 +120,11 @@ void responsesInit() {
     // Ensure actuators start in off state
     digitalWrite(HAPTIC_DISK_PIN, LOW);
 #if ISOLATED_SENSOR_TEST_MODE
-    digitalWrite(HAPTIC_TOP_PIN, LOW);
+    digitalWrite(HAPTIC_HEAD_PIN, LOW);
     digitalWrite(HAPTIC_LEFT_PIN, LOW);
     digitalWrite(HAPTIC_RIGHT_PIN, LOW);
 #else
-    digitalWrite(HAPTIC_TOP_PIN, LOW);
+    digitalWrite(HAPTIC_HEAD_PIN, LOW);
     digitalWrite(HAPTIC_LEFT_PIN, LOW);
     digitalWrite(HAPTIC_RIGHT_PIN, LOW);
 #endif
@@ -156,7 +156,7 @@ void vibrationDiskOff() {
 static unsigned long lastLidarFeedbackToggle = 0;
 static bool lidarFeedbackState = false;
 
-// === INDEPENDENT ACTUATION FUNCTIONS (detection_logic inspired) ===
+// === PRIORITY-BASED ACTUATION FUNCTIONS (detection_logic inspired) ===
 
 static unsigned long getIntervalFromDistance(uint16_t distanceMm) {
     if (distanceMm >= SENSOR_ERROR_DISTANCE || distanceMm >= MATRIX_SENSOR_MAX_DISTANCE_MM) {
@@ -168,7 +168,7 @@ static unsigned long getIntervalFromDistance(uint16_t distanceMm) {
     return map(constrainedDist, OBSTACLE_IMMINENT_MM, MATRIX_SENSOR_MAX_DISTANCE_MM, 50, 500);
 }
 
-static void updateHeadLED() {
+static void updateHeadHaptic() {
     unsigned long interval = 0;
     
     if (currentSensors.matrixSensorHeadDetected && currentSensors.matrixSensorHeadDistance != SENSOR_ERROR_DISTANCE) {
@@ -176,20 +176,20 @@ static void updateHeadLED() {
     }
     
     if (interval == 0) {
-        digitalWrite(HAPTIC_TOP_PIN, LOW);
-        headLEDState = false;
+        digitalWrite(HAPTIC_HEAD_PIN, LOW);
+        headHapticState = false;
         return;
     }
     
     unsigned long now = millis();
-    if (now - lastHeadLEDToggle >= interval) {
-        lastHeadLEDToggle = now;
-        headLEDState = !headLEDState;
-        digitalWrite(HAPTIC_TOP_PIN, headLEDState);
+    if (now - lastHeadHapticToggle >= interval) {
+        lastHeadHapticToggle = now;
+        headHapticState = !headHapticState;
+        digitalWrite(HAPTIC_HEAD_PIN, headHapticState);
     }
 }
 
-static void updateWaistLEDs() {
+static void updateWaistHaptics() {
     // Find closest obstacle for waist zone (front/waist + ultrasonic left/right)
     uint16_t closestDistance = SENSOR_ERROR_DISTANCE;
     bool frontDetected = false;
@@ -219,64 +219,63 @@ static void updateWaistLEDs() {
         // No obstacles - turn off all directional haptics
         digitalWrite(HAPTIC_LEFT_PIN, LOW);
         digitalWrite(HAPTIC_RIGHT_PIN, LOW);
-        leftLEDState = false;
-        rightLEDState = false;
+        leftHapticState = false;
+        rightHapticState = false;
         return;
     }
     
     unsigned long now = millis();
-    if (now - lastLeftLEDToggle >= interval) {
-        lastLeftLEDToggle = now;
-        lastRightLEDToggle = now;  // Sync both LEDs
+    if (now - lastLeftHapticToggle >= interval) {
+        lastLeftHapticToggle = now;
+        lastRightHapticToggle = now;  // Sync both haptics
         
-        leftLEDState = !leftLEDState;
-        rightLEDState = !rightLEDState;
+        leftHapticState = !leftHapticState;
+        rightHapticState = !rightHapticState;
         
-        // Priority system: closest obstacle determines which LED(s) blink
+        // Priority system: closest obstacle determines which haptic motor(s) pulse
         if (closestDistance == currentSensors.matrixSensorWaistDistance && frontDetected) {
             // Front obstacle - both side haptics
-            digitalWrite(HAPTIC_LEFT_PIN, leftLEDState);
-            digitalWrite(HAPTIC_RIGHT_PIN, rightLEDState);
+            digitalWrite(HAPTIC_LEFT_PIN, leftHapticState);
+            digitalWrite(HAPTIC_RIGHT_PIN, rightHapticState);
         } else if (leftDetected && (!rightDetected || currentSensors.ultrasonicDistances[0] <= currentSensors.ultrasonicDistances[1])) {
             // Left is closest or only left detected
-            digitalWrite(HAPTIC_LEFT_PIN, leftLEDState);
+            digitalWrite(HAPTIC_LEFT_PIN, leftHapticState);
             digitalWrite(HAPTIC_RIGHT_PIN, LOW);
         } else if (rightDetected) {
             // Right is closest or only right detected
             digitalWrite(HAPTIC_LEFT_PIN, LOW);
-            digitalWrite(HAPTIC_RIGHT_PIN, rightLEDState);
+            digitalWrite(HAPTIC_RIGHT_PIN, rightHapticState);
         }
     }
 }
 
 void handleResponses() {
+    hapticDriverUpdate();
+
 #if ISOLATED_SENSOR_TEST_MODE
-    if (currentSituation == FALL_DETECTED) {
-        handleFallResponse();
-        return;
-    }
-
-    if (currentSituation == HIGH_STRESS_EVENT) {
-        vibrationDiskOff();
-        emergencyActive = true;
-        emergencyStartTime = millis();
-    } else {
-        emergencyActive = false;
-        vibrationDiskOff();
-    }
-
+    vibrationDiskOff();
+#if HAPTIC_I2C_DRIVER
+    digitalWrite(HAPTIC_HEAD_PIN, LOW);
+    digitalWrite(HAPTIC_LEFT_PIN, LOW);
+    digitalWrite(HAPTIC_RIGHT_PIN, LOW);
     updateHapticFeedback();
+#else
+    updateIsolatedTestHaptics();
+#endif
     return;
 #endif
 
     // OPTIMIZED Response handler for 8-hour continuous operation
-    // Strategy: Independent spatial feedback + haptic for all events, buzzer ONLY for imminent collision
+    // Strategy: Priority-based spatial feedback + haptic for all events, disk ONLY for imminent collision
     // Power savings: Multi-modal feedback with spatial awareness
     
     // === Update autonomous systems ===
-    updateHeadLED();            // Independent head zone feedback
-    updateWaistLEDs();          // Independent waist/front + ultrasonic feedback
-    updateHapticFeedback();     // Distance-based haptic feedback (primary alert mechanism)
+#if HAPTIC_I2C_DRIVER
+    updateHapticFeedback();     // DRV2605 haptic feedback
+#else
+    updateHeadHaptic();         // Head zone feedback
+    updateWaistHaptics();       // Closest waist/front/left/right feedback
+#endif
 
     // Determine overall obstacle response based on per-sensor zones
     bool anyImminent = false;
@@ -326,21 +325,21 @@ void handleFallResponse() {
     if (timeSinceFall < EMERGENCY_INITIAL_INTENSITY_MS) {
         // Phase 1: rapid strong haptic pulses
         vibrationDiskPulse(RESPONSE_PULSE_IMMINENT_MS);
-        hapticPulse(DRIVER_8X8, HAPTIC_STRONG, RESPONSE_PULSE_IMMINENT_MS / 2);
-        hapticPulse(DRIVER_LEFT_ULTRASONIC, HAPTIC_STRONG, RESPONSE_PULSE_IMMINENT_MS / 2);
-        hapticPulse(DRIVER_RIGHT_ULTRASONIC, HAPTIC_STRONG, RESPONSE_PULSE_IMMINENT_MS / 2);
+        hapticPulse(DRIVER_HEAD, HAPTIC_STRONG, RESPONSE_PULSE_IMMINENT_MS / 2);
+        hapticPulse(DRIVER_LEFT, HAPTIC_STRONG, RESPONSE_PULSE_IMMINENT_MS / 2);
+        hapticPulse(DRIVER_RIGHT, HAPTIC_STRONG, RESPONSE_PULSE_IMMINENT_MS / 2);
     } else if (timeSinceFall < EMERGENCY_DURATION_MS) {
         // Phase 2: sustained medium haptic pulses
         vibrationDiskPulse(RESPONSE_PULSE_NEAR_MS);
-        hapticPulse(DRIVER_8X8, HAPTIC_MEDIUM, RESPONSE_PULSE_NEAR_MS / 2);
-        hapticPulse(DRIVER_LEFT_ULTRASONIC, HAPTIC_MEDIUM, RESPONSE_PULSE_NEAR_MS / 2);
-        hapticPulse(DRIVER_RIGHT_ULTRASONIC, HAPTIC_MEDIUM, RESPONSE_PULSE_NEAR_MS / 2);
+        hapticPulse(DRIVER_HEAD, HAPTIC_MEDIUM, RESPONSE_PULSE_NEAR_MS / 2);
+        hapticPulse(DRIVER_LEFT, HAPTIC_MEDIUM, RESPONSE_PULSE_NEAR_MS / 2);
+        hapticPulse(DRIVER_RIGHT, HAPTIC_MEDIUM, RESPONSE_PULSE_NEAR_MS / 2);
     } else {
         // Timeout reached - return to normal haptic control but keep emergency flag
         vibrationDiskOff();
-        hapticStop(DRIVER_8X8);
-        hapticStop(DRIVER_LEFT_ULTRASONIC);
-        hapticStop(DRIVER_RIGHT_ULTRASONIC);
+        hapticStop(DRIVER_HEAD);
+        hapticStop(DRIVER_LEFT);
+        hapticStop(DRIVER_RIGHT);
         emergencyActive = false;
         if (DEBUG_MODE) Serial.println("Fall alert timeout - continuing with standard haptic control");
     }

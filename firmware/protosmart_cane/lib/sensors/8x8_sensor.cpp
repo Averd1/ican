@@ -6,7 +6,6 @@
  * - Hysteresis thresholds to prevent zone flickering
  * - Exponential moving average smoothing for distance jitter reduction
  * - Zone persistence tracking (N-frame confirmation before state change)
- * - Approach velocity detection (rapid distance decrease)
  */
 
 #include "8x8_sensor.h"
@@ -34,17 +33,12 @@ static uint16_t matrixSensorBuffer[64];
 // === ZONE PERSISTENCE (require N consecutive frames) ===
 #define ZONE_CONFIRMATION_FRAMES 2  // Require 2 consecutive frames to confirm zone change
 
-// === APPROACH VELOCITY DETECTION ===
-#define APPROACH_VELOCITY_THRESHOLD 100 // mm per frame (fast approach alert)
-
 // Static state tracking
 static uint16_t smoothedHeadDistance = SENSOR_ERROR_DISTANCE;
 static uint16_t smoothedWaistDistance = SENSOR_ERROR_DISTANCE;
 static uint16_t smoothedOverallDistance = SENSOR_ERROR_DISTANCE;
-static uint16_t previousOverallDistance = SENSOR_ERROR_DISTANCE;
 static ObstacleZone previousZone = OBSTACLE_NONE;
 static uint8_t zoneConfirmationCounter = 0;
-static bool fastApproach = false;
 
 static ObstacleZone computeZoneWithHysteresis(uint16_t distance) {
     // Apply hysteresis: use different thresholds depending on current zone
@@ -107,7 +101,7 @@ void matrixSensorInit() {
     while (tof->begin() != 0 && beginAttempts < 5) {
         beginAttempts++;
         if (DEBUG_MODE) Serial.println("8x8 Matrix Sensor begin retry");
-        delay(1000);
+        delay(MATRIX_SENSOR_INIT_RETRY_DELAY_MS);
     }
 
     if (beginAttempts >= 5) {
@@ -120,7 +114,7 @@ void matrixSensorInit() {
     while (tof->getAllDataConfig(eMatrix_8X8) != 0 && configAttempts < 5) {
         configAttempts++;
         if (DEBUG_MODE) Serial.println("8x8 Matrix Sensor config retry");
-        delay(1000);
+        delay(MATRIX_SENSOR_INIT_RETRY_DELAY_MS);
     }
 
     if (configAttempts >= 5) {
@@ -190,23 +184,6 @@ void matrixSensorUpdate() {
     smoothedWaistDistance = smoothDistance(currentSensors.matrixSensorWaistDistance, smoothedWaistDistance);
     smoothedOverallDistance = smoothDistance(currentSensors.matrixSensorDistance, smoothedOverallDistance);
 
-    // === DETECT FAST APPROACH (rapid distance decrease) ===
-    fastApproach = false;
-    if (previousOverallDistance != SENSOR_ERROR_DISTANCE &&
-        smoothedOverallDistance != SENSOR_ERROR_DISTANCE &&
-        previousOverallDistance > smoothedOverallDistance) {
-        uint16_t velocityDelta = previousOverallDistance - smoothedOverallDistance;
-        if (velocityDelta > APPROACH_VELOCITY_THRESHOLD) {
-            fastApproach = true;
-            if (DEBUG_MODE) {
-                Serial.print("FAST APPROACH detected: ");
-                Serial.print(velocityDelta);
-                Serial.println(" mm/frame");
-            }
-        }
-    }
-    previousOverallDistance = smoothedOverallDistance;
-
     // === ZONE DETECTION WITH HYSTERESIS & PERSISTENCE ===
     if (currentSensors.matrixSensorDistance != SENSOR_ERROR_DISTANCE) {
         ObstacleZone rawZone = computeZoneWithHysteresis(smoothedOverallDistance);
@@ -241,8 +218,4 @@ void matrixSensorUpdate() {
 
 uint16_t matrixSensorGetSmoothedDistance() {
     return smoothedOverallDistance;
-}
-
-bool matrixSensorIsFastApproach() {
-    return fastApproach;
 }

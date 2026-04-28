@@ -25,7 +25,7 @@
 #include "config.h"
 #include "state.h"
 
-// Module includes
+//Module includes
 #include "mux.h"
 #include "mode.h"
 #include "sensors.h"
@@ -44,7 +44,7 @@ ModeConfig modeConfig;
 Situation currentSituation = NONE;
 EmergencyType currentEmergencyType = EMERGENCY_NONE;
 SensorData currentSensors = {0};
-FaultState systemFaults = {false, false, false, false, 0};
+FaultState systemFaults = {false, false, false, false, false, 0};
 
 bool emergencyActive = false;
 unsigned long emergencyStartTime = 0;
@@ -53,8 +53,6 @@ bool obstacleNear = false;
 bool obstacleImminent = false;
 bool ultrasonicNear = false;
 bool ultrasonicImminent = false;
-bool imuFallDetected = false;
-bool imuOrientationOk = true;
 
 unsigned long lastIMUUpdate = 0;
 unsigned long lastUltrasonicUpdate = 0;
@@ -75,6 +73,37 @@ uint8_t emergencyHistoryIndex = 0;
 
 static unsigned long lastLightUpdate = 0;
 static unsigned long lastSensorDebugPrint = 0;
+
+static void resetSensorDataToSafeDefaults() {
+    currentSensors.ultrasonicDistances[0] = SENSOR_ERROR_DISTANCE;
+    currentSensors.ultrasonicDistances[1] = SENSOR_ERROR_DISTANCE;
+    currentSensors.matrixSensorDistance = SENSOR_ERROR_DISTANCE;
+    currentSensors.matrixSensorHeadDistance = SENSOR_ERROR_DISTANCE;
+    currentSensors.matrixSensorWaistDistance = SENSOR_ERROR_DISTANCE;
+    currentSensors.matrixSensorHeadDetected = false;
+    currentSensors.matrixSensorWaistDetected = false;
+    currentSensors.heartBPM = SENSOR_ERROR_HEART;
+    currentSensors.heartRaw = 0;
+    currentSensors.pulseDetected = false;
+    currentSensors.heartAbnormal = false;
+    currentSensors.batteryLevel = 0;
+    currentSensors.ultrasonicZones[0] = OBSTACLE_NONE;
+    currentSensors.ultrasonicZones[1] = OBSTACLE_NONE;
+    currentSensors.matrixSensorZone = OBSTACLE_NONE;
+}
+
+static uint16_t currentHealthFlags() {
+    uint16_t flags = 0;
+    if (!systemFaults.imu_fail) flags |= HEALTH_IMU_OK;
+    if (!systemFaults.ultrasonic_fail) flags |= HEALTH_ULTRASONIC_OK;
+    if (!systemFaults.matrixSensor_fail) flags |= HEALTH_MATRIX_SENSOR_OK;
+#if !ISOLATED_SENSOR_TEST_MODE
+    if (!systemFaults.heart_fail) flags |= HEALTH_PULSE_OK;
+#endif
+    if (!systemFaults.mux_fail) flags |= HEALTH_MUX_OK;
+    flags |= hapticDriverHealthFlags();
+    return flags;
+}
 
 static void printIsolatedSensorDebug(unsigned long now) {
     if (!DEBUG_MODE || now - lastSensorDebugPrint < SENSOR_DEBUG_PRINT_INTERVAL_MS) {
@@ -102,39 +131,68 @@ static void printIsolatedSensorDebug(unsigned long now) {
     Serial.print("/");
     Serial.print(systemFaults.ultrasonic_fail);
     Serial.print("/");
-    Serial.println(systemFaults.imu_fail);
+    Serial.print(systemFaults.imu_fail);
+    Serial.print(" | fall=");
+    Serial.print(currentSituation == FALL_DETECTED ? 1 : 0);
+    Serial.print(" mux=");
+    Serial.println(systemFaults.mux_fail);
 
     uint8_t hapticBits = hapticDriverStatusBits();
     Serial.print("HAPTIC_INIT bits=0x");
     Serial.print(hapticBits, HEX);
-    Serial.print(" (8x8=");
+    Serial.print(" (head=");
     Serial.print((hapticBits & 0x10) ? "1" : "0");
-    Serial.print(", right=");
-    Serial.print((hapticBits & 0x20) ? "1" : "0");
     Serial.print(", left=");
+    Serial.print((hapticBits & 0x20) ? "1" : "0");
+    Serial.print(", right=");
     Serial.print((hapticBits & 0x40) ? "1" : "0");
     Serial.println(")");
+
+    uint16_t health = currentHealthFlags();
+    Serial.print("HEALTH flags=0x");
+    if (health < 0x1000) Serial.print("0");
+    if (health < 0x0100) Serial.print("0");
+    if (health < 0x0010) Serial.print("0");
+    Serial.print(health, HEX);
+    Serial.print(" | I2C mux=");
+    Serial.print((health & HEALTH_MUX_OK) ? "OK" : "FAIL");
+    Serial.print(" imu=");
+    Serial.print((health & HEALTH_IMU_OK) ? "OK" : "FAIL");
+    Serial.print(" matrix=");
+    Serial.print((health & HEALTH_MATRIX_SENSOR_OK) ? "OK" : "FAIL");
+    Serial.print(" hapticHead=");
+    Serial.print((health & HEALTH_HAPTIC_HEAD_OK) ? "OK" : "FAIL");
+    Serial.print(" hapticLeft=");
+    Serial.print((health & HEALTH_HAPTIC_LEFT_OK) ? "OK" : "FAIL");
+    Serial.print(" hapticRight=");
+    Serial.println((health & HEALTH_HAPTIC_RIGHT_OK) ? "OK" : "FAIL");
 }
 
 void setup() {
     // === STEP 0: Bare minimum hardware check — runs before any sensor init ===
-    // If you feel haptic pulses and serial output, the board and USB serial are alive.
     // Each subsequent step is gated so we can pinpoint any init that crashes.
-    pinMode(HAPTIC_TOP_PIN, OUTPUT);   // GPIO18 = D9
+    resetSensorDataToSafeDefaults();
+    pinMode(HAPTIC_HEAD_PIN, OUTPUT);  // GPIO18 = D9
     pinMode(HAPTIC_LEFT_PIN, OUTPUT);  // GPIO21 = D10
     pinMode(HAPTIC_RIGHT_PIN, OUTPUT); // GPIO38 = D11
+    digitalWrite(HAPTIC_HEAD_PIN, LOW);
+    digitalWrite(HAPTIC_LEFT_PIN, LOW);
+    digitalWrite(HAPTIC_RIGHT_PIN, LOW);
 
-    // Pulse all three directional haptic channels as "I am alive" signal.
+    // Optional bring-up self-test. Keep disabled during normal firmware runs so
+    // startup never vibrates unless explicitly requested in config.h.
+#if BOOT_HAPTIC_SELF_TEST
     for (int i = 0; i < 2; i++) {
-        digitalWrite(HAPTIC_TOP_PIN, HIGH);
+        digitalWrite(HAPTIC_HEAD_PIN, HIGH);
         digitalWrite(HAPTIC_LEFT_PIN, HIGH);
         digitalWrite(HAPTIC_RIGHT_PIN, HIGH);
         delay(250);
-        digitalWrite(HAPTIC_TOP_PIN, LOW);
+        digitalWrite(HAPTIC_HEAD_PIN, LOW);
         digitalWrite(HAPTIC_LEFT_PIN, LOW);
         digitalWrite(HAPTIC_RIGHT_PIN, LOW);
         delay(250);
     }
+#endif
 
     Serial.begin(SERIAL_BAUD_RATE);
     delay(1500);
@@ -196,7 +254,7 @@ void loop() {
     if (now - lastBlink > 250) {
         lastBlink = now;
         blinkState = !blinkState;
-        digitalWrite(HAPTIC_TOP_PIN, blinkState ? HIGH : LOW);
+        digitalWrite(HAPTIC_HEAD_PIN, blinkState ? HIGH : LOW);
         digitalWrite(HAPTIC_LEFT_PIN, blinkState ? HIGH : LOW);
         digitalWrite(HAPTIC_RIGHT_PIN, blinkState ? HIGH : LOW);
         if (DEBUG_MODE) Serial.println("BOOT_MINIMAL_MODE loop alive");
@@ -220,28 +278,8 @@ void loop() {
         lastMatrixSensorUpdate = now;
     }
 
-    // Keep IMU fault recovery active in isolated mode as well.
     checkFaults();
-
     fuseSituations();
-
-    // Preserve IMU emergency behavior while staying in isolated sensor set.
-    if (currentSituation == FALL_DETECTED || systemFaults.imu_fail) {
-        if (currentMode != EMERGENCY) {
-            setMode(EMERGENCY);
-            currentEmergencyType = (currentSituation == FALL_DETECTED) ?
-                                 EMERGENCY_FALL : EMERGENCY_SENSOR_FAIL;
-            if (DEBUG_MODE) Serial.println("EMERGENCY MODE: Fall/IMU failure detected (isolated)");
-        }
-    } else if (currentMode == EMERGENCY &&
-               currentSituation != FALL_DETECTED &&
-               !systemFaults.imu_fail) {
-        setMode(NORMAL);
-        currentEmergencyType = EMERGENCY_NONE;
-        emergencyActive = false;
-        if (DEBUG_MODE) Serial.println("EMERGENCY CLEARED: returning to isolated normal mode");
-    }
-
     handleResponses();
 
 #if ENABLE_BLE

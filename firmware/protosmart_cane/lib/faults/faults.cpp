@@ -8,6 +8,7 @@
 #include "../sensors/ultrasonic.h"
 #include "../sensors/8x8_sensor.h"
 #include "../sensors/pulse.h"
+#include "../mux/mux.h"
 
 void checkFaults() {
     // IMU fault detection - check for valid readings
@@ -17,7 +18,9 @@ void checkFaults() {
     } else {
         imuFailCount = 0;
     }
-    systemFaults.imu_fail = (imuFailCount >= SENSOR_FAIL_THRESHOLD);
+    if (imuFailCount >= SENSOR_FAIL_THRESHOLD) {
+        systemFaults.imu_fail = true;
+    }
 
     // Ultrasonic fault detection - check for valid distance readings
     static uint8_t ultrasonicFailCount = 0;
@@ -51,7 +54,8 @@ void checkFaults() {
 
     // Attempt recovery for failed sensors
     if ((systemFaults.imu_fail || systemFaults.ultrasonic_fail ||
-         systemFaults.matrixSensor_fail || systemFaults.heart_fail) &&
+         systemFaults.matrixSensor_fail || systemFaults.heart_fail ||
+         systemFaults.mux_fail) &&
         (millis() - systemFaults.lastRecoveryAttempt > SENSOR_RECOVERY_TIME_MS)) {
 
         if (DEBUG_MODE) Serial.println("Attempting sensor recovery...");
@@ -61,6 +65,7 @@ void checkFaults() {
         if (systemFaults.ultrasonic_fail) ultrasonicInit();
         if (systemFaults.matrixSensor_fail) matrixSensorInit();
         if (systemFaults.heart_fail) pulseInit();
+        if (systemFaults.mux_fail) muxInit();
 
         systemFaults.lastRecoveryAttempt = millis();
     }

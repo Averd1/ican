@@ -24,8 +24,8 @@ class ModelDownloadService extends ChangeNotifier {
   ModelDownloadService({
     required OnDeviceVisionService visionService,
     required TtsService ttsService,
-  })  : _visionService = visionService,
-        _ttsService = ttsService;
+  }) : _visionService = visionService,
+       _ttsService = ttsService;
 
   /// Start downloading the offline model with TTS progress updates.
   Future<void> startDownload() async {
@@ -77,7 +77,9 @@ class ModelDownloadService extends ChangeNotifier {
     notifyListeners();
     debugPrint('[ModelDownload] Download complete');
     try {
-      _ttsService.speak('Offline model ready. Scene descriptions will work without internet.');
+      _ttsService.speak(
+        'Offline model ready. Scene descriptions will work without internet.',
+      );
     } catch (_) {}
   }
 

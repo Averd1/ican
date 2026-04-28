@@ -18,7 +18,7 @@ class ConnectionErrorScreen extends StatefulWidget {
 
   /// Optional error code describing why connection failed
   final BleConnectionError? errorCode;
-  
+
   /// Custom error message (overrides default from errorCode)
   final String? customErrorMessage;
 
@@ -32,7 +32,8 @@ class _ConnectionErrorScreenState extends State<ConnectionErrorScreen> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final errorMessage = widget.customErrorMessage ?? 
+    final errorMessage =
+        widget.customErrorMessage ??
         (widget.errorCode?.message ?? 'Failed to connect to iCan Eye');
 
     return Scaffold(

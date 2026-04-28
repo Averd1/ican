@@ -8,9 +8,12 @@ import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
 import '../core/theme.dart';
+import '../main.dart' show voiceCommandService;
 import '../models/home_view_model.dart';
+import '../models/settings_provider.dart';
 import '../services/ble_service.dart';
 import '../services/device_prefs_service.dart';
+import '../services/voice_command_service.dart';
 import '../widgets/accessible_button.dart';
 import '../widgets/device_status_card.dart';
 import '../widgets/hazard_alert_banner.dart';
@@ -61,6 +64,7 @@ class _AccessibleHomeScreenState extends State<AccessibleHomeScreen> {
   @override
   Widget build(BuildContext context) {
     final vm = context.watch<HomeViewModel>();
+    final voice = _voiceCommandServiceFor(context);
     final topPadding = MediaQuery.of(context).padding.top;
 
     return Scaffold(
@@ -94,19 +98,42 @@ class _AccessibleHomeScreenState extends State<AccessibleHomeScreen> {
                       child: _buildStatusSection(vm),
                     ),
 
-                    const SizedBox(height: AppSpacing.md),
+                    const SizedBox(height: AppSpacing.sm),
 
-                    // 2. Live description area
                     FocusTraversalOrder(
                       order: const NumericFocusOrder(2),
-                      child: _buildDescriptionArea(vm),
+                      child: _buildModeSection(vm),
                     ),
 
                     const SizedBox(height: AppSpacing.md),
 
-                    // 3. Context-sensitive actions
+                    // 2. Live description area
                     FocusTraversalOrder(
                       order: const NumericFocusOrder(3),
+                      child: _buildDescriptionArea(vm),
+                    ),
+
+                    if (vm.lastDiagnostic.isNotEmpty) ...[
+                      const SizedBox(height: AppSpacing.sm),
+                      FocusTraversalOrder(
+                        order: const NumericFocusOrder(3.5),
+                        child: _buildDiagnosticPanel(context, vm),
+                      ),
+                    ],
+
+                    const SizedBox(height: AppSpacing.md),
+
+                    // 3. Voice command trigger
+                    FocusTraversalOrder(
+                      order: const NumericFocusOrder(4),
+                      child: _buildVoiceCommandSection(voice),
+                    ),
+
+                    const SizedBox(height: AppSpacing.md),
+
+                    // 4. Context-sensitive actions
+                    FocusTraversalOrder(
+                      order: const NumericFocusOrder(5),
                       child: _buildActions(vm),
                     ),
 
@@ -127,6 +154,54 @@ class _AccessibleHomeScreenState extends State<AccessibleHomeScreen> {
         ],
       ),
     );
+  }
+
+  Widget _buildModeSection(HomeViewModel vm) {
+    final settings = vm.settingsProvider;
+    final modeLabels = [
+      'Focus: ${settings.promptProfile.label}',
+      'Detail: ${settings.detailLevel.label}',
+      'Live: ${settings.liveDetectionVerbosity.label}',
+      'Vision: ${vm.sceneService.mode.label}',
+      if (vm.offlineVisionStatus != null)
+        'Local: ${vm.offlineVisionStatus!.bestLocalBackendLabel}',
+    ];
+
+    return Semantics(
+      label: 'Current modes. ${modeLabels.join('. ')}.',
+      child: ExcludeSemantics(
+        child: Wrap(
+          spacing: AppSpacing.xs,
+          runSpacing: AppSpacing.xs,
+          children: [
+            _ModeChip(
+              label: 'Focus',
+              value: settings.promptProfile.label,
+              profile: settings.promptProfile,
+            ),
+            _ModeChip(label: 'Detail', value: settings.detailLevel.label),
+            _ModeChip(
+              label: 'Live',
+              value: settings.liveDetectionVerbosity.label,
+            ),
+            _ModeChip(label: 'Vision', value: vm.sceneService.mode.label),
+            if (vm.offlineVisionStatus != null)
+              _ModeChip(
+                label: 'Local',
+                value: vm.offlineVisionStatus!.bestLocalBackendLabel,
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  VoiceCommandService _voiceCommandServiceFor(BuildContext context) {
+    try {
+      return Provider.of<VoiceCommandService>(context, listen: false);
+    } on ProviderNotFoundException {
+      return voiceCommandService;
+    }
   }
 
   Widget _buildStatusSection(HomeViewModel vm) {
@@ -160,8 +235,8 @@ class _AccessibleHomeScreenState extends State<AccessibleHomeScreen> {
     final String semanticText = vm.isProcessing
         ? 'Processing image. Please wait.'
         : hasDescription
-            ? vm.lastDescription
-            : 'No scene description yet. Tap Describe surroundings to start.';
+        ? vm.lastDescription
+        : 'No scene description yet. Tap Describe surroundings to start.';
 
     return Semantics(
       liveRegion: true,
@@ -179,10 +254,7 @@ class _AccessibleHomeScreenState extends State<AccessibleHomeScreen> {
           decoration: BoxDecoration(
             color: AppColors.backgroundLight,
             borderRadius: BorderRadius.circular(12),
-            border: Border.all(
-              color: AppColors.textOnLight,
-              width: 1,
-            ),
+            border: Border.all(color: AppColors.textOnLight, width: 1),
           ),
           padding: const EdgeInsets.all(AppSpacing.sm),
           child: ExcludeSemantics(
@@ -201,7 +273,7 @@ class _AccessibleHomeScreenState extends State<AccessibleHomeScreen> {
                     ),
                     if (vm.isProcessing) ...[
                       const SizedBox(width: AppSpacing.xs),
-                      SizedBox(
+                      const SizedBox(
                         width: 16,
                         height: 16,
                         child: CircularProgressIndicator(
@@ -217,13 +289,15 @@ class _AccessibleHomeScreenState extends State<AccessibleHomeScreen> {
                   displayText,
                   style: TextStyle(
                     fontSize: 18.sp,
-                    fontWeight:
-                        hasDescription ? FontWeight.normal : FontWeight.w300,
+                    fontWeight: hasDescription
+                        ? FontWeight.normal
+                        : FontWeight.w300,
                     color: hasDescription
                         ? AppColors.textOnLight
                         : AppColors.disabledOnLight,
-                    fontStyle:
-                        hasDescription ? FontStyle.normal : FontStyle.italic,
+                    fontStyle: hasDescription
+                        ? FontStyle.normal
+                        : FontStyle.italic,
                     height: 1.5,
                   ),
                 ),
@@ -246,6 +320,150 @@ class _AccessibleHomeScreenState extends State<AccessibleHomeScreen> {
     );
   }
 
+  Widget _buildDiagnosticPanel(BuildContext context, HomeViewModel vm) {
+    final diagnostic = vm.lastDiagnostic.trim();
+
+    return Semantics(
+      liveRegion: true,
+      label: 'Latest vision diagnostic. $diagnostic',
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(AppSpacing.sm),
+        decoration: BoxDecoration(
+          color: AppColors.surfaceCardLight,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: AppColors.error, width: 2),
+        ),
+        child: ExcludeSemantics(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  const Icon(
+                    Icons.error_outline,
+                    color: AppColors.error,
+                    size: 20,
+                  ),
+                  const SizedBox(width: AppSpacing.xs),
+                  Expanded(
+                    child: Text(
+                      'Latest Vision Diagnostic',
+                      style: TextStyle(
+                        fontSize: 14.sp,
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.error,
+                      ),
+                    ),
+                  ),
+                  Tooltip(
+                    message: 'Copy diagnostic',
+                    child: IconButton(
+                      icon: const Icon(Icons.copy),
+                      color: AppColors.interactive,
+                      onPressed: () async {
+                        await Clipboard.setData(
+                          ClipboardData(text: diagnostic),
+                        );
+                        if (!context.mounted) return;
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text('Diagnostic copied'),
+                            duration: Duration(seconds: 2),
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: AppSpacing.xs),
+              SelectableText(
+                diagnostic,
+                style: TextStyle(
+                  fontSize: 16.sp,
+                  color: AppColors.textOnLight,
+                  height: 1.35,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildVoiceCommandSection(VoiceCommandService voice) {
+    return AnimatedBuilder(
+      animation: voice,
+      builder: (context, _) {
+        final isListening = voice.state == VoiceCommandState.listening;
+        final isProcessing = voice.state == VoiceCommandState.processing;
+        final status = switch (voice.state) {
+          VoiceCommandState.idle => 'Ready',
+          VoiceCommandState.listening => 'Listening',
+          VoiceCommandState.processing => 'Processing',
+        };
+        final transcript = voice.partialText.trim();
+        final result = voice.lastResult.trim();
+        final details = <String>[
+          'Status: $status',
+          if (isListening && transcript.isNotEmpty) 'Heard: $transcript',
+          if (isProcessing && transcript.isNotEmpty) 'Processing: $transcript',
+          if (result.isNotEmpty) 'Last result: $result',
+        ];
+
+        return Semantics(
+          liveRegion: true,
+          label: details.join('. '),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              AccessibleButton(
+                label: isListening
+                    ? 'Listening for Command'
+                    : isProcessing
+                    ? 'Processing Voice Command'
+                    : 'Start Voice Command',
+                hint:
+                    'Starts voice control without needing the Eye button. Try describe now, repeat last, or scan devices.',
+                subtitle: 'Status: $status',
+                onPressed: voice.state == VoiceCommandState.idle
+                    ? () => voice.activateVoiceCommand()
+                    : null,
+              ),
+              if (transcript.isNotEmpty || result.isNotEmpty) ...[
+                const SizedBox(height: AppSpacing.xs),
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(AppSpacing.sm),
+                  decoration: BoxDecoration(
+                    color: AppColors.surfaceCardLight,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: AppColors.borderLight),
+                  ),
+                  child: ExcludeSemantics(
+                    child: Text(
+                      [
+                        if (transcript.isNotEmpty) 'Heard: $transcript',
+                        if (result.isNotEmpty) 'Last result: $result',
+                      ].join('\n'),
+                      style: TextStyle(
+                        fontSize: 15.sp,
+                        color: AppColors.textSecondaryOnLight,
+                        height: 1.4,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ],
+          ),
+        );
+      },
+    );
+  }
+
   Widget _buildActions(HomeViewModel vm) {
     final widgets = <Widget>[];
 
@@ -264,7 +482,9 @@ class _AccessibleHomeScreenState extends State<AccessibleHomeScreen> {
 
     // "Repeat Last" — only when there's a description to repeat
     if (vm.lastDescription.isNotEmpty) {
-      if (widgets.isNotEmpty) widgets.add(const SizedBox(height: AppSpacing.md));
+      if (widgets.isNotEmpty) {
+        widgets.add(const SizedBox(height: AppSpacing.md));
+      }
       widgets.add(
         AccessibleButton(
           label: 'Repeat Last Description',
@@ -276,7 +496,9 @@ class _AccessibleHomeScreenState extends State<AccessibleHomeScreen> {
 
     // "Pause/Resume" — only when a device is connected
     if (vm.hasAnyDevice) {
-      if (widgets.isNotEmpty) widgets.add(const SizedBox(height: AppSpacing.md));
+      if (widgets.isNotEmpty) {
+        widgets.add(const SizedBox(height: AppSpacing.md));
+      }
       widgets.add(
         AccessibleButton(
           label: vm.isPaused ? 'Resume Descriptions' : 'Pause Descriptions',
@@ -296,7 +518,9 @@ class _AccessibleHomeScreenState extends State<AccessibleHomeScreen> {
 
     // "Start Live Detection" — only when Eye is connected
     if (vm.isEyeConnected) {
-      if (widgets.isNotEmpty) widgets.add(const SizedBox(height: AppSpacing.md));
+      if (widgets.isNotEmpty) {
+        widgets.add(const SizedBox(height: AppSpacing.md));
+      }
       widgets.add(
         AccessibleButton(
           label: 'Start Live Detection',
@@ -334,5 +558,42 @@ class _AccessibleHomeScreenState extends State<AccessibleHomeScreen> {
     }
 
     return Column(children: widgets);
+  }
+}
+
+class _ModeChip extends StatelessWidget {
+  final String label;
+  final String value;
+  final PromptProfile? profile;
+
+  const _ModeChip({required this.label, required this.value, this.profile});
+
+  @override
+  Widget build(BuildContext context) {
+    final background = switch (profile) {
+      PromptProfile.safety => const Color(0xFFFFE8E8),
+      PromptProfile.reading => const Color(0xFFE9F3FF),
+      PromptProfile.navigation => const Color(0xFFEAF8EF),
+      _ => AppColors.surfaceCardLight,
+    };
+
+    return Container(
+      constraints: const BoxConstraints(minHeight: 36),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: background,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: AppColors.borderLight),
+      ),
+      child: Text(
+        '$label: $value',
+        style: TextStyle(
+          fontSize: 13.sp,
+          fontWeight: FontWeight.w700,
+          color: AppColors.textOnLight,
+          height: 1.1,
+        ),
+      ),
+    );
   }
 }

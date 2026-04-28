@@ -73,6 +73,17 @@ characteristics:
       LIVE_STOP: "Stop firmware-driven periodic capture"
       PROFILE: "Switch camera quality profile. Format: PROFILE:{index}"
       STATUS: "Request current status"
+    events:
+      "CAPTURE:START": "Firmware accepted a capture request and is attempting camera capture."
+      "BUTTON:DOUBLE": "Physical button double-press detected (Eye -> App). Triggers voice command listening."
+      "STATUS:{profileIndex}:{profileName}:{IDLE|LIVE}:{intervalMs}": "Status response to STATUS command."
+      "SIZE:{bytes}": "JPEG byte length for the next image stream."
+      "CRC:{hex}": "CRC32 of the complete JPEG payload."
+      "END:{chunks}": "Image stream finished after the given chunk count."
+      "ERR:CAMERA_CAPTURE_FAILED": "Camera driver failed to return a JPEG frame."
+      "ERR:STREAM_ABORTED:{sentChunks}:{sentBytes}:{expectedBytes}": "Firmware aborted an incomplete image stream."
+      "ERR:CHUNK_NOTIFY_FAILED:{sequence}": "Firmware could not notify a chunk after retries."
+      "ERR:{code}": "Firmware command error."
 
   gps_data_tx:
     service: cane
@@ -197,7 +208,7 @@ gps_packet:
 # Byte 2+:   payload (up to 509 bytes of JPEG data)
 #
 # No per-chunk checksum — BLE link layer provides CRC. Integrity is validated
-# by JPEG magic-byte check on the assembled frame.
+# by JPEG magic bytes and optional CRC:{hex} control messages.
 image_packet:
   header_bytes: 2
   max_payload_bytes: 509

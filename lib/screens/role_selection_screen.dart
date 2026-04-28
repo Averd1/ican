@@ -108,8 +108,7 @@ class _RoleSelectionScreenState extends State<RoleSelectionScreen> {
                       _buildRoleCard(
                         context,
                         title: 'I am the User',
-                        subtitle:
-                            'Navigate, describe scenes, and stay safe.',
+                        subtitle: 'Navigate, describe scenes, and stay safe.',
                         icon: CupertinoIcons.person_crop_circle,
                         onTap: () => _selectRole('user', Routes.homeName),
                       ),
@@ -119,7 +118,8 @@ class _RoleSelectionScreenState extends State<RoleSelectionScreen> {
                         title: 'I am a Caretaker',
                         subtitle: 'Monitor vitals and location remotely.',
                         icon: CupertinoIcons.heart_circle,
-                        onTap: () => _selectRole('caretaker', 'caretaker-dashboard'),
+                        onTap: () =>
+                            _selectRole('caretaker', 'caretaker-dashboard'),
                       ),
                     ],
                   ),
@@ -157,7 +157,7 @@ class _RoleSelectionScreenState extends State<RoleSelectionScreen> {
                 color: Colors.black.withAlpha(51),
                 blurRadius: 20,
                 offset: const Offset(0, 10),
-              )
+              ),
             ],
             border: Border.all(
               color: theme.colorScheme.onSurface.withAlpha(13),
@@ -172,11 +172,7 @@ class _RoleSelectionScreenState extends State<RoleSelectionScreen> {
                   color: theme.colorScheme.primary.withAlpha(26),
                   shape: BoxShape.circle,
                 ),
-                child: Icon(
-                  icon,
-                  size: 32,
-                  color: theme.colorScheme.primary,
-                ),
+                child: Icon(icon, size: 32, color: theme.colorScheme.primary),
               ),
               const SizedBox(width: 20),
               Expanded(

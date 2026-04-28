@@ -155,8 +155,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
         // ── Volume ──
         _SettingTile(
-          semanticLabel:
-              'Volume. ${(s.volume * 100).round()} percent.',
+          semanticLabel: 'Volume. ${(s.volume * 100).round()} percent.',
           semanticSlider: true,
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -194,10 +193,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 width: double.infinity,
                 child: SegmentedButton<VoiceType>(
                   segments: VoiceType.values
-                      .map((v) => ButtonSegment<VoiceType>(
-                            value: v,
-                            label: Text(v.label),
-                          ))
+                      .map(
+                        (v) => ButtonSegment<VoiceType>(
+                          value: v,
+                          label: Text(v.label),
+                        ),
+                      )
                       .toList(),
                   selected: {s.voiceType},
                   onSelectionChanged: (sel) {
@@ -236,10 +237,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 width: double.infinity,
                 child: SegmentedButton<DetailLevel>(
                   segments: DetailLevel.values
-                      .map((d) => ButtonSegment<DetailLevel>(
-                            value: d,
-                            label: Text(d.label),
-                          ))
+                      .map(
+                        (d) => ButtonSegment<DetailLevel>(
+                          value: d,
+                          label: Text(d.label),
+                        ),
+                      )
                       .toList(),
                   selected: {s.detailLevel},
                   onSelectionChanged: (sel) {
@@ -271,10 +274,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 width: double.infinity,
                 child: SegmentedButton<HazardSensitivity>(
                   segments: HazardSensitivity.values
-                      .map((h) => ButtonSegment<HazardSensitivity>(
-                            value: h,
-                            label: Text(h.label),
-                          ))
+                      .map(
+                        (h) => ButtonSegment<HazardSensitivity>(
+                          value: h,
+                          label: Text(h.label),
+                        ),
+                      )
                       .toList(),
                   selected: {s.hazardSensitivity},
                   onSelectionChanged: (sel) {
@@ -282,6 +287,48 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     s.setHazardSensitivity(sel.first);
                   },
                   style: _segmentedStyle(),
+                ),
+              ),
+            ],
+          ),
+        ),
+
+        const _Divider(),
+
+        _SettingTile(
+          semanticLabel:
+              'Description focus. Currently ${s.promptProfile.label}. '
+              '${s.promptProfile.description}.',
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _SettingLabel('Description Focus'),
+              const SizedBox(height: AppSpacing.xs),
+              SizedBox(
+                width: double.infinity,
+                child: SegmentedButton<PromptProfile>(
+                  segments: PromptProfile.values
+                      .map(
+                        (profile) => ButtonSegment<PromptProfile>(
+                          value: profile,
+                          label: Text(profile.label),
+                        ),
+                      )
+                      .toList(),
+                  selected: {s.promptProfile},
+                  onSelectionChanged: (sel) {
+                    HapticFeedback.selectionClick();
+                    s.setPromptProfile(sel.first);
+                  },
+                  style: _segmentedStyle(),
+                ),
+              ),
+              const SizedBox(height: AppSpacing.xs),
+              Text(
+                s.promptProfile.description,
+                style: TextStyle(
+                  fontSize: 14.sp,
+                  color: AppColors.textSecondaryOnLight,
                 ),
               ),
             ],
@@ -312,10 +359,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 width: double.infinity,
                 child: SegmentedButton<LiveDetectionVerbosity>(
                   segments: LiveDetectionVerbosity.values
-                      .map((v) => ButtonSegment<LiveDetectionVerbosity>(
-                            value: v,
-                            label: Text(v.label),
-                          ))
+                      .map(
+                        (v) => ButtonSegment<LiveDetectionVerbosity>(
+                          value: v,
+                          label: Text(v.label),
+                        ),
+                      )
                       .toList(),
                   selected: {s.liveDetectionVerbosity},
                   onSelectionChanged: (sel) {
@@ -394,10 +443,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 width: double.infinity,
                 child: SegmentedButton<FontScale>(
                   segments: FontScale.values
-                      .map((f) => ButtonSegment<FontScale>(
-                            value: f,
-                            label: Text(f.label),
-                          ))
+                      .map(
+                        (f) => ButtonSegment<FontScale>(
+                          value: f,
+                          label: Text(f.label),
+                        ),
+                      )
                       .toList(),
                   selected: {s.fontScale},
                   onSelectionChanged: (sel) {
@@ -416,7 +467,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
         // ── High contrast ──
         _SwitchTile(
           label: 'High Contrast',
-          semanticLabel: 'High contrast mode. '
+          semanticLabel:
+              'High contrast mode. '
               'Currently ${s.highContrast ? "on" : "off"}. '
               '${s.highContrast ? "Using pure black and white for maximum readability." : "Using standard colors."}',
           value: s.highContrast,
@@ -431,7 +483,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
         // ── Reduce motion ──
         _SwitchTile(
           label: 'Reduce Motion',
-          semanticLabel: 'Reduce motion. '
+          semanticLabel:
+              'Reduce motion. '
               'Currently ${s.reduceMotion ? "on" : "off"}. '
               '${s.reduceMotion ? "Animations are disabled." : "Animations are enabled."}',
           value: s.reduceMotion,
@@ -483,7 +536,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
         _TapTile(
           label: 'Switch Role',
-          hint: 'Go back to role selection to switch between user and caretaker',
+          hint:
+              'Go back to role selection to switch between user and caretaker',
           onTap: () {
             HapticFeedback.lightImpact();
             DevicePrefsService.instance.saveUserRole('');
@@ -501,12 +555,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
   ButtonStyle _segmentedStyle() {
     return ButtonStyle(
       minimumSize: const WidgetStatePropertyAll(Size(0, 48)),
-      foregroundColor:
-          WidgetStatePropertyAll(AppColors.textOnLight),
-      textStyle: WidgetStatePropertyAll(TextStyle(
-        fontSize: 16.sp,
-        fontWeight: FontWeight.w600,
-      )),
+      foregroundColor: WidgetStatePropertyAll(AppColors.textOnLight),
+      textStyle: WidgetStatePropertyAll(
+        TextStyle(fontSize: 16.sp, fontWeight: FontWeight.w600),
+      ),
     );
   }
 }
@@ -717,11 +769,13 @@ class _DeviceRow extends StatelessWidget {
           child: Row(
             children: [
               if (isConnected)
-                Icon(Icons.check_circle,
-                    color: AppColors.success, size: 24)
+                Icon(Icons.check_circle, color: AppColors.success, size: 24)
               else
-                Icon(Icons.circle_outlined,
-                    color: AppColors.disabledOnLight, size: 24),
+                Icon(
+                  Icons.circle_outlined,
+                  color: AppColors.disabledOnLight,
+                  size: 24,
+                ),
               const SizedBox(width: AppSpacing.xs),
 
               Expanded(
@@ -758,15 +812,16 @@ class _DeviceRow extends StatelessWidget {
                   child: GestureDetector(
                     onTap: onReconnect,
                     child: Container(
-                      constraints:
-                          const BoxConstraints(minWidth: 88, minHeight: 48),
+                      constraints: const BoxConstraints(
+                        minWidth: 88,
+                        minHeight: 48,
+                      ),
                       decoration: BoxDecoration(
                         color: AppColors.interactive,
                         borderRadius: BorderRadius.circular(10),
                       ),
                       alignment: Alignment.center,
-                      padding:
-                          const EdgeInsets.symmetric(horizontal: 12),
+                      padding: const EdgeInsets.symmetric(horizontal: 12),
                       child: Text(
                         'Reconnect',
                         style: TextStyle(
@@ -815,10 +870,7 @@ class _SettingValue extends StatelessWidget {
   Widget build(BuildContext context) {
     return Text(
       text,
-      style: TextStyle(
-        fontSize: 16.sp,
-        color: AppColors.textSecondaryOnLight,
-      ),
+      style: TextStyle(fontSize: 16.sp, color: AppColors.textSecondaryOnLight),
     );
   }
 }
@@ -830,10 +882,7 @@ class _Divider extends StatelessWidget {
   Widget build(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: AppSpacing.xs),
-      child: Divider(
-        height: 1,
-        color: AppColors.borderLight,
-      ),
+      child: Divider(height: 1, color: AppColors.borderLight),
     );
   }
 }
@@ -848,14 +897,20 @@ class _SliderLabels extends StatelessWidget {
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
-        Text(left,
-            style: TextStyle(
-                fontSize: 13.sp,
-                color: AppColors.textSecondaryOnLight)),
-        Text(right,
-            style: TextStyle(
-                fontSize: 13.sp,
-                color: AppColors.textSecondaryOnLight)),
+        Text(
+          left,
+          style: TextStyle(
+            fontSize: 13.sp,
+            color: AppColors.textSecondaryOnLight,
+          ),
+        ),
+        Text(
+          right,
+          style: TextStyle(
+            fontSize: 13.sp,
+            color: AppColors.textSecondaryOnLight,
+          ),
+        ),
       ],
     );
   }
@@ -884,8 +939,7 @@ class _AccessibleSlider extends StatelessWidget {
         inactiveTrackColor: AppColors.borderLight,
         thumbColor: AppColors.interactive,
         overlayColor: AppColors.interactive.withAlpha(40),
-        thumbShape:
-            const RoundSliderThumbShape(enabledThumbRadius: 14),
+        thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 14),
         trackHeight: 6,
       ),
       child: Slider(

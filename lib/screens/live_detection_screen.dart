@@ -122,17 +122,18 @@ class _LiveDetectionScreenState extends State<LiveDetectionScreen> {
         return;
       }
 
-      final filtered = result.detectedObjects
-          .where((o) => o.confidence >= 0.5)
-          .toList()
-        ..sort((a, b) => b.confidence.compareTo(a.confidence));
+      final filtered =
+          result.detectedObjects.where((o) => o.confidence >= 0.5).toList()
+            ..sort((a, b) => b.confidence.compareTo(a.confidence));
 
       if (mounted) {
         setState(() => _detections = filtered);
       }
 
       if (filtered.isNotEmpty && mounted) {
-        final verbosity = context.read<SettingsProvider>().liveDetectionVerbosity;
+        final verbosity = context
+            .read<SettingsProvider>()
+            .liveDetectionVerbosity;
         final now = DateTime.now();
 
         switch (verbosity) {
@@ -161,13 +162,16 @@ class _LiveDetectionScreenState extends State<LiveDetectionScreen> {
             final topN = filtered.take(3).toList();
             final anyRecentlyAnnounced = topN.any((d) {
               final t = _lastAnnounced[d.label];
-              return t != null && now.difference(t) < const Duration(seconds: 3);
+              return t != null &&
+                  now.difference(t) < const Duration(seconds: 3);
             });
             if (!anyRecentlyAnnounced) {
-              final parts = topN.map((d) {
-                final pos = _positionFromCenterX(d.centerX);
-                return '${d.label} $pos';
-              }).join(', ');
+              final parts = topN
+                  .map((d) {
+                    final pos = _positionFromCenterX(d.centerX);
+                    return '${d.label} $pos';
+                  })
+                  .join(', ');
               _tts.speak(parts);
               for (final d in topN) {
                 _lastAnnounced[d.label] = now;
@@ -196,7 +200,12 @@ class _LiveDetectionScreenState extends State<LiveDetectionScreen> {
     return 'on your right';
   }
 
-  void _addLogEntry(String label, String position, double confidence, DateTime ts) {
+  void _addLogEntry(
+    String label,
+    String position,
+    double confidence,
+    DateTime ts,
+  ) {
     if (!mounted) return;
     setState(() {
       _log.insert(
@@ -254,11 +263,7 @@ class _LiveDetectionScreenState extends State<LiveDetectionScreen> {
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Icon(
-                Icons.error_outline,
-                size: 64,
-                color: AppColors.textOnLight,
-              ),
+              Icon(Icons.error_outline, size: 64, color: AppColors.textOnLight),
               const SizedBox(height: AppSpacing.md),
               Semantics(
                 header: true,
@@ -308,16 +313,10 @@ class _LiveDetectionScreenState extends State<LiveDetectionScreen> {
         child: Column(
           children: [
             // Image + bounding box overlay
-            Expanded(
-              flex: 3,
-              child: _buildImageArea(),
-            ),
+            Expanded(flex: 3, child: _buildImageArea()),
 
             // Detection log
-            Expanded(
-              flex: 2,
-              child: _buildLogArea(),
-            ),
+            Expanded(flex: 2, child: _buildLogArea()),
 
             // Stop button
             Padding(
@@ -351,10 +350,7 @@ class _LiveDetectionScreenState extends State<LiveDetectionScreen> {
             ? Center(
                 child: Text(
                   'Waiting for camera…',
-                  style: TextStyle(
-                    color: Colors.white70,
-                    fontSize: 16.sp,
-                  ),
+                  style: TextStyle(color: Colors.white70, fontSize: 16.sp),
                 ),
               )
             : LayoutBuilder(
@@ -392,16 +388,17 @@ class _LiveDetectionScreenState extends State<LiveDetectionScreen> {
       constraints: const BoxConstraints(minHeight: 150),
       decoration: BoxDecoration(
         color: AppColors.surfaceCardLight,
-        border: Border(
-          top: BorderSide(color: AppColors.borderLight, width: 1),
-        ),
+        border: Border(top: BorderSide(color: AppColors.borderLight, width: 1)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Padding(
             padding: const EdgeInsets.fromLTRB(
-              AppSpacing.sm, AppSpacing.xs, AppSpacing.sm, 0,
+              AppSpacing.sm,
+              AppSpacing.xs,
+              AppSpacing.sm,
+              0,
             ),
             child: ExcludeSemantics(
               child: Text(
@@ -513,8 +510,10 @@ class _BoundingBoxPainter extends CustomPainter {
     );
 
     for (final det in detections) {
-      if (det.bboxX == null || det.bboxY == null ||
-          det.bboxW == null || det.bboxH == null) {
+      if (det.bboxX == null ||
+          det.bboxY == null ||
+          det.bboxW == null ||
+          det.bboxH == null) {
         continue;
       }
 

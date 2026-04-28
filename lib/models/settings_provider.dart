@@ -41,8 +41,38 @@ enum LiveDetectionVerbosity {
   final String description;
 }
 
+enum PromptProfile {
+  balanced(
+    'Balanced',
+    'General scene description with safety, text, and landmarks',
+  ),
+  safety('Safety', 'Hazards, motion, crossings, obstacles, and people first'),
+  navigation(
+    'Navigation',
+    'Doors, paths, landmarks, signs, and orientation cues first',
+  ),
+  reading('Reading', 'Visible text, labels, signs, and screens first');
+
+  const PromptProfile(this.label, this.description);
+  final String label;
+  final String description;
+
+  String get instruction {
+    switch (this) {
+      case PromptProfile.balanced:
+        return 'Balance safety, directly-ahead details, visible text, and orientation landmarks.';
+      case PromptProfile.safety:
+        return 'Prioritize hazards first: obstacles, steps, vehicles, people moving nearby, crossings, drop-offs, and anything within arm\'s reach. Keep non-safety details brief.';
+      case PromptProfile.navigation:
+        return 'Prioritize navigation cues: paths, doors, exits, signs, landmarks, clear walking space, and left/right/ahead orientation.';
+      case PromptProfile.reading:
+        return 'Prioritize visible text. Read signs, labels, screens, buttons, and documents verbatim before describing the rest of the scene.';
+    }
+  }
+}
+
 class SettingsProvider extends ChangeNotifier {
-  final TtsService ttsService;
+  final TtsSettingsController ttsService;
 
   SettingsProvider({required this.ttsService}) {
     _load();
@@ -79,9 +109,11 @@ class SettingsProvider extends ChangeNotifier {
   // ── Descriptions ──
   DetailLevel _detailLevel = DetailLevel.detailed;
   HazardSensitivity _hazardSensitivity = HazardSensitivity.medium;
+  PromptProfile _promptProfile = PromptProfile.balanced;
 
   DetailLevel get detailLevel => _detailLevel;
   HazardSensitivity get hazardSensitivity => _hazardSensitivity;
+  PromptProfile get promptProfile => _promptProfile;
 
   void setDetailLevel(DetailLevel level) {
     _detailLevel = level;
@@ -95,12 +127,17 @@ class SettingsProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  void setPromptProfile(PromptProfile profile) {
+    _promptProfile = profile;
+    _save('prompt_profile', profile.index);
+    notifyListeners();
+  }
+
   // ── Live Detection ──
   LiveDetectionVerbosity _liveDetectionVerbosity =
       LiveDetectionVerbosity.positional;
 
-  LiveDetectionVerbosity get liveDetectionVerbosity =>
-      _liveDetectionVerbosity;
+  LiveDetectionVerbosity get liveDetectionVerbosity => _liveDetectionVerbosity;
 
   void setLiveDetectionVerbosity(LiveDetectionVerbosity v) {
     _liveDetectionVerbosity = v;
@@ -159,6 +196,11 @@ class SettingsProvider extends ChangeNotifier {
       final hazardIdx = prefs.getInt('hazard_sensitivity');
       if (hazardIdx != null && hazardIdx < HazardSensitivity.values.length) {
         _hazardSensitivity = HazardSensitivity.values[hazardIdx];
+      }
+
+      final promptIdx = prefs.getInt('prompt_profile');
+      if (promptIdx != null && promptIdx < PromptProfile.values.length) {
+        _promptProfile = PromptProfile.values[promptIdx];
       }
 
       final verbIdx = prefs.getInt('live_detection_verbosity');

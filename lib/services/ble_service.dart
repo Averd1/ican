@@ -5,6 +5,7 @@ import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:win_ble/win_ble.dart';
 import 'package:win_ble/win_file.dart' show WinServer;
 import '../protocol/ble_protocol.dart';
+import '../protocol/eye_capture_diagnostics.dart';
 import 'device_prefs_service.dart';
 import 'notification_service.dart';
 
@@ -46,7 +47,7 @@ class BleService extends ChangeNotifier {
   BleService._internal();
   // --- Singleton Setup ---
   static final BleService instance = BleService._internal();
-  
+
   // Eye connection state
   BleConnectionState _state = BleConnectionState.disconnected;
   BleConnectionState get state => _state;
@@ -90,9 +91,22 @@ class BleService extends ChangeNotifier {
   // Image Assembly State
   final _imageController = StreamController<Uint8List>.broadcast();
   Stream<Uint8List> get imageStream => _imageController.stream;
-  
+
+  final _eyeDiagnosticController =
+      StreamController<EyeCaptureDiagnostic>.broadcast();
+  Stream<EyeCaptureDiagnostic> get eyeCaptureDiagnosticStream =>
+      _eyeDiagnosticController.stream;
+
+  EyeCaptureDiagnostic? _lastEyeCaptureDiagnostic;
+  EyeCaptureDiagnostic? get lastEyeCaptureDiagnostic =>
+      _lastEyeCaptureDiagnostic;
+
   final _captureStartedController = StreamController<void>.broadcast();
   Stream<void> get captureStartedStream => _captureStartedController.stream;
+
+  // Button events from Eye (double-press triggers voice commands)
+  final _buttonEventController = StreamController<String>.broadcast();
+  Stream<String> get buttonEventStream => _buttonEventController.stream;
 
   // GPS data stream from Cane
   final _gpsController = StreamController<GpsPacket>.broadcast();
@@ -100,18 +114,25 @@ class BleService extends ChangeNotifier {
   GpsPacket? _lastGps;
   GpsPacket? get lastGps => _lastGps;
   StreamSubscription<List<int>>? _gpsSub;
-  
+
+  final EyeImageTransferAssembler _imageAssembler = EyeImageTransferAssembler();
+  // Legacy counters kept only for low-level debug logging while the structured
+  // assembler above owns actual frame validation and emission.
   final List<int> _imageBuffer = [];
   int _expectedImageSize = 0;
   int _lastSequenceNumber = -1;
   int _lostChunks = 0;
-  String _lastControlMessage = '';  // Dedup control messages
-  final Set<int> _seenSequenceNumbers = {};  // Dedup image chunks
+  final Set<int> _seenSequenceNumbers = {};
   bool _frameEmitted = false;
   int _frameSessionId = 0;
+  String _lastControlMessage = ''; // Dedup control messages
   DateTime? _lastControlMessageTime;
   Timer? _imageTimeoutTimer;
   String? _preferredEyeDeviceId;
+
+  static const Duration _imageTransferTimeout = Duration(seconds: 45);
+
+  bool get _legacyImageAssemblerEnabled => false;
 
   // Known MAC for the iCan Eye hardware. Used as fallback when no device has
   // been saved yet, and as the auto-connect target on startup.
@@ -139,9 +160,9 @@ class BleService extends ChangeNotifier {
 
   bool _isBleSupported() {
     return Platform.isAndroid ||
-           Platform.isIOS ||
-           Platform.isMacOS ||
-           Platform.isWindows;
+        Platform.isIOS ||
+        Platform.isMacOS ||
+        Platform.isWindows;
   }
 
   // ---------------------------------------------------------------------------
@@ -154,7 +175,8 @@ class BleService extends ChangeNotifier {
   Future<void> connectToEyeByMac(String mac) async {
     if (!_isBleSupported()) return;
     if (_state == BleConnectionState.connecting ||
-        _state == BleConnectionState.connected) return;
+        _state == BleConnectionState.connected)
+      return;
     _preferredEyeDeviceId = mac;
     debugPrint('[BLE] Connect Eye to $mac...');
     _setState(BleConnectionState.connecting);
@@ -167,7 +189,9 @@ class BleService extends ChangeNotifier {
       // per-device UUIDs. A MAC-format ID means we have no saved iOS UUID yet
       // (e.g. first launch). Fall through to a scan so we discover the Eye by
       // its service UUID and name, then save the real iOS UUID for next time.
-      debugPrint('[BLE] iOS: MAC-format ID not valid on CoreBluetooth — scanning instead.');
+      debugPrint(
+        '[BLE] iOS: MAC-format ID not valid on CoreBluetooth — scanning instead.',
+      );
       _setState(BleConnectionState.disconnected);
       await startScan();
     } else {
@@ -196,25 +220,31 @@ class BleService extends ChangeNotifier {
       await _winEyeScanSub?.cancel();
 
       final targetSvc = BleServices.eyeServiceUuid.toLowerCase();
-      final targetMac = (_preferredEyeDeviceId ?? fallbackEyeDeviceId).toLowerCase();
+      final targetMac = (_preferredEyeDeviceId ?? fallbackEyeDeviceId)
+          .toLowerCase();
 
       _winEyeScanSub = WinBle.scanStream.listen((device) {
-        final name = (device.name ?? '').trim();
-        final addr = (device.address ?? '').toLowerCase();
-        final svcUuids = (device.serviceUuids ?? [])
-            .map((u) => u.toString().toLowerCase().replaceAll(RegExp(r'[{}]'), ''))
+        final name = device.name.trim();
+        final addr = device.address.toLowerCase();
+        final svcUuids = device.serviceUuids
+            .map(
+              (u) => u.toString().toLowerCase().replaceAll(RegExp(r'[{}]'), ''),
+            )
             .toList();
 
         debugPrint('[BLE Eye Win] NEARBY: "$name" [$addr] services:$svcUuids');
 
         final isEyeByService = svcUuids.contains(targetSvc);
         final isEyeByMac = addr == targetMac;
-        final isEyeByName = name.toLowerCase().contains('eye') ||
+        final isEyeByName =
+            name.toLowerCase().contains('eye') ||
             name.toLowerCase().contains('ican');
 
         if (isEyeByService || isEyeByMac || isEyeByName) {
-          debugPrint('[BLE Eye Win] MATCH: "$name" [$addr] '
-              '(service=$isEyeByService mac=$isEyeByMac name=$isEyeByName)');
+          debugPrint(
+            '[BLE Eye Win] MATCH: "$name" [$addr] '
+            '(service=$isEyeByService mac=$isEyeByMac name=$isEyeByName)',
+          );
           WinBle.stopScanning();
           _winEyeScanSub?.cancel();
           _winEyeScanSub = null;
@@ -304,70 +334,87 @@ class BleService extends ChangeNotifier {
 
       // Image stream
       await WinBle.subscribeToCharacteristic(
-        address: mac, serviceId: svc,
+        address: mac,
+        serviceId: svc,
         characteristicId: BleCharacteristics.eyeImageStreamTx,
       );
-      _winImageSub = WinBle.characteristicValueStreamOf(
-        address: mac, serviceId: svc,
-        characteristicId: BleCharacteristics.eyeImageStreamTx,
-      ).listen((data) {
-        try {
-          final bytes = List<int>.from(data);
-          if (bytes.isNotEmpty) {
-            _handleIncomingImageChunk(Uint8List.fromList(bytes));
-          }
-        } catch (e) {
-          debugPrint('[BLE Eye] Image chunk error: $e');
-        }
-      }, onError: (e) {
-        debugPrint('[BLE Eye] Image stream ERROR: $e');
-      }, onDone: () {
-        debugPrint('[BLE Eye] Image stream DONE (closed).');
-      });
+      _winImageSub =
+          WinBle.characteristicValueStreamOf(
+            address: mac,
+            serviceId: svc,
+            characteristicId: BleCharacteristics.eyeImageStreamTx,
+          ).listen(
+            (data) {
+              try {
+                final bytes = List<int>.from(data);
+                if (bytes.isNotEmpty) {
+                  _handleIncomingImageChunk(Uint8List.fromList(bytes));
+                }
+              } catch (e) {
+                debugPrint('[BLE Eye] Image chunk error: $e');
+              }
+            },
+            onError: (e) {
+              debugPrint('[BLE Eye] Image stream ERROR: $e');
+            },
+            onDone: () {
+              debugPrint('[BLE Eye] Image stream DONE (closed).');
+            },
+          );
       debugPrint('[BLE Eye] Subscribed to image stream.');
 
       // Control / capture (ESP32 notifies SIZE/CRC/END on this characteristic)
       await WinBle.subscribeToCharacteristic(
-        address: mac, serviceId: svc,
+        address: mac,
+        serviceId: svc,
         characteristicId: BleCharacteristics.eyeCaptureRx,
       );
-      _winCaptureSub = WinBle.characteristicValueStreamOf(
-        address: mac, serviceId: svc,
-        characteristicId: BleCharacteristics.eyeCaptureRx,
-      ).listen((data) {
-        try {
-          final bytes = List<int>.from(data);
-          if (bytes.isNotEmpty) {
-            _handleEyeControlMessage(String.fromCharCodes(bytes));
-          }
-        } catch (e) {
-          debugPrint('[BLE Eye] Control msg error: $e');
-        }
-      }, onError: (e) {
-        debugPrint('[BLE Eye] Control stream ERROR: $e');
-      }, onDone: () {
-        debugPrint('[BLE Eye] Control stream DONE (closed).');
-      });
+      _winCaptureSub =
+          WinBle.characteristicValueStreamOf(
+            address: mac,
+            serviceId: svc,
+            characteristicId: BleCharacteristics.eyeCaptureRx,
+          ).listen(
+            (data) {
+              try {
+                final bytes = List<int>.from(data);
+                if (bytes.isNotEmpty) {
+                  _handleEyeControlMessage(String.fromCharCodes(bytes));
+                }
+              } catch (e) {
+                debugPrint('[BLE Eye] Control msg error: $e');
+              }
+            },
+            onError: (e) {
+              debugPrint('[BLE Eye] Control stream ERROR: $e');
+            },
+            onDone: () {
+              debugPrint('[BLE Eye] Control stream DONE (closed).');
+            },
+          );
       debugPrint('[BLE Eye] Subscribed to control/capture.');
 
       // Instant text
       await WinBle.subscribeToCharacteristic(
-        address: mac, serviceId: svc,
+        address: mac,
+        serviceId: svc,
         characteristicId: BleCharacteristics.eyeInstantTextTx,
       );
-      _winInstantTextSub = WinBle.characteristicValueStreamOf(
-        address: mac, serviceId: svc,
-        characteristicId: BleCharacteristics.eyeInstantTextTx,
-      ).listen((data) {
-        try {
-          final bytes = List<int>.from(data);
-          if (bytes.isNotEmpty) {
-            _instantTextController.add(String.fromCharCodes(bytes));
-          }
-        } catch (e) {
-          debugPrint('[BLE Eye] Instant text error: $e');
-        }
-      });
+      _winInstantTextSub =
+          WinBle.characteristicValueStreamOf(
+            address: mac,
+            serviceId: svc,
+            characteristicId: BleCharacteristics.eyeInstantTextTx,
+          ).listen((data) {
+            try {
+              final bytes = List<int>.from(data);
+              if (bytes.isNotEmpty) {
+                _instantTextController.add(String.fromCharCodes(bytes));
+              }
+            } catch (e) {
+              debugPrint('[BLE Eye] Instant text error: $e');
+            }
+          });
       debugPrint('[BLE Eye] Subscribed to instant text.');
 
       debugPrint('[BLE] Windows Eye subscriptions active.');
@@ -387,23 +434,28 @@ class BleService extends ChangeNotifier {
       _winCaneScanSub = null;
 
       _winCaneScanSub = WinBle.scanStream.listen((device) {
-        final name = (device.name ?? '').trim();
-        final addr = device.address ?? '';
-        final svcUuids = (device.serviceUuids ?? [])
+        final name = device.name.trim();
+        final addr = device.address;
+        final svcUuids = device.serviceUuids
             .map((u) => u.toString().toLowerCase())
             .toList();
         debugPrint('[BLE Cane Win] NEARBY: "$name" [$addr] services:$svcUuids');
 
-        final isCaneName = name.toLowerCase().contains('ican') ||
+        final isCaneName =
+            name.toLowerCase().contains('ican') ||
             name.toLowerCase().contains('cane');
         // win_ble wraps UUIDs in curly braces: {xxxxxxxx-...} — strip them
-        final isCaneService = svcUuids.any((uuid) =>
-            uuid.replaceAll('{', '').replaceAll('}', '') ==
-            BleServices.caneServiceUuid.toLowerCase());
+        final isCaneService = svcUuids.any(
+          (uuid) =>
+              uuid.replaceAll('{', '').replaceAll('}', '') ==
+              BleServices.caneServiceUuid.toLowerCase(),
+        );
 
         if (isCaneName || isCaneService) {
           debugPrint('[BLE Cane Win] MATCH: "$name" [$addr]');
-          try { WinBle.stopScanning(); } catch (_) {}
+          try {
+            WinBle.stopScanning();
+          } catch (_) {}
           _winCaneScanSub?.cancel();
           _winCaneScanSub = null;
           _connectWindowsCaneBle(addr);
@@ -416,7 +468,9 @@ class BleService extends ChangeNotifier {
       // Stop after 20 s if nothing found, then retry after 5 s
       Future.delayed(const Duration(seconds: 20), () {
         if (_caneState == BleConnectionState.scanning) {
-          try { WinBle.stopScanning(); } catch (_) {}
+          try {
+            WinBle.stopScanning();
+          } catch (_) {}
           _winCaneScanSub?.cancel();
           _winCaneScanSub = null;
           _setCaneState(BleConnectionState.disconnected);
@@ -441,7 +495,9 @@ class BleService extends ChangeNotifier {
       await _ensureWinBleInitialized();
       await _winCaneConnectionSub?.cancel();
 
-      _winCaneConnectionSub = WinBle.connectionStreamOf(mac).listen((connected) {
+      _winCaneConnectionSub = WinBle.connectionStreamOf(mac).listen((
+        connected,
+      ) {
         if (connected) {
           _winCaneMac = mac;
           _preferredCaneDeviceId = mac;
@@ -483,60 +539,70 @@ class BleService extends ChangeNotifier {
 
       // Obstacle Alert TX
       await WinBle.subscribeToCharacteristic(
-        address: mac, serviceId: svc,
+        address: mac,
+        serviceId: svc,
         characteristicId: BleCharacteristics.obstacleAlertTx,
       );
-      _winCaneObstacleSub = WinBle.characteristicValueStreamOf(
-        address: mac, serviceId: svc,
-        characteristicId: BleCharacteristics.obstacleAlertTx,
-      ).listen((data) {
-        if (data.isNotEmpty) {
-          try {
-            // win_ble delivers List<dynamic> — cast to List<int> first
-            final alert = ObstacleAlert.fromBytes(
-                Uint8List.fromList(List<int>.from(data)));
-            _obstacleController.add(alert);
-          } catch (e) {
-            debugPrint('[BLE Cane Win] Obstacle parse error: $e');
-          }
-        }
-      });
+      _winCaneObstacleSub =
+          WinBle.characteristicValueStreamOf(
+            address: mac,
+            serviceId: svc,
+            characteristicId: BleCharacteristics.obstacleAlertTx,
+          ).listen((data) {
+            if (data.isNotEmpty) {
+              try {
+                // win_ble delivers List<dynamic> — cast to List<int> first
+                final alert = ObstacleAlert.fromBytes(
+                  Uint8List.fromList(List<int>.from(data)),
+                );
+                _obstacleController.add(alert);
+              } catch (e) {
+                debugPrint('[BLE Cane Win] Obstacle parse error: $e');
+              }
+            }
+          });
 
       // IMU Telemetry TX
       await WinBle.subscribeToCharacteristic(
-        address: mac, serviceId: svc,
+        address: mac,
+        serviceId: svc,
         characteristicId: BleCharacteristics.imuTelemetryTx,
       );
-      _winCaneTelemetrySub = WinBle.characteristicValueStreamOf(
-        address: mac, serviceId: svc,
-        characteristicId: BleCharacteristics.imuTelemetryTx,
-      ).listen((data) {
-        if (data.isNotEmpty) {
-          onTelemetryReceived(Uint8List.fromList(List<int>.from(data)));
-        }
-      });
+      _winCaneTelemetrySub =
+          WinBle.characteristicValueStreamOf(
+            address: mac,
+            serviceId: svc,
+            characteristicId: BleCharacteristics.imuTelemetryTx,
+          ).listen((data) {
+            if (data.isNotEmpty) {
+              onTelemetryReceived(Uint8List.fromList(List<int>.from(data)));
+            }
+          });
 
       // GPS Data TX
       await WinBle.subscribeToCharacteristic(
-        address: mac, serviceId: svc,
+        address: mac,
+        serviceId: svc,
         characteristicId: BleCharacteristics.gpsDataTx,
       );
-      _winCaneGpsSub = WinBle.characteristicValueStreamOf(
-        address: mac, serviceId: svc,
-        characteristicId: BleCharacteristics.gpsDataTx,
-      ).listen((data) {
-        final bytes = List<int>.from(data);
-        if (bytes.length >= 19) {
-          try {
-            final pkt = GpsPacket.fromBytes(Uint8List.fromList(bytes));
-            _lastGps = pkt;
-            _gpsController.add(pkt);
-            notifyListeners();
-          } catch (e) {
-            debugPrint('[BLE Cane] GPS parse error: $e');
-          }
-        }
-      });
+      _winCaneGpsSub =
+          WinBle.characteristicValueStreamOf(
+            address: mac,
+            serviceId: svc,
+            characteristicId: BleCharacteristics.gpsDataTx,
+          ).listen((data) {
+            final bytes = List<int>.from(data);
+            if (bytes.length >= 19) {
+              try {
+                final pkt = GpsPacket.fromBytes(Uint8List.fromList(bytes));
+                _lastGps = pkt;
+                _gpsController.add(pkt);
+                notifyListeners();
+              } catch (e) {
+                debugPrint('[BLE Cane] GPS parse error: $e');
+              }
+            }
+          });
 
       debugPrint('[BLE Cane Win] Cane subscriptions active.');
     } catch (e) {
@@ -554,7 +620,8 @@ class BleService extends ChangeNotifier {
     if (!_isBleSupported()) return;
     if (_caneState == BleConnectionState.connecting ||
         _caneState == BleConnectionState.scanning ||
-        _caneState == BleConnectionState.connected) return;
+        _caneState == BleConnectionState.connected)
+      return;
     final saved = await DevicePrefsService.instance.getLastCaneDeviceId();
     if (saved != null && saved.isNotEmpty) {
       debugPrint('[BLE Cane] Saved MAC found: $saved — connecting directly.');
@@ -568,10 +635,14 @@ class BleService extends ChangeNotifier {
   /// Connect directly to the iCan Cane by MAC address — no scanning required.
   Future<void> connectToCaneByMac(String mac) async {
     if (!_isBleSupported()) return;
-    if (mac.isEmpty) { startScanForCane(); return; }
+    if (mac.isEmpty) {
+      startScanForCane();
+      return;
+    }
     if (_caneState == BleConnectionState.connecting ||
         _caneState == BleConnectionState.scanning ||
-        _caneState == BleConnectionState.connected) return;
+        _caneState == BleConnectionState.connected)
+      return;
     debugPrint('[BLE Cane] Direct connect to $mac...');
     _setCaneState(BleConnectionState.connecting);
     if (Platform.isWindows) {
@@ -597,7 +668,8 @@ class BleService extends ChangeNotifier {
     if (!_isBleSupported()) return;
     if (_caneState == BleConnectionState.connecting ||
         _caneState == BleConnectionState.scanning ||
-        _caneState == BleConnectionState.connected) return;
+        _caneState == BleConnectionState.connected)
+      return;
     debugPrint('[BLE Cane] Starting scan for iCan Cane...');
     _setCaneState(BleConnectionState.scanning);
 
@@ -625,9 +697,12 @@ class BleService extends ChangeNotifier {
           final serviceUuids = r.advertisementData.serviceUuids
               .map((u) => u.toString())
               .toList();
-          debugPrint('[BLE Cane] NEARBY: "$name" [$id] RSSI:${r.rssi} services:$serviceUuids');
+          debugPrint(
+            '[BLE Cane] NEARBY: "$name" [$id] RSSI:${r.rssi} services:$serviceUuids',
+          );
 
-          final isCaneName = name.toLowerCase().contains('ican') ||
+          final isCaneName =
+              name.toLowerCase().contains('ican') ||
               name.toLowerCase().contains('cane');
 
           bool isCaneService = false;
@@ -641,8 +716,10 @@ class BleService extends ChangeNotifier {
           } catch (_) {}
 
           if (isCaneName || isCaneService) {
-            debugPrint('[BLE Cane] MATCH: "$name" [$id] — connecting. '
-                'reason: name=$isCaneName service=$isCaneService');
+            debugPrint(
+              '[BLE Cane] MATCH: "$name" [$id] — connecting. '
+              'reason: name=$isCaneName service=$isCaneService',
+            );
             _caneScanSub?.cancel();
             _caneScanSub = null;
             FlutterBluePlus.stopScan().catchError((_) {});
@@ -682,13 +759,13 @@ class BleService extends ChangeNotifier {
       // If name is empty, we must rely on Service UUID (checked elsewhere)
       // or a direct MAC/ID match.
       return id.toUpperCase() == fallbackEyeDeviceId.toUpperCase() ||
-             id.toUpperCase() == _preferredEyeDeviceId?.toUpperCase();
+          id.toUpperCase() == _preferredEyeDeviceId?.toUpperCase();
     }
 
     final normalizedName = name.toLowerCase();
     final normalizedId = id.toUpperCase();
     final normalizedPreferred = _preferredEyeDeviceId?.toUpperCase();
-    
+
     return normalizedName == 'ican eye' ||
         normalizedName == 'xiao_camera' ||
         normalizedName.contains('ican') ||
@@ -717,11 +794,15 @@ class BleService extends ChangeNotifier {
 
   Future<void> _stopActiveScan() async {
     if (Platform.isWindows) {
-      try { WinBle.stopScanning(); } catch (_) {}
+      try {
+        WinBle.stopScanning();
+      } catch (_) {}
       await _winEyeScanSub?.cancel();
       _winEyeScanSub = null;
     } else {
-      try { await FlutterBluePlus.stopScan(); } catch (_) {}
+      try {
+        await FlutterBluePlus.stopScan();
+      } catch (_) {}
     }
     await _scanSub?.cancel();
     _scanSub = null;
@@ -745,13 +826,16 @@ class BleService extends ChangeNotifier {
     if (!Platform.isWindows) {
       final stateStream = FlutterBluePlus.adapterState;
       try {
-        final state = await stateStream.where((s) => s == BluetoothAdapterState.on).first.timeout(
-          const Duration(seconds: 5), 
-          onTimeout: () => BluetoothAdapterState.unknown
-        );
-            
+        final state = await stateStream
+            .where((s) => s == BluetoothAdapterState.on)
+            .first
+            .timeout(
+              const Duration(seconds: 5),
+              onTimeout: () => BluetoothAdapterState.unknown,
+            );
+
         debugPrint('[BLE] Bluetooth adapter state: $state');
-        
+
         if (state != BluetoothAdapterState.on) {
           debugPrint('[BLE] Error: Bluetooth is not turned on.');
           _setState(BleConnectionState.disconnected);
@@ -763,7 +847,9 @@ class BleService extends ChangeNotifier {
         return;
       }
     } else {
-      debugPrint('[BLE] Windows platform detected - skipping adapter state check');
+      debugPrint(
+        '[BLE] Windows platform detected - skipping adapter state check',
+      );
     }
 
     _setState(BleConnectionState.scanning);
@@ -774,46 +860,58 @@ class BleService extends ChangeNotifier {
       // Small delay after stop to let the adapter breathe
       await Future.delayed(const Duration(milliseconds: 200));
 
-      _scanSub = FlutterBluePlus.scanResults.listen((results) {
-        debugPrint('[BLE] Scan Results Received: ${results.length} devices found in this batch.');
-        
-        if (_state != BleConnectionState.scanning || _connectedDevice != null) {
-          return;
-        }
+      _scanSub = FlutterBluePlus.scanResults.listen(
+        (results) {
+          debugPrint(
+            '[BLE] Scan Results Received: ${results.length} devices found in this batch.',
+          );
 
-        for (var r in results) {
-          final id = r.device.remoteId.str;
-          final pName = r.device.platformName;
-          final aName = r.advertisementData.advName;
-          final name = pName.isNotEmpty ? pName : aName;
-          
-          debugPrint('[BLE] DISCOVERED: Name: "$name", ID: $id, RSSI: ${r.rssi}');
-          if (r.advertisementData.serviceUuids.isNotEmpty) {
-             debugPrint('[BLE]   Services: ${r.advertisementData.serviceUuids.join(', ')}');
-          }
-
-          final isEyeByNameOrId = _isEyeCandidate(name, id);
-          final isEyeByService = _isEyeServiceAdvertised(r.advertisementData);
-
-          if (isEyeByNameOrId || isEyeByService) {
-            debugPrint('[BLE] MATCH FOUND! Connecting to iCan Eye...');
-            debugPrint('[BLE]   Match Reason: Name/ID=$isEyeByNameOrId, Service=$isEyeByService');
-            
-            _stopActiveScan();
-            connectToEye(r.device);
+          if (_state != BleConnectionState.scanning ||
+              _connectedDevice != null) {
             return;
           }
-        }
-      }, onError: (e) {
-        debugPrint('[BLE] Scan result stream error: $e');
-      });
+
+          for (var r in results) {
+            final id = r.device.remoteId.str;
+            final pName = r.device.platformName;
+            final aName = r.advertisementData.advName;
+            final name = pName.isNotEmpty ? pName : aName;
+
+            debugPrint(
+              '[BLE] DISCOVERED: Name: "$name", ID: $id, RSSI: ${r.rssi}',
+            );
+            if (r.advertisementData.serviceUuids.isNotEmpty) {
+              debugPrint(
+                '[BLE]   Services: ${r.advertisementData.serviceUuids.join(', ')}',
+              );
+            }
+
+            final isEyeByNameOrId = _isEyeCandidate(name, id);
+            final isEyeByService = _isEyeServiceAdvertised(r.advertisementData);
+
+            if (isEyeByNameOrId || isEyeByService) {
+              debugPrint('[BLE] MATCH FOUND! Connecting to iCan Eye...');
+              debugPrint(
+                '[BLE]   Match Reason: Name/ID=$isEyeByNameOrId, Service=$isEyeByService',
+              );
+
+              _stopActiveScan();
+              connectToEye(r.device);
+              return;
+            }
+          }
+        },
+        onError: (e) {
+          debugPrint('[BLE] Scan result stream error: $e');
+        },
+      );
 
       debugPrint('[BLE] Calling FlutterBluePlus.startScan()');
       await FlutterBluePlus.startScan(timeout: const Duration(seconds: 15));
     } catch (e) {
       debugPrint('[BLE] Critical error during startScan: $e');
     }
-    
+
     debugPrint('[BLE] Scan finished.');
 
     await _stopActiveScan();
@@ -852,7 +950,9 @@ class BleService extends ChangeNotifier {
       await _discoverCaneServices(device);
 
       // Persist MAC for next app startup
-      await DevicePrefsService.instance.saveLastCaneDeviceId(device.remoteId.str);
+      await DevicePrefsService.instance.saveLastCaneDeviceId(
+        device.remoteId.str,
+      );
     } catch (e) {
       debugPrint('[BLE Cane] Connection error: $e');
       _setCaneState(BleConnectionState.disconnected);
@@ -872,25 +972,31 @@ class BleService extends ChangeNotifier {
     await _navSub?.cancel();
     await _obstacleSub?.cancel();
     await _telemetrySub?.cancel();
-    try { await _gpsDataChar?.setNotifyValue(false); } catch (_) {}
+    try {
+      await _gpsDataChar?.setNotifyValue(false);
+    } catch (_) {}
     await _gpsSub?.cancel();
     _gpsDataChar = null;
 
     final List<BluetoothService> services = await device.discoverServices();
     for (BluetoothService service in services) {
       if (service.uuid == Guid(BleServices.caneServiceUuid)) {
-        for (BluetoothCharacteristic characteristic in service.characteristics) {
+        for (BluetoothCharacteristic characteristic
+            in service.characteristics) {
           // Nav RX
           if (characteristic.uuid == Guid(BleCharacteristics.navCommandRx)) {
             _navRxChar = characteristic;
           }
           // Obstacle TX (Notify)
-          else if (characteristic.uuid == Guid(BleCharacteristics.obstacleAlertTx)) {
+          else if (characteristic.uuid ==
+              Guid(BleCharacteristics.obstacleAlertTx)) {
             await characteristic.setNotifyValue(true);
             _obstacleSub = characteristic.onValueReceived.listen((value) {
               if (value.isNotEmpty) {
                 try {
-                  final alert = ObstacleAlert.fromBytes(Uint8List.fromList(value));
+                  final alert = ObstacleAlert.fromBytes(
+                    Uint8List.fromList(value),
+                  );
                   _obstacleController.add(alert);
                 } catch (e) {
                   debugPrint('[BLE] Obstacle parse error: $e');
@@ -899,7 +1005,8 @@ class BleService extends ChangeNotifier {
             });
           }
           // Telemetry TX (Notify)
-          else if (characteristic.uuid == Guid(BleCharacteristics.imuTelemetryTx)) {
+          else if (characteristic.uuid ==
+              Guid(BleCharacteristics.imuTelemetryTx)) {
             await characteristic.setNotifyValue(true);
             _telemetrySub = characteristic.onValueReceived.listen((value) {
               if (value.isNotEmpty) {
@@ -933,7 +1040,7 @@ class BleService extends ChangeNotifier {
   Future<void> connectToEye(BluetoothDevice device) async {
     _setState(BleConnectionState.connecting);
     debugPrint('[BLE] Connecting to Eye: ${device.remoteId}');
-    
+
     try {
       // Only cancel the Eye scan subscription — do NOT call FlutterBluePlus.stopScan()
       // here because the Cane scan may be running on the same BLE radio.
@@ -941,23 +1048,30 @@ class BleService extends ChangeNotifier {
       _scanSub = null;
       await device.connect(autoConnect: false);
       _preferredEyeDeviceId = device.remoteId.str;
-      
+
       // Request MTU 517 for faster transfers
-      if (defaultTargetPlatform == TargetPlatform.android || defaultTargetPlatform == TargetPlatform.windows) {
-         try {
-           await device.requestMtu(517);
-           // Allow MTU to settle on Windows before discovering services
-           await Future.delayed(const Duration(milliseconds: 500));
-         } catch(e) {
-           debugPrint('[BLE] Failed to request MTU: $e');
-         }
+      if (defaultTargetPlatform == TargetPlatform.android ||
+          defaultTargetPlatform == TargetPlatform.windows) {
+        try {
+          await device.requestMtu(517);
+          // Allow MTU to settle on Windows before discovering services
+          await Future.delayed(const Duration(milliseconds: 500));
+        } catch (e) {
+          debugPrint('[BLE] Failed to request MTU: $e');
+        }
       }
 
       _connectedDevice = device;
       _connectionSub = device.connectionState.listen((state) {
         if (state == BluetoothConnectionState.disconnected) {
+          unawaited(
+            _cancelEyeNotificationSubscriptions(
+              disablePlatformNotifications: false,
+            ),
+          );
           _setState(BleConnectionState.disconnected);
           _connectedDevice = null;
+          _eyeCaptureRxChar = null;
           // Auto-reconnect: retry after 3 s if we still have a target MAC
           if (_preferredEyeDeviceId != null) {
             Future.delayed(const Duration(seconds: 3), () {
@@ -971,7 +1085,7 @@ class BleService extends ChangeNotifier {
 
       _setState(BleConnectionState.connected);
       await _discoverEyeServices(device);
-      
+
       // Persist this device ID for auto-connect on next app startup
       await DevicePrefsService.instance.saveLastDeviceId(device.remoteId.str);
     } catch (e) {
@@ -979,64 +1093,124 @@ class BleService extends ChangeNotifier {
       _setState(BleConnectionState.disconnected);
     }
   }
-  
+
   Future<void> _discoverEyeServices(BluetoothDevice device) async {
-    // Fully deregister previous platform-level notifications before canceling
-    // Dart subscriptions. setNotifyValue(false) is the only reliable way to
-    // stop underlying BLE callbacks that survive hot reloads.
-    try { await _eyeImageStreamChar?.setNotifyValue(false); } catch (_) {}
-    try { await _eyeCaptureChar?.setNotifyValue(false); } catch (_) {}
-    try { await _eyeInstantTextChar?.setNotifyValue(false); } catch (_) {}
-    await _eyeImageSub?.cancel();
-    await _eyeCaptureSub?.cancel();
-    await _eyeInstantTextSub?.cancel();
+    await _cancelEyeNotificationSubscriptions(
+      disablePlatformNotifications: true,
+    );
 
     final List<BluetoothService> services = await device.discoverServices();
     for (BluetoothService service in services) {
       if (service.uuid == Guid(BleServices.eyeServiceUuid)) {
-        for (BluetoothCharacteristic characteristic in service.characteristics) {
-          
+        for (BluetoothCharacteristic characteristic
+            in service.characteristics) {
           // Image Stream TX (Notify)
-          if (characteristic.uuid == Guid(BleCharacteristics.eyeImageStreamTx)) {
+          if (characteristic.uuid ==
+              Guid(BleCharacteristics.eyeImageStreamTx)) {
             _eyeImageStreamChar = characteristic;
-            await characteristic.setNotifyValue(true);
-            _eyeImageSub = characteristic.onValueReceived.listen((value) {
-              if (value.isNotEmpty) {
-                 _handleIncomingImageChunk(Uint8List.fromList(value));
-              }
-            });
+            _eyeImageSub = await _subscribeToEyeNotifications(
+              device,
+              characteristic,
+              'image stream',
+              (value) {
+                if (value.isNotEmpty) {
+                  _handleIncomingImageChunk(Uint8List.fromList(value));
+                }
+              },
+            );
           }
           // Control / Capture characteristic (Write + Notify)
-          else if (characteristic.uuid == Guid(BleCharacteristics.eyeCaptureRx)) {
+          else if (characteristic.uuid ==
+              Guid(BleCharacteristics.eyeCaptureRx)) {
             _eyeCaptureRxChar = characteristic;
             _eyeCaptureChar = characteristic;
-            await characteristic.setNotifyValue(true);
-            _eyeCaptureSub = characteristic.onValueReceived.listen((value) {
-              if (value.isNotEmpty) {
-                _handleEyeControlMessage(String.fromCharCodes(value));
-              }
-            });
+            _eyeCaptureSub = await _subscribeToEyeNotifications(
+              device,
+              characteristic,
+              'capture control',
+              (value) {
+                if (value.isNotEmpty) {
+                  _handleEyeControlMessage(String.fromCharCodes(value));
+                }
+              },
+            );
           }
           // Instant Text TX (Notify)
-          else if (characteristic.uuid == Guid(BleCharacteristics.eyeInstantTextTx)) {
-             _eyeInstantTextChar = characteristic;
-             await characteristic.setNotifyValue(true);
-             _eyeInstantTextSub = characteristic.onValueReceived.listen((value) {
-               if (value.isNotEmpty) {
+          else if (characteristic.uuid ==
+              Guid(BleCharacteristics.eyeInstantTextTx)) {
+            _eyeInstantTextChar = characteristic;
+            _eyeInstantTextSub = await _subscribeToEyeNotifications(
+              device,
+              characteristic,
+              'instant text',
+              (value) {
+                if (value.isNotEmpty) {
                   _instantTextController.add(String.fromCharCodes(value));
-               }
-             });
+                }
+              },
+            );
           }
         }
       }
     }
   }
 
+  Future<StreamSubscription<List<int>>> _subscribeToEyeNotifications(
+    BluetoothDevice device,
+    BluetoothCharacteristic characteristic,
+    String label,
+    void Function(List<int> value) onData,
+  ) async {
+    final subscription = characteristic.onValueReceived.listen(
+      onData,
+      onError: (Object error) {
+        debugPrint('[BLE Eye] $label notification error: $error');
+      },
+    );
+    device.cancelWhenDisconnected(subscription);
+    try {
+      await characteristic.setNotifyValue(true);
+      debugPrint('[BLE Eye] Notifications enabled for $label.');
+      return subscription;
+    } catch (e) {
+      await subscription.cancel();
+      debugPrint('[BLE Eye] Failed to enable $label notifications: $e');
+      rethrow;
+    }
+  }
+
+  Future<void> _cancelEyeNotificationSubscriptions({
+    required bool disablePlatformNotifications,
+  }) async {
+    if (disablePlatformNotifications) {
+      try {
+        await _eyeImageStreamChar?.setNotifyValue(false);
+      } catch (_) {}
+      try {
+        await _eyeCaptureChar?.setNotifyValue(false);
+      } catch (_) {}
+      try {
+        await _eyeInstantTextChar?.setNotifyValue(false);
+      } catch (_) {}
+    }
+    await _eyeImageSub?.cancel();
+    await _eyeCaptureSub?.cancel();
+    await _eyeInstantTextSub?.cancel();
+    _eyeImageSub = null;
+    _eyeCaptureSub = null;
+    _eyeInstantTextSub = null;
+    _eyeImageStreamChar = null;
+    _eyeCaptureChar = null;
+    _eyeCaptureRxChar = null;
+    _eyeInstantTextChar = null;
+  }
+
   void _handleEyeControlMessage(String message) {
     final now = DateTime.now();
 
     // Deduplicate: same message within 50ms = Windows BLE adapter double-fire
-    final isDuplicate = message == _lastControlMessage &&
+    final isDuplicate =
+        message == _lastControlMessage &&
         _lastControlMessageTime != null &&
         now.difference(_lastControlMessageTime!).inMilliseconds < 50;
 
@@ -1046,14 +1220,34 @@ class BleService extends ChangeNotifier {
     _lastControlMessageTime = now;
     debugPrint('[BLE Eye Msg] $message');
 
-    if (message.startsWith('SIZE:')) {
+    if (message.startsWith('BUTTON:')) {
+      _buttonEventController.add(message);
+      return;
+    }
+
+    final event = _imageAssembler.handleControlMessage(message);
+    if (event != null) {
+      if (event.captureStarted || event.sizeArrived) {
+        _captureStartedController.add(null);
+      }
+      if (event.progress) {
+        _armImageTransferTimeout();
+      }
+      _handleImageAssemblyEvent(event);
+    }
+
+    if (_legacyImageAssemblerEnabled && message.startsWith('SIZE:')) {
       final newSize = int.tryParse(message.substring(5)) ?? 0;
 
       // Ignore duplicate SIZE messages while we're already accumulating this
       // frame. iOS BLE can fire the same notification 2-3× and each duplicate
       // would wipe the buffer mid-transfer.
-      if (_imageBuffer.isNotEmpty && newSize == _expectedImageSize && !_frameEmitted) {
-        debugPrint('[BLE] Ignoring duplicate SIZE:$newSize (already buffering ${_imageBuffer.length} bytes)');
+      if (_imageBuffer.isNotEmpty &&
+          newSize == _expectedImageSize &&
+          !_frameEmitted) {
+        debugPrint(
+          '[BLE] Ignoring duplicate SIZE:$newSize (already buffering ${_imageBuffer.length} bytes)',
+        );
         return;
       }
 
@@ -1067,23 +1261,13 @@ class BleService extends ChangeNotifier {
       debugPrint('[BLE] Expecting image of size $_expectedImageSize bytes');
       _captureStartedController.add(null);
 
-      // Safety timeout: if END never arrives, emit what we have after 10s
+      _armImageTransferTimeout();
+    } else if (_legacyImageAssemblerEnabled && message.startsWith('END:')) {
       _imageTimeoutTimer?.cancel();
-      final timeoutSessionId = _frameSessionId;
-      _imageTimeoutTimer = Timer(const Duration(seconds: 5), () {
-        if (timeoutSessionId != _frameSessionId) return;
-        if (_imageBuffer.isNotEmpty && !_frameEmitted) {
-          debugPrint('[BLE] TIMEOUT: No END after 5s. Buffer=${_imageBuffer.length}/$_expectedImageSize bytes, chunks=${_seenSequenceNumbers.length}');
-          _emitImageIfValid(_imageBuffer);
-          _imageBuffer.clear();
-          _expectedImageSize = 0;
-        }
-      });
-
-    } else if (message.startsWith('END:')) {
-      _imageTimeoutTimer?.cancel();
-      debugPrint('[BLE] Transfer END. Buffer has ${_imageBuffer.length}/$_expectedImageSize bytes. '
-          'Chunks received: ${_seenSequenceNumbers.length}, Lost: $_lostChunks');
+      debugPrint(
+        '[BLE] Transfer END. Buffer has ${_imageBuffer.length}/$_expectedImageSize bytes. '
+        'Chunks received: ${_seenSequenceNumbers.length}, Lost: $_lostChunks',
+      );
 
       if (_imageBuffer.isEmpty || _frameEmitted) return;
 
@@ -1093,7 +1277,9 @@ class BleService extends ChangeNotifier {
         Future.delayed(const Duration(milliseconds: 300), () {
           if (endSessionId != _frameSessionId) return;
           if (_imageBuffer.isNotEmpty && !_frameEmitted) {
-            debugPrint('[BLE] Emitting ${_imageBuffer.length} bytes (partial).');
+            debugPrint(
+              '[BLE] Emitting ${_imageBuffer.length} bytes (partial).',
+            );
             _emitImageIfValid(_imageBuffer);
             _imageBuffer.clear();
             _expectedImageSize = 0;
@@ -1114,20 +1300,34 @@ class BleService extends ChangeNotifier {
       final header = ImagePacketHeader.fromBytes(data);
       final payload = data.sublist(ImagePacketHeader.headerSize);
 
+      final event = _imageAssembler.handleImageChunk(data);
+      if (event != null) {
+        if (event.progress) {
+          _armImageTransferTimeout();
+        }
+        _handleImageAssemblyEvent(event);
+      }
+
       // Log first chunk for diagnostics
       if (header.sequenceNumber == 0) {
-        debugPrint('[BLE] Chunk 0: ${data.length} bytes total, '
-            '${payload.length} payload, '
-            'header=[${data.take(4).map((b) => '0x${b.toRadixString(16).padLeft(2, '0')}').join(' ')}]');
+        debugPrint(
+          '[BLE] Chunk 0: ${data.length} bytes total, '
+          '${payload.length} payload, '
+          'header=[${data.take(4).map((b) => '0x${b.toRadixString(16).padLeft(2, '0')}').join(' ')}]',
+        );
       }
       // Log progress every 10 chunks
       if (header.sequenceNumber > 0 && header.sequenceNumber % 10 == 0) {
-        debugPrint('[BLE] Chunk ${header.sequenceNumber}: buffer=${_imageBuffer.length + payload.length}/$_expectedImageSize bytes');
+        debugPrint(
+          '[BLE] Chunk ${header.sequenceNumber}: buffer=${_imageBuffer.length + payload.length}/$_expectedImageSize bytes',
+        );
       }
 
       // Defensive reset: seq 0 without a prior SIZE: means we missed the control message
       if (header.sequenceNumber == 0 && _lastSequenceNumber != -1) {
-        debugPrint('[BLE] WARN: Got chunk 0 without SIZE: — clearing stale state.');
+        debugPrint(
+          '[BLE] WARN: Got chunk 0 without SIZE: — clearing stale state.',
+        );
         _imageBuffer.clear();
         _seenSequenceNumbers.clear();
         _lastSequenceNumber = -1;
@@ -1139,15 +1339,21 @@ class BleService extends ChangeNotifier {
       if (_seenSequenceNumbers.contains(header.sequenceNumber)) return;
       _seenSequenceNumbers.add(header.sequenceNumber);
 
-      if (_lastSequenceNumber != -1 && header.sequenceNumber != _lastSequenceNumber + 1) {
-        debugPrint('[BLE] WARN: Missed chunk! Expected ${_lastSequenceNumber + 1}, got ${header.sequenceNumber}');
+      if (_lastSequenceNumber != -1 &&
+          header.sequenceNumber != _lastSequenceNumber + 1) {
+        debugPrint(
+          '[BLE] WARN: Missed chunk! Expected ${_lastSequenceNumber + 1}, got ${header.sequenceNumber}',
+        );
         _lostChunks++;
       }
       _lastSequenceNumber = header.sequenceNumber;
 
-      _imageBuffer.addAll(payload);
+      // Structured assembler above owns buffering.
+      _armImageTransferTimeout();
 
-      if (_expectedImageSize > 0 && _imageBuffer.length >= _expectedImageSize && !_frameEmitted) {
+      if (_expectedImageSize > 0 &&
+          _imageBuffer.length >= _expectedImageSize &&
+          !_frameEmitted) {
         _emitImageIfValid(_imageBuffer);
         _imageBuffer.clear();
         _expectedImageSize = 0;
@@ -1157,13 +1363,72 @@ class BleService extends ChangeNotifier {
     }
   }
 
+  void _handleImageAssemblyEvent(EyeImageAssemblyEvent event) {
+    final diagnostic = event.diagnostic;
+    if (diagnostic != null) {
+      _imageTimeoutTimer?.cancel();
+      _lastEyeCaptureDiagnostic = diagnostic;
+      _eyeDiagnosticController.add(diagnostic);
+      debugPrint('[BLE Eye Diagnostic] ${diagnostic.spokenMessage}');
+      return;
+    }
+
+    final image = event.image;
+    if (image != null) {
+      _imageTimeoutTimer?.cancel();
+      debugPrint('[BLE] Emitting complete image (${image.length} bytes).');
+      _imageController.add(image);
+    }
+  }
+
+  @visibleForTesting
+  void handleEyeControlMessageForTesting(String message) {
+    _handleEyeControlMessage(message);
+  }
+
+  @visibleForTesting
+  void handleIncomingImageChunkForTesting(Uint8List data) {
+    _handleIncomingImageChunk(data);
+  }
+
+  @visibleForTesting
+  void emitEyeTimeoutForTesting() {
+    _emitImageTimeoutDiagnostic();
+  }
+
+  void _emitImageTimeoutDiagnostic() {
+    final diagnostic = _imageAssembler.handleTimeout();
+    _lastEyeCaptureDiagnostic = diagnostic;
+    _eyeDiagnosticController.add(diagnostic);
+    debugPrint('[BLE Eye Diagnostic] ${diagnostic.spokenMessage}');
+  }
+
+  void _cancelImageTransfer({bool reset = false}) {
+    _imageTimeoutTimer?.cancel();
+    _imageTimeoutTimer = null;
+    if (reset) {
+      _imageAssembler.reset();
+    }
+  }
+
+  void _armImageTransferTimeout() {
+    _imageTimeoutTimer?.cancel();
+    _imageTimeoutTimer = Timer(_imageTransferTimeout, () {
+      if (_imageAssembler.hasActiveTransfer) {
+        _emitImageTimeoutDiagnostic();
+      }
+    });
+  }
+
   void _emitImageIfValid(List<int> buffer) {
     final bytes = Uint8List.fromList(buffer);
 
     if (bytes.length < 2 || bytes[0] != 0xFF || bytes[1] != 0xD8) {
-      debugPrint('[BLE] ERROR: Not a valid JPEG (first 6 bytes: '
-          '${bytes.take(6).map((b) => '0x${b.toRadixString(16).padLeft(2, '0')}').join(' ')}). '
-          'Discarding ${bytes.length} bytes.');
+      debugPrint(
+        '[BLE] ERROR: Not a valid JPEG (first 6 bytes: '
+        '${bytes.take(6).map((b) => '0x${b.toRadixString(16).padLeft(2, '0')}').join(' ')}). '
+        'Discarding ${bytes.length} bytes.',
+      );
       return;
     }
 
@@ -1173,13 +1438,19 @@ class BleService extends ChangeNotifier {
     if (_expectedImageSize > 0) {
       final pct = bytes.length * 100 ~/ _expectedImageSize;
       if (pct < 75) {
-        debugPrint('[BLE] WARN: Image too incomplete '
-            '(${bytes.length}/$_expectedImageSize = $pct%). Discarding.');
+        debugPrint(
+          '[BLE] WARN: Image too incomplete '
+          '(${bytes.length}/$_expectedImageSize = $pct%). Discarding.',
+        );
         return;
       }
-      debugPrint('[BLE] Emitting ${bytes.length} bytes ($pct% of $_expectedImageSize expected).');
+      debugPrint(
+        '[BLE] Emitting ${bytes.length} bytes ($pct% of $_expectedImageSize expected).',
+      );
     } else {
-      debugPrint('[BLE] Emitting ${bytes.length} bytes (expected size unknown).');
+      debugPrint(
+        '[BLE] Emitting ${bytes.length} bytes (expected size unknown).',
+      );
     }
 
     _imageController.add(bytes);
@@ -1203,6 +1474,9 @@ class BleService extends ChangeNotifier {
           _connectedWindowsMac = null;
         }
       } else {
+        await _cancelEyeNotificationSubscriptions(
+          disablePlatformNotifications: true,
+        );
         if (_connectedDevice != null) {
           await _connectedDevice!.disconnect();
           _connectedDevice = null;
@@ -1222,7 +1496,9 @@ class BleService extends ChangeNotifier {
   /// Send a navigation command to the cane.
   Future<void> sendNavCommand(NavCommand command) async {
     if (_caneState != BleConnectionState.connected) return;
-    debugPrint('[BLE] Sending nav command: ${command.name} (0x${command.opcode.toRadixString(16)})');
+    debugPrint(
+      '[BLE] Sending nav command: ${command.name} (0x${command.opcode.toRadixString(16)})',
+    );
     if (Platform.isWindows) {
       if (_winCaneMac == null) return;
       await WinBle.write(
@@ -1265,7 +1541,11 @@ class BleService extends ChangeNotifier {
   }
 
   /// Remotely trigger a single image capture on the Eye.
-  Future<void> triggerEyeCapture() => _sendEyeCommand(EyeCommands.capture);
+  Future<void> triggerEyeCapture() {
+    _imageAssembler.beginCaptureCommand();
+    _armImageTransferTimeout();
+    return _sendEyeCommand(EyeCommands.capture);
+  }
 
   /// Start firmware-driven periodic capture at [intervalMs].
   /// The Eye will auto-capture and stream images until [stopLiveCapture] is called.
@@ -1285,6 +1565,9 @@ class BleService extends ChangeNotifier {
   // ---------------------------------------------------------------------------
 
   void _setState(BleConnectionState newState) {
+    if (newState == BleConnectionState.disconnected) {
+      _cancelImageTransfer(reset: true);
+    }
     _state = newState;
     notifyListeners();
   }
@@ -1299,7 +1582,9 @@ class BleService extends ChangeNotifier {
 
       // Rising-edge fall detection — trigger OS notification only on transition
       if (pkt.fallDetected && !_prevFallDetected) {
-        debugPrint('[BLE] FALL DETECTED — hr=${pkt.pulseBpm} bat=${pkt.batteryPercent}%');
+        debugPrint(
+          '[BLE] FALL DETECTED — hr=${pkt.pulseBpm} bat=${pkt.batteryPercent}%',
+        );
         NotificationService.showFallAlert();
       }
       _prevFallDetected = pkt.fallDetected;
@@ -1326,13 +1611,15 @@ class BleService extends ChangeNotifier {
       _stopActiveScan().catchError((e) {
         debugPrint('[BLE] Error stopping scan on dispose: $e');
       });
+      _cancelEyeNotificationSubscriptions(
+        disablePlatformNotifications: true,
+      ).catchError((Object e) {
+        debugPrint('[BLE] Error canceling Eye notifications: $e');
+      });
       _connectedDevice?.disconnect().catchError((e) {
         debugPrint('[BLE] Error disconnecting Eye on dispose: $e');
       });
       _connectionSub?.cancel();
-      _eyeImageSub?.cancel();
-      _eyeCaptureSub?.cancel();
-      _eyeInstantTextSub?.cancel();
     }
     _caneScanSub?.cancel();
     _caneDevice?.disconnect().catchError((e) {
@@ -1356,7 +1643,9 @@ class BleService extends ChangeNotifier {
     _obstacleController.close();
     _instantTextController.close();
     _imageController.close();
+    _eyeDiagnosticController.close();
     _captureStartedController.close();
+    _buttonEventController.close();
     _gpsController.close();
     super.dispose();
   }

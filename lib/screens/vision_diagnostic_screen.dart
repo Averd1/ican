@@ -174,7 +174,10 @@ class _VisionDiagnosticScreenState extends State<VisionDiagnosticScreen> {
 
     Clipboard.setData(ClipboardData(text: text.toString().trim()));
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Copied to clipboard'), duration: Duration(seconds: 2)),
+      const SnackBar(
+        content: Text('Copied to clipboard'),
+        duration: Duration(seconds: 2),
+      ),
     );
   }
 
@@ -248,7 +251,10 @@ class _VisionDiagnosticScreenState extends State<VisionDiagnosticScreen> {
             const SizedBox(height: 4),
             Text(
               _imageSource,
-              style: TextStyle(fontSize: 13.sp, color: AppColors.textSecondaryOnLight),
+              style: TextStyle(
+                fontSize: 13.sp,
+                color: AppColors.textSecondaryOnLight,
+              ),
             ),
             const SizedBox(height: AppSpacing.xs),
           ],
@@ -310,13 +316,12 @@ class _VisionDiagnosticScreenState extends State<VisionDiagnosticScreen> {
               ),
             ),
             items: _DiagBackend.values
-                .map((b) => DropdownMenuItem(
-                      value: b,
-                      child: Text(
-                        b.label,
-                        style: TextStyle(fontSize: 16.sp),
-                      ),
-                    ))
+                .map(
+                  (b) => DropdownMenuItem(
+                    value: b,
+                    child: Text(b.label, style: TextStyle(fontSize: 16.sp)),
+                  ),
+                )
                 .toList(),
             onChanged: _isRunning
                 ? null
@@ -388,7 +393,9 @@ class _VisionDiagnosticScreenState extends State<VisionDiagnosticScreen> {
           _ResultRow(label: 'Backend', value: _selectedBackend.label),
           _ResultRow(
             label: 'First token',
-            value: _timeToFirstTokenMs != null ? '${_timeToFirstTokenMs} ms' : '--',
+            value: _timeToFirstTokenMs != null
+                ? '${_timeToFirstTokenMs} ms'
+                : '--',
           ),
           _ResultRow(
             label: 'Total time',

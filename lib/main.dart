@@ -2,8 +2,15 @@ import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'core/router.dart';
 import 'core/theme.dart';
+import 'models/settings_provider.dart';
+import 'services/ble_service.dart';
 import 'services/notification_service.dart';
+import 'services/stt_service.dart';
 import 'services/tts_service.dart';
+import 'services/voice_command_service.dart';
+
+late final VoiceCommandService voiceCommandService;
+late final SettingsProvider appSettingsProvider;
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -15,6 +22,16 @@ Future<void> main() async {
   }
 
   await TtsService.instance.init();
+  await SttService.instance.init();
+
+  appSettingsProvider = SettingsProvider(ttsService: TtsService.instance);
+
+  voiceCommandService = VoiceCommandService(
+    tts: TtsService.instance,
+    stt: SttService.instance,
+    ble: BleService.instance,
+  );
+  voiceCommandService.attachSettings(appSettingsProvider);
 
   runApp(const ICanApp());
 }

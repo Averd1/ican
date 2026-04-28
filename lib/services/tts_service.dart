@@ -3,7 +3,18 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_tts/flutter_tts.dart';
 
-class TtsService extends ChangeNotifier {
+abstract interface class SpeechOutput {
+  Future<void> speak(String text);
+  Future<void> stop();
+}
+
+abstract interface class TtsSettingsController implements SpeechOutput {
+  double get rate;
+  void setRate(double rate);
+  void setVolume(double vol);
+}
+
+class TtsService extends ChangeNotifier implements TtsSettingsController {
   TtsService._();
   static final TtsService instance = TtsService._();
 
@@ -16,6 +27,7 @@ class TtsService extends ChangeNotifier {
   bool get isSpeaking => _isSpeaking;
 
   double _rate = 0.5;
+  @override
   double get rate => _rate;
 
   double _pitch = 1.0;
@@ -42,7 +54,8 @@ class TtsService extends ChangeNotifier {
           IosTextToSpeechAudioCategoryOptions.mixWithOthers,
           IosTextToSpeechAudioCategoryOptions.defaultToSpeaker,
           IosTextToSpeechAudioCategoryOptions.duckOthers,
-          IosTextToSpeechAudioCategoryOptions.interruptSpokenAudioAndMixWithOthers
+          IosTextToSpeechAudioCategoryOptions
+              .interruptSpokenAudioAndMixWithOthers,
         ],
         IosTextToSpeechAudioMode.defaultMode,
       );
@@ -50,7 +63,9 @@ class TtsService extends ChangeNotifier {
 
     if (Platform.isWindows || Platform.isIOS || Platform.isMacOS) {
       await _flutterTts.awaitSpeakCompletion(true);
-      debugPrint('[TTS] Using awaitSpeakCompletion mode (platform: ${Platform.operatingSystem}).');
+      debugPrint(
+        '[TTS] Using awaitSpeakCompletion mode (platform: ${Platform.operatingSystem}).',
+      );
     } else {
       _flutterTts.setCompletionHandler(() {
         Future.microtask(() {
@@ -77,6 +92,7 @@ class TtsService extends ChangeNotifier {
     debugPrint('[TTS] Initialized.');
   }
 
+  @override
   Future<void> speak(String text) async {
     if (text.isEmpty) return;
 
@@ -102,6 +118,7 @@ class TtsService extends ChangeNotifier {
     }
   }
 
+  @override
   Future<void> stop() async {
     try {
       await _flutterTts.stop();
@@ -112,6 +129,7 @@ class TtsService extends ChangeNotifier {
     notifyListeners();
   }
 
+  @override
   void setRate(double rate) {
     _rate = rate;
     _flutterTts.setSpeechRate(rate);
@@ -122,6 +140,7 @@ class TtsService extends ChangeNotifier {
     _flutterTts.setPitch(pitch);
   }
 
+  @override
   void setVolume(double vol) {
     _volume = vol.clamp(0.0, 1.0);
     _flutterTts.setVolume(_volume);

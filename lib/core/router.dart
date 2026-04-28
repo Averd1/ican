@@ -5,7 +5,6 @@ import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
 import '../models/home_view_model.dart';
-import '../models/settings_provider.dart';
 import '../screens/accessible_home_screen.dart';
 import '../screens/caretaker_dashboard_screen.dart';
 import '../screens/connection_error_screen.dart';
@@ -18,6 +17,7 @@ import '../screens/role_selection_screen.dart';
 import '../screens/settings_screen.dart';
 import '../screens/splash_screen.dart';
 import '../screens/vision_diagnostic_screen.dart';
+import '../main.dart' show appSettingsProvider, voiceCommandService;
 import '../services/on_device_vision_service.dart';
 import '../services/scene_description_service.dart';
 import '../services/tts_service.dart';
@@ -27,7 +27,7 @@ import 'route_constants.dart';
 import 'theme.dart';
 
 GoRouter buildRouter() {
-  return GoRouter(
+  final router = GoRouter(
     navigatorKey: Routes.navigatorKey,
     initialLocation: '/splash',
     debugLogDiagnostics: false,
@@ -61,10 +61,13 @@ GoRouter buildRouter() {
                         cloudService: aiService,
                         onDeviceService: onDeviceService,
                       )..loadSavedMode();
-                      return HomeViewModel(
+                      final vm = HomeViewModel(
                         sceneService: sceneService,
                         ttsService: TtsService.instance,
+                        settingsProvider: appSettingsProvider,
                       );
+                      voiceCommandService.attachHomeViewModel(vm);
+                      return vm;
                     },
                     child: const AccessibleHomeScreen(),
                   ),
@@ -82,9 +85,8 @@ GoRouter buildRouter() {
                 pageBuilder: (context, state) => _buildPage(
                   state: state,
                   name: Routes.settingsName,
-                  child: ChangeNotifierProvider(
-                    create: (_) =>
-                        SettingsProvider(ttsService: TtsService.instance),
+                  child: ChangeNotifierProvider.value(
+                    value: appSettingsProvider,
                     child: const SettingsScreen(),
                   ),
                 ),
@@ -127,22 +129,16 @@ GoRouter buildRouter() {
       GoRoute(
         path: '/nav',
         name: 'nav',
-        pageBuilder: (context, state) => _buildPage(
-          state: state,
-          name: 'nav',
-          child: const NavScreen(),
-        ),
+        pageBuilder: (context, state) =>
+            _buildPage(state: state, name: 'nav', child: const NavScreen()),
       ),
 
       // GPS screen
       GoRoute(
         path: '/gps',
         name: 'gps',
-        pageBuilder: (context, state) => _buildPage(
-          state: state,
-          name: 'gps',
-          child: const GpsScreen(),
-        ),
+        pageBuilder: (context, state) =>
+            _buildPage(state: state, name: 'gps', child: const GpsScreen()),
       ),
 
       // Live object detection (full-screen)
@@ -152,9 +148,8 @@ GoRouter buildRouter() {
         pageBuilder: (context, state) => _buildPage(
           state: state,
           name: 'live-detection',
-          child: ChangeNotifierProvider(
-            create: (_) =>
-                SettingsProvider(ttsService: TtsService.instance),
+          child: ChangeNotifierProvider.value(
+            value: appSettingsProvider,
             child: const LiveDetectionScreen(),
           ),
         ),
@@ -216,6 +211,8 @@ GoRouter buildRouter() {
       ),
     ],
   );
+  voiceCommandService.attachRouter(router);
+  return router;
 }
 
 // Page builder with fade transition and accessibility announcement

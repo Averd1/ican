@@ -1,0 +1,189 @@
+import 'dart:typed_data';
+
+import 'package:flutter_test/flutter_test.dart';
+import 'package:ican/models/home_view_model.dart';
+import 'package:ican/models/settings_provider.dart';
+import 'package:ican/protocol/eye_capture_diagnostics.dart';
+import 'package:ican/services/on_device_vision_service.dart';
+import 'package:ican/services/scene_description_service.dart';
+import 'package:ican/services/tts_service.dart';
+import 'package:ican/services/vertex_ai_service.dart';
+import 'package:image/image.dart' as img;
+import 'package:shared_preferences/shared_preferences.dart';
+
+void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
+  group('HomeViewModel vision diagnostics', () {
+    late _FakeSceneDescriptionService sceneService;
+    late _FakeSpeechOutput speech;
+    late HomeViewModel viewModel;
+
+    setUp(() async {
+      SharedPreferences.setMockInitialValues({});
+      sceneService = _FakeSceneDescriptionService();
+      speech = _FakeSpeechOutput();
+      viewModel = HomeViewModel(
+        sceneService: sceneService,
+        ttsService: speech,
+        settingsProvider: SettingsProvider(ttsService: speech),
+        processingTimeout: const Duration(milliseconds: 5),
+      );
+      await Future<void>.delayed(Duration.zero);
+      speech.spoken.clear();
+    });
+
+    tearDown(() {
+      viewModel.dispose();
+    });
+
+    test('speaks camera transfer failure when capture times out', () async {
+      viewModel.startCaptureTimeoutForTesting();
+
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+
+      expect(speech.spoken.last, startsWith('Eye E01:'));
+      expect(viewModel.isProcessing, isFalse);
+    });
+
+    test('speaks incomplete image failure without calling vision', () async {
+      await viewModel.processImageForTesting(
+        Uint8List.fromList([0xff, 0xd8, 0x00]),
+      );
+
+      expect(
+        speech.spoken.last,
+        startsWith('Eye E03: corrupt or incomplete JPEG.'),
+      );
+      expect(sceneService.describeCalls, 0);
+      expect(viewModel.isProcessing, isFalse);
+    });
+
+    test('speaks API-key cloud configuration failure', () async {
+      sceneService.error = CloudVisionException.missingApiKey();
+
+      await viewModel.processImageForTesting(_validJpeg());
+
+      expect(speech.spoken.last, 'Cloud C01: missing API key/config.');
+    });
+
+    test('speaks cloud HTTP failure status', () async {
+      sceneService.error = CloudVisionException.httpStatus(403);
+
+      await viewModel.processImageForTesting(_validJpeg());
+
+      expect(speech.spoken.last, 'Cloud C02: Gemini HTTP status failure 403.');
+    });
+
+    test('speaks cloud timeout failure', () async {
+      sceneService.error = CloudVisionException.timeout();
+
+      await viewModel.processImageForTesting(_validJpeg());
+
+      expect(speech.spoken.last, 'Cloud C03: cloud timeout/network failure.');
+    });
+
+    test('speaks local vision failure', () async {
+      sceneService.error = SceneDescriptionException.localVision(
+        Exception('Core ML failed'),
+      );
+
+      await viewModel.processImageForTesting(_validJpeg());
+
+      expect(speech.spoken.last, 'Local L01: Apple Vision/Core ML failure.');
+    });
+
+    test('speaks BLE CRC mismatch diagnostic exactly', () async {
+      viewModel.startCaptureTimeoutForTesting();
+
+      await viewModel.handleEyeCaptureDiagnosticForTesting(
+        const EyeCaptureDiagnostic(
+          code: EyeCaptureDiagnosticCode.crcMismatch,
+          captureStarted: true,
+          sizeArrived: true,
+          expectedBytes: 4,
+          receivedBytes: 4,
+          uniqueChunks: 1,
+          duplicateChunks: 0,
+          endArrived: true,
+          jpegMagicValid: true,
+          jpegEndValid: true,
+          expectedCrc: '11111111',
+          actualCrc: '22222222',
+        ),
+      );
+
+      expect(
+        speech.spoken.last,
+        'Eye E04: CRC mismatch. Expected 11111111, got 22222222. Received 4/4 bytes.',
+      );
+      expect(viewModel.lastDiagnostic, speech.spoken.last);
+    });
+
+    test('vision mode changes notify the view model', () async {
+      var notifications = 0;
+      viewModel.addListener(() {
+        notifications++;
+      });
+
+      await sceneService.setMode(VisionMode.cloudOnly);
+
+      expect(viewModel.visionMode, VisionMode.cloudOnly);
+      expect(notifications, greaterThan(0));
+    });
+  });
+}
+
+Uint8List _validJpeg() {
+  final image = img.Image(width: 2, height: 2);
+  return Uint8List.fromList(img.encodeJpg(image));
+}
+
+class _FakeSpeechOutput implements TtsSettingsController {
+  final List<String> spoken = [];
+  double _rate = 0.5;
+
+  @override
+  double get rate => _rate;
+
+  @override
+  Future<void> speak(String text) async {
+    spoken.add(text);
+  }
+
+  @override
+  Future<void> stop() async {}
+
+  @override
+  void setRate(double rate) {
+    _rate = rate;
+  }
+
+  @override
+  void setVolume(double vol) {}
+}
+
+class _FakeSceneDescriptionService extends SceneDescriptionService {
+  _FakeSceneDescriptionService()
+    : super(
+        cloudService: VertexAiService(apiKey: 'test-key'),
+        onDeviceService: _FakeOnDeviceVisionService(),
+      );
+
+  Object? error;
+  int describeCalls = 0;
+
+  @override
+  Stream<String> describeScene(
+    Uint8List imageBytes, {
+    required String systemPrompt,
+    void Function(String status, VisionBackend backend)? onStatusUpdate,
+  }) async* {
+    describeCalls++;
+    final failure = error;
+    if (failure != null) throw failure;
+    yield 'A hallway is clear.';
+  }
+}
+
+class _FakeOnDeviceVisionService extends OnDeviceVisionService {}

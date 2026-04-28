@@ -147,8 +147,7 @@ class _GpsScreenState extends State<GpsScreen> {
                           Text(
                             'iCan Cane',
                             style: theme.textTheme.bodyMedium?.copyWith(
-                              color:
-                                  theme.colorScheme.onSurface.withAlpha(153),
+                              color: theme.colorScheme.onSurface.withAlpha(153),
                               fontWeight: FontWeight.w500,
                             ),
                           ),
@@ -165,8 +164,7 @@ class _GpsScreenState extends State<GpsScreen> {
                     ),
                     if (!isConnected)
                       TextButton(
-                        onPressed: () =>
-                            BleService.instance.startScanForCane(),
+                        onPressed: () => BleService.instance.startScanForCane(),
                         child: const Text('Scan'),
                       ),
                   ],
@@ -186,16 +184,24 @@ class _GpsScreenState extends State<GpsScreen> {
                   child: Column(
                     children: [
                       Icon(
-                        hasFix ? Icons.gps_fixed_rounded : Icons.gps_not_fixed_rounded,
+                        hasFix
+                            ? Icons.gps_fixed_rounded
+                            : Icons.gps_not_fixed_rounded,
                         size: 56,
-                        color: hasFix ? Colors.green : theme.colorScheme.onSurface.withAlpha(100),
+                        color: hasFix
+                            ? Colors.green
+                            : theme.colorScheme.onSurface.withAlpha(100),
                       ),
                       const SizedBox(height: 12),
                       Text(
-                        hasFix ? 'GPS Fix Acquired' : 'Searching for satellites...',
+                        hasFix
+                            ? 'GPS Fix Acquired'
+                            : 'Searching for satellites...',
                         style: theme.textTheme.headlineSmall?.copyWith(
                           fontWeight: FontWeight.w700,
-                          color: hasFix ? Colors.green : theme.colorScheme.onSurface,
+                          color: hasFix
+                              ? Colors.green
+                              : theme.colorScheme.onSurface,
                         ),
                         textAlign: TextAlign.center,
                       ),
@@ -219,7 +225,9 @@ class _GpsScreenState extends State<GpsScreen> {
                           if (_latest != null)
                             Container(
                               padding: const EdgeInsets.symmetric(
-                                  horizontal: 10, vertical: 3),
+                                horizontal: 10,
+                                vertical: 3,
+                              ),
                               decoration: BoxDecoration(
                                 color: hasFix
                                     ? Colors.green.withAlpha(30)
@@ -251,7 +259,11 @@ class _GpsScreenState extends State<GpsScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    _sectionLabel(theme, Icons.location_on_rounded, 'Coordinates'),
+                    _sectionLabel(
+                      theme,
+                      Icons.location_on_rounded,
+                      'Coordinates',
+                    ),
                     const SizedBox(height: 16),
                     _coordRow(
                       theme,
@@ -283,7 +295,10 @@ class _GpsScreenState extends State<GpsScreen> {
                       child: Column(
                         children: [
                           _sectionLabel(
-                              theme, Icons.terrain_rounded, 'Altitude'),
+                            theme,
+                            Icons.terrain_rounded,
+                            'Altitude',
+                          ),
                           const SizedBox(height: 12),
                           Text(
                             (hasFix && _latest != null)
@@ -304,8 +319,7 @@ class _GpsScreenState extends State<GpsScreen> {
                       theme,
                       child: Column(
                         children: [
-                          _sectionLabel(
-                              theme, Icons.speed_rounded, 'Speed'),
+                          _sectionLabel(theme, Icons.speed_rounded, 'Speed'),
                           const SizedBox(height: 12),
                           Text(
                             (hasFix && _latest != null)
@@ -360,7 +374,7 @@ class _GpsScreenState extends State<GpsScreen> {
             color: Colors.black.withAlpha(38),
             blurRadius: 16,
             offset: const Offset(0, 8),
-          )
+          ),
         ],
         border: Border.all(
           color: theme.colorScheme.onSurface.withAlpha(13),
@@ -387,8 +401,11 @@ class _GpsScreenState extends State<GpsScreen> {
     );
   }
 
-  Widget _coordRow(ThemeData theme,
-      {required String label, required String value}) {
+  Widget _coordRow(
+    ThemeData theme, {
+    required String label,
+    required String value,
+  }) {
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [

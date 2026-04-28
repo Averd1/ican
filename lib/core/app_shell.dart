@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 
-import 'route_constants.dart';
 import 'theme.dart';
 
 class AppShell extends StatelessWidget {
@@ -121,10 +120,12 @@ class _AccessibleTab extends StatelessWidget {
     // plus selected state so VoiceOver/TalkBack announces "selected" automatically.
     final semanticLabel = '$label tab. $position of $totalTabs.';
 
-    final activeColor =
-        isDark ? AppColors.interactiveOnDark : AppColors.interactive;
-    final inactiveColor =
-        isDark ? AppColors.textSecondaryOnDark : AppColors.textSecondaryOnLight;
+    final activeColor = isDark
+        ? AppColors.interactiveOnDark
+        : AppColors.interactive;
+    final inactiveColor = isDark
+        ? AppColors.textSecondaryOnDark
+        : AppColors.textSecondaryOnLight;
     final color = isActive ? activeColor : inactiveColor;
 
     return Semantics(
@@ -140,9 +141,7 @@ class _AccessibleTab extends StatelessWidget {
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               // Icon: 32dp as specified
-              ExcludeSemantics(
-                child: Icon(icon, size: 32, color: color),
-              ),
+              ExcludeSemantics(child: Icon(icon, size: 32, color: color)),
               const SizedBox(height: 4),
               // Text label: always visible, weight change on active
               ExcludeSemantics(

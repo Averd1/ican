@@ -1,0 +1,158 @@
+import 'dart:async';
+
+import 'package:flutter_test/flutter_test.dart';
+import 'package:ican/services/voice_command_service.dart';
+import 'package:ican/services/voice_control_service.dart';
+
+void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
+  group('VoiceCommandService', () {
+    late _FakeTts tts;
+    late _FakeStt stt;
+    late _FakeBle ble;
+    late _FakeProcessor processor;
+    late VoiceCommandService service;
+
+    setUp(() {
+      tts = _FakeTts();
+      stt = _FakeStt();
+      ble = _FakeBle();
+      processor = _FakeProcessor();
+      service = VoiceCommandService.custom(
+        tts: tts,
+        stt: stt,
+        ble: ble,
+        processor: processor,
+      );
+    });
+
+    tearDown(() {
+      service.dispose();
+      stt.dispose();
+      ble.dispose();
+    });
+
+    test('activates listening and processes a spoken command', () async {
+      await service.activateVoiceCommand();
+
+      expect(service.state, VoiceCommandState.listening);
+      expect(stt.startCount, 1);
+      expect(tts.spoken, contains('Listening.'));
+
+      stt.emit('repeat last');
+      await Future<void>.delayed(Duration.zero);
+      await Future<void>.delayed(Duration.zero);
+
+      expect(service.partialText, 'repeat last');
+      expect(processor.transcripts, ['repeat last']);
+      expect(service.lastResult, 'Repeating the last description.');
+      expect(tts.spoken, contains('Repeating the last description.'));
+      expect(service.state, VoiceCommandState.idle);
+    });
+
+    test('records microphone unavailable as the last result', () async {
+      stt.available = false;
+      stt.initResult = false;
+
+      await service.activateVoiceCommand();
+
+      expect(service.state, VoiceCommandState.idle);
+      expect(service.lastResult, 'Microphone not available.');
+      expect(stt.startCount, 0);
+      expect(
+        tts.spoken,
+        contains('Microphone not available. Check permissions in settings.'),
+      );
+    });
+
+    test('Eye double button event activates voice command', () async {
+      ble.emit('BUTTON:DOUBLE');
+      await Future<void>.delayed(Duration.zero);
+
+      expect(service.state, VoiceCommandState.listening);
+      expect(stt.startCount, 1);
+    });
+  });
+}
+
+class _FakeTts implements VoiceCommandTts {
+  final List<String> spoken = [];
+  var stopCount = 0;
+
+  @override
+  Future<void> speak(String text) async {
+    spoken.add(text);
+  }
+
+  @override
+  Future<void> stop() async {
+    stopCount++;
+  }
+}
+
+class _FakeStt implements VoiceCommandStt {
+  final _controller = StreamController<String>.broadcast();
+  @override
+  var available = true;
+  var initResult = true;
+  var initCount = 0;
+  var startCount = 0;
+  var stopCount = 0;
+
+  @override
+  Stream<String> get resultStream => _controller.stream;
+
+  @override
+  Future<bool> init() async {
+    initCount++;
+    available = initResult;
+    return initResult;
+  }
+
+  @override
+  Future<void> startListening() async {
+    startCount++;
+  }
+
+  @override
+  Future<void> stopListening() async {
+    stopCount++;
+  }
+
+  void emit(String text) {
+    _controller.add(text);
+  }
+
+  void dispose() {
+    _controller.close();
+  }
+}
+
+class _FakeBle implements VoiceCommandBle {
+  final _controller = StreamController<String>.broadcast();
+
+  @override
+  Stream<String> get buttonEventStream => _controller.stream;
+
+  void emit(String event) {
+    _controller.add(event);
+  }
+
+  void dispose() {
+    _controller.close();
+  }
+}
+
+class _FakeProcessor implements VoiceCommandProcessor {
+  final List<String> transcripts = [];
+
+  @override
+  Future<VoiceActionResult> handleTranscript(String transcript) async {
+    transcripts.add(transcript);
+    return const VoiceActionResult(
+      success: true,
+      spokenConfirmation: 'Repeating the last description.',
+    );
+  }
+}

@@ -42,9 +42,10 @@ class _CaretakerDashboardScreenState extends State<CaretakerDashboardScreen>
       vsync: this,
       duration: const Duration(milliseconds: 300),
     );
-    _heartScale = Tween<double>(begin: 1.0, end: 1.35).animate(
-      CurvedAnimation(parent: _heartController, curve: Curves.easeOut),
-    );
+    _heartScale = Tween<double>(
+      begin: 1.0,
+      end: 1.35,
+    ).animate(CurvedAnimation(parent: _heartController, curve: Curves.easeOut));
 
     _telemetrySub = BleService.instance.telemetryStream.listen(_onTelemetry);
     BleService.instance.addListener(_onBleStateChanged);
@@ -69,7 +70,9 @@ class _CaretakerDashboardScreenState extends State<CaretakerDashboardScreen>
         _fallHistory.insert(0, _FallRecord(time: now)); // newest first
       });
       _showFallDialog();
-      debugPrint('[Caretaker] Fall recorded at $now. Total: ${_fallHistory.length}');
+      debugPrint(
+        '[Caretaker] Fall recorded at $now. Total: ${_fallHistory.length}',
+      );
     }
 
     // Firmware cleared the fall flag — ready for next event
@@ -94,11 +97,19 @@ class _CaretakerDashboardScreenState extends State<CaretakerDashboardScreen>
           backgroundColor: ICanTheme.surfaceCard,
           title: Row(
             children: [
-              const Icon(Icons.warning_rounded, color: Colors.redAccent, size: 28),
+              const Icon(
+                Icons.warning_rounded,
+                color: Colors.redAccent,
+                size: 28,
+              ),
               const SizedBox(width: 8),
-              Text('Fall Detected',
-                  style: TextStyle(
-                      color: Colors.redAccent, fontWeight: FontWeight.bold)),
+              Text(
+                'Fall Detected',
+                style: TextStyle(
+                  color: Colors.redAccent,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
             ],
           ),
           content: Text(
@@ -111,11 +122,14 @@ class _CaretakerDashboardScreenState extends State<CaretakerDashboardScreen>
                 Navigator.of(context).pop();
                 _acknowledgeFall();
               },
-              child: Text('Acknowledge',
-                  style: TextStyle(
-                      color: ICanTheme.accentOrange,
-                      fontWeight: FontWeight.bold,
-                      fontSize: 16)),
+              child: Text(
+                'Acknowledge',
+                style: TextStyle(
+                  color: ICanTheme.accentOrange,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 16,
+                ),
+              ),
             ),
           ],
         ),
@@ -132,7 +146,9 @@ class _CaretakerDashboardScreenState extends State<CaretakerDashboardScreen>
       }
     });
     NotificationService.cancelFallAlert();
-    debugPrint('[Caretaker] Fall acknowledged. History: ${_fallHistory.length} total.');
+    debugPrint(
+      '[Caretaker] Fall acknowledged. History: ${_fallHistory.length} total.',
+    );
   }
 
   void _onBleStateChanged() {
@@ -162,12 +178,6 @@ class _CaretakerDashboardScreenState extends State<CaretakerDashboardScreen>
       BleService.instance.caneState == BleConnectionState.scanning ||
       BleService.instance.caneState == BleConnectionState.connecting;
 
-  String _formatTime(DateTime dt) {
-    final h = dt.hour.toString().padLeft(2, '0');
-    final m = dt.minute.toString().padLeft(2, '0');
-    return '$h:$m';
-  }
-
   // Heart rate status label + color
   String _hrLabel(int bpm) {
     if (bpm < 40) return 'Too Low';
@@ -193,8 +203,7 @@ class _CaretakerDashboardScreenState extends State<CaretakerDashboardScreen>
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final bool hasFall =
-        (_latest?.fallDetected ?? false) && !_fallAcknowledged;
+    final bool hasFall = (_latest?.fallDetected ?? false) && !_fallAcknowledged;
 
     return Scaffold(
       backgroundColor: theme.scaffoldBackgroundColor,
@@ -203,8 +212,7 @@ class _CaretakerDashboardScreenState extends State<CaretakerDashboardScreen>
         centerTitle: true,
         leading: IconButton(
           icon: const Icon(CupertinoIcons.back),
-          onPressed: () =>
-              context.goNamed(Routes.homeName),
+          onPressed: () => context.goNamed(Routes.homeName),
           tooltip: 'Back',
         ),
       ),
@@ -237,8 +245,7 @@ class _CaretakerDashboardScreenState extends State<CaretakerDashboardScreen>
             _FallHistoryCard(history: _fallHistory),
             const SizedBox(height: 24),
             // Debug info strip
-            if (_latest != null)
-              _DebugStrip(pkt: _latest!),
+            if (_latest != null) _DebugStrip(pkt: _latest!),
           ],
         ),
       ),
@@ -287,14 +294,14 @@ class _ConnectionCard extends StatelessWidget {
     final Color dotColor = connected
         ? ICanTheme.success
         : scanning
-            ? ICanTheme.accentOrange
-            : ICanTheme.error;
+        ? ICanTheme.accentOrange
+        : ICanTheme.error;
 
     final String label = connected
         ? 'iCan Cane Connected'
         : scanning
-            ? 'Searching for iCan Cane...'
-            : 'iCan Cane Not Connected';
+        ? 'Searching for iCan Cane...'
+        : 'iCan Cane Not Connected';
 
     return _DashCard(
       child: Row(
@@ -303,19 +310,17 @@ class _ConnectionCard extends StatelessWidget {
           Container(
             width: 12,
             height: 12,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: dotColor,
-            ),
+            decoration: BoxDecoration(shape: BoxShape.circle, color: dotColor),
           ),
           const SizedBox(width: 12),
           Expanded(
             child: Text(
               label,
               style: const TextStyle(
-                  color: ICanTheme.textPrimary,
-                  fontSize: 16,
-                  fontWeight: FontWeight.w600),
+                color: ICanTheme.textPrimary,
+                fontSize: 16,
+                fontWeight: FontWeight.w600,
+              ),
             ),
           ),
           if (!connected)
@@ -326,24 +331,34 @@ class _ConnectionCard extends StatelessWidget {
                       width: 14,
                       height: 14,
                       child: CircularProgressIndicator(
-                          strokeWidth: 2, color: ICanTheme.accentOrange))
-                  : const Icon(Icons.bluetooth_searching,
-                      size: 18, color: ICanTheme.accentOrange),
+                        strokeWidth: 2,
+                        color: ICanTheme.accentOrange,
+                      ),
+                    )
+                  : const Icon(
+                      Icons.bluetooth_searching,
+                      size: 18,
+                      color: ICanTheme.accentOrange,
+                    ),
               label: Text(
                 scanning ? 'Scanning...' : 'Connect',
                 style: const TextStyle(
-                    color: ICanTheme.accentOrange, fontSize: 13),
+                  color: ICanTheme.accentOrange,
+                  fontSize: 13,
+                ),
               ),
               style: TextButton.styleFrom(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                 minimumSize: Size.zero,
                 tapTargetSize: MaterialTapTargetSize.shrinkWrap,
               ),
             )
           else
-            const Icon(Icons.bluetooth_connected,
-                color: ICanTheme.success, size: 22),
+            const Icon(
+              Icons.bluetooth_connected,
+              color: ICanTheme.success,
+              size: 22,
+            ),
         ],
       ),
     );
@@ -383,11 +398,14 @@ class _HeartRateCard extends StatelessWidget {
                 child: Icon(Icons.favorite_rounded, color: color, size: 22),
               ),
               const SizedBox(width: 8),
-              const Text('Heart Rate',
-                  style: TextStyle(
-                      color: ICanTheme.textSecondary,
-                      fontSize: 14,
-                      fontWeight: FontWeight.w500)),
+              const Text(
+                'Heart Rate',
+                style: TextStyle(
+                  color: ICanTheme.textSecondary,
+                  fontSize: 14,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
             ],
           ),
           const SizedBox(height: 10),
@@ -409,14 +427,18 @@ class _HeartRateCard extends StatelessWidget {
                 child: Text(
                   valid ? 'BPM' : 'No Signal',
                   style: const TextStyle(
-                      color: ICanTheme.textSecondary, fontSize: 16),
+                    color: ICanTheme.textSecondary,
+                    fontSize: 16,
+                  ),
                 ),
               ),
               const Spacer(),
               if (valid)
                 Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 4,
+                  ),
                   decoration: BoxDecoration(
                     color: color.withAlpha(38),
                     borderRadius: BorderRadius.circular(20),
@@ -424,9 +446,10 @@ class _HeartRateCard extends StatelessWidget {
                   child: Text(
                     hrLabel(bpm),
                     style: TextStyle(
-                        color: color,
-                        fontSize: 13,
-                        fontWeight: FontWeight.w600),
+                      color: color,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                    ),
                   ),
                 ),
             ],
@@ -448,39 +471,41 @@ class _HrRangeBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return LayoutBuilder(builder: (_, constraints) {
-      return Stack(
-        children: [
-          // Background track
-          Container(
-            height: 6,
-            width: double.infinity,
-            decoration: BoxDecoration(
-              color: Colors.white10,
-              borderRadius: BorderRadius.circular(3),
+    return LayoutBuilder(
+      builder: (_, constraints) {
+        return Stack(
+          children: [
+            // Background track
+            Container(
+              height: 6,
+              width: double.infinity,
+              decoration: BoxDecoration(
+                color: Colors.white10,
+                borderRadius: BorderRadius.circular(3),
+              ),
             ),
-          ),
-          // Filled portion
-          Container(
-            height: 6,
-            width: constraints.maxWidth * fraction,
-            decoration: BoxDecoration(
-              color: color,
-              borderRadius: BorderRadius.circular(3),
+            // Filled portion
+            Container(
+              height: 6,
+              width: constraints.maxWidth * fraction,
+              decoration: BoxDecoration(
+                color: color,
+                borderRadius: BorderRadius.circular(3),
+              ),
             ),
-          ),
-          // Normal zone markers (60–100 BPM = 31%–42% of 40–180 range)
-          Positioned(
-            left: constraints.maxWidth * 0.148, // 60 BPM
-            child: Container(width: 2, height: 6, color: Colors.white24),
-          ),
-          Positioned(
-            left: constraints.maxWidth * 0.429, // 100 BPM
-            child: Container(width: 2, height: 6, color: Colors.white24),
-          ),
-        ],
-      );
-    });
+            // Normal zone markers (60–100 BPM = 31%–42% of 40–180 range)
+            Positioned(
+              left: constraints.maxWidth * 0.148, // 60 BPM
+              child: Container(width: 2, height: 6, color: Colors.white24),
+            ),
+            Positioned(
+              left: constraints.maxWidth * 0.429, // 100 BPM
+              child: Container(width: 2, height: 6, color: Colors.white24),
+            ),
+          ],
+        );
+      },
+    );
   }
 }
 
@@ -496,8 +521,8 @@ class _BatteryCard extends StatelessWidget {
     final Color barColor = pct <= 20
         ? ICanTheme.error
         : pct <= 40
-            ? ICanTheme.accentOrange
-            : ICanTheme.success;
+        ? ICanTheme.accentOrange
+        : ICanTheme.success;
 
     return _DashCard(
       child: Column(
@@ -509,24 +534,30 @@ class _BatteryCard extends StatelessWidget {
                 pct <= 20
                     ? Icons.battery_alert_rounded
                     : pct <= 50
-                        ? Icons.battery_4_bar_rounded
-                        : Icons.battery_full_rounded,
+                    ? Icons.battery_4_bar_rounded
+                    : Icons.battery_full_rounded,
                 color: barColor,
                 size: 22,
               ),
               const SizedBox(width: 8),
-              const Text('Battery',
-                  style: TextStyle(
-                      color: ICanTheme.textSecondary,
-                      fontSize: 14,
-                      fontWeight: FontWeight.w500)),
+              const Text(
+                'Battery',
+                style: TextStyle(
+                  color: ICanTheme.textSecondary,
+                  fontSize: 14,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
               const Spacer(),
               Text(
                 hasData ? '$pct%' : '--',
                 style: TextStyle(
-                    color: hasData ? ICanTheme.textPrimary : ICanTheme.textSecondary,
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold),
+                  color: hasData
+                      ? ICanTheme.textPrimary
+                      : ICanTheme.textSecondary,
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                ),
               ),
             ],
           ),
@@ -564,8 +595,11 @@ class _FallAlertCard extends StatelessWidget {
       return _DashCard(
         child: Row(
           children: [
-            Icon(Icons.check_circle_outline_rounded,
-                color: ICanTheme.success, size: 22),
+            Icon(
+              Icons.check_circle_outline_rounded,
+              color: ICanTheme.success,
+              size: 22,
+            ),
             const SizedBox(width: 12),
             const Text(
               'No falls detected',
@@ -583,23 +617,29 @@ class _FallAlertCard extends StatelessWidget {
         children: [
           Row(
             children: [
-              const Icon(Icons.warning_rounded,
-                  color: Colors.redAccent, size: 24),
+              const Icon(
+                Icons.warning_rounded,
+                color: Colors.redAccent,
+                size: 24,
+              ),
               const SizedBox(width: 10),
               const Text(
                 'FALL DETECTED',
                 style: TextStyle(
-                    color: Colors.redAccent,
-                    fontSize: 17,
-                    fontWeight: FontWeight.bold,
-                    letterSpacing: 0.5),
+                  color: Colors.redAccent,
+                  fontSize: 17,
+                  fontWeight: FontWeight.bold,
+                  letterSpacing: 0.5,
+                ),
               ),
               const Spacer(),
               if (fallTime != null)
                 Text(
                   _formatTime(fallTime!),
                   style: const TextStyle(
-                      color: ICanTheme.textSecondary, fontSize: 13),
+                    color: ICanTheme.textSecondary,
+                    fontSize: 13,
+                  ),
                 ),
             ],
           ),
@@ -618,10 +658,13 @@ class _FallAlertCard extends StatelessWidget {
                 side: const BorderSide(color: Colors.redAccent),
                 foregroundColor: Colors.redAccent,
                 shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(10)),
+                  borderRadius: BorderRadius.circular(10),
+                ),
               ),
-              child: const Text('Acknowledge',
-                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+              child: const Text(
+                'Acknowledge',
+                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+              ),
             ),
           ),
         ],
@@ -638,9 +681,9 @@ class _FallAlertCard extends StatelessWidget {
 
 // --- Fall Record data class ---
 class _FallRecord {
-  _FallRecord({required this.time, this.acknowledged = false});
+  _FallRecord({required this.time});
   final DateTime time;
-  bool acknowledged;
+  bool acknowledged = false;
 }
 
 // --- Fall History Card ---
@@ -663,57 +706,67 @@ class _FallHistoryCard extends StatelessWidget {
         children: [
           Row(
             children: [
-              const Icon(Icons.history_rounded,
-                  color: ICanTheme.textSecondary, size: 20),
+              const Icon(
+                Icons.history_rounded,
+                color: ICanTheme.textSecondary,
+                size: 20,
+              ),
               const SizedBox(width: 8),
               Text(
                 'Fall History  (${history.length})',
                 style: const TextStyle(
-                    color: ICanTheme.textSecondary,
-                    fontSize: 14,
-                    fontWeight: FontWeight.w500),
+                  color: ICanTheme.textSecondary,
+                  fontSize: 14,
+                  fontWeight: FontWeight.w500,
+                ),
               ),
             ],
           ),
           if (history.isEmpty) ...[
             const SizedBox(height: 10),
-            const Text('No falls recorded this session.',
-                style: TextStyle(color: ICanTheme.textSecondary, fontSize: 14)),
+            const Text(
+              'No falls recorded this session.',
+              style: TextStyle(color: ICanTheme.textSecondary, fontSize: 14),
+            ),
           ] else ...[
             const SizedBox(height: 10),
-            ...history.map((r) => Padding(
-              padding: const EdgeInsets.only(bottom: 8),
-              child: Row(
-                children: [
-                  Icon(
-                    r.acknowledged
-                        ? Icons.check_circle_rounded
-                        : Icons.warning_rounded,
-                    color: r.acknowledged
-                        ? ICanTheme.textSecondary
-                        : Colors.redAccent,
-                    size: 16,
-                  ),
-                  const SizedBox(width: 8),
-                  Text(
-                    _fmt(r.time),
-                    style: const TextStyle(
+            ...history.map(
+              (r) => Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: Row(
+                  children: [
+                    Icon(
+                      r.acknowledged
+                          ? Icons.check_circle_rounded
+                          : Icons.warning_rounded,
+                      color: r.acknowledged
+                          ? ICanTheme.textSecondary
+                          : Colors.redAccent,
+                      size: 16,
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      _fmt(r.time),
+                      style: const TextStyle(
                         color: ICanTheme.textPrimary,
                         fontSize: 14,
-                        fontFamily: 'monospace'),
-                  ),
-                  const SizedBox(width: 8),
-                  Text(
-                    r.acknowledged ? 'Acknowledged' : 'Active',
-                    style: TextStyle(
+                        fontFamily: 'monospace',
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      r.acknowledged ? 'Acknowledged' : 'Active',
+                      style: TextStyle(
                         color: r.acknowledged
                             ? ICanTheme.textSecondary
                             : Colors.redAccent,
-                        fontSize: 12),
-                  ),
-                ],
+                        fontSize: 12,
+                      ),
+                    ),
+                  ],
+                ),
               ),
-            )),
+            ),
           ],
         ],
       ),
@@ -737,9 +790,10 @@ class _DebugStrip extends StatelessWidget {
       child: Text(
         'DEBUG: $pkt',
         style: const TextStyle(
-            color: ICanTheme.textSecondary,
-            fontSize: 11,
-            fontFamily: 'monospace'),
+          color: ICanTheme.textSecondary,
+          fontSize: 11,
+          fontFamily: 'monospace',
+        ),
       ),
     );
   }

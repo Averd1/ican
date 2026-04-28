@@ -1,108 +1,110 @@
-# iCan Eye — XIAO ESP32-S3 Camera Module
+# iCan Eye Firmware
 
-## Links
+Target: Seeed Studio XIAO ESP32S3 Sense.
 
-- [Production Docs](https://wiki.seeedstudio.com/xiao_esp32s3_getting_started/#for-seeed-studio-xiao-esp32s3)
-- [Camera Reference](https://github.com/limengdu/SeeedStudio-XIAO-ESP32S3-Sense-camera)
-- [ESP TFLite Micro](https://github.com/espressif/esp-tflite-micro)
-- [Google LiteRT](https://ai.google.dev/edge/litert)
+The production firmware is the PlatformIO app in `src/main.cpp`. The older
+Arduino sketches in `arduino_examples/` are reference prototypes only.
 
----
+## Current Stack
 
-## BLE Camera — Quick Start
+- Board: `seeed_xiao_esp32s3`
+- Platform: `espressif32@6.13.0`
+- Framework: Arduino ESP32
+- Camera: XIAO Sense camera through `esp_camera`
+- BLE peripheral name: `iCan Eye`
+- BLE protocol source of truth: `../../protocol/ble_protocol.yaml`
 
-Captures a JPEG photo on the XIAO ESP32-S3 Sense and transfers it to your computer
-over Bluetooth Low Energy using a reliable chunked protocol.
+The XIAO ESP32S3 Sense camera examples from Seeed apply to both the older
+OV2640 and newer OV3660 camera modules. The firmware therefore avoids
+sensor-model-specific assumptions where possible.
 
-### Files
+## BLE Protocol
 
-| File | Description |
-|------|-------------|
-| `arduino_examples/ble_camera.ino` | V1 firmware — fixed resolution (QVGA 320x240) |
-| `test_scripts/receive_photo.py` | V1 receiver — single capture |
-| `arduino_examples/ble_camera_v2.ino` | **V2 firmware** — selectable quality profiles |
-| `test_scripts/receive_photo_v2.py` | **V2 receiver** — interactive, multi-capture |
-| `include/camera_pins.h` | Camera GPIO pin definitions (shared) |
+Service:
 
-### Quality Profiles (V2)
+- `20000001-2000-2000-2000-200000000000`
 
-| # | Name | Resolution | JPEG Quality | Est. Size | Est. Transfer |
-|---|------|-----------|-------------|-----------|--------------|
-| 0 | FAST | 320×240 | 15 | ~3-5 KB | ~2s |
-| 1 | BALANCED | 640×480 | 12 | ~15-25 KB | ~8s |
-| 2 | QUALITY | 800×600 | 10 | ~30-50 KB | ~15s |
-| 3 | MAX | 1600×1200 | 10 | ~80-150 KB | ~45s |
+Characteristics:
 
-> **Note:** The OV2640 sensor maxes out at 1600×1200 (UXGA). The XIAO ESP32-S3 Sense has
-> 8MB PSRAM which is used for frame buffers at higher resolutions.
+- `20000002-2000-2000-2000-200000000000`: instant text notify
+- `20000003-2000-2000-2000-200000000000`: image stream notify
+- `20000004-2000-2000-2000-200000000000`: command write and control notify
 
-### 1. Flash the ESP32
+Commands from app to Eye:
 
-1. Install the **ESP32 board package** in Arduino IDE  
-   *(Board Manager → search "esp32" → install by Espressif)*
-2. Select board: **XIAO_ESP32S3**
-3. Open `arduino_examples/ble_camera.ino`
-4. **Important:** Copy `include/camera_pins.h` into the same folder as the `.ino`,  
-   or put it in the Arduino `libraries/` include path
-5. Upload
+- `CAPTURE`
+- `LIVE_START:{intervalMs}` where firmware clamps to 500-10000 ms
+- `LIVE_STOP`
+- `PROFILE:{index}`
+- `STATUS`
 
-The Serial Monitor (115200 baud) should show:
-```
-=== iCan Eye BLE Camera ===
-[CAM] Camera initialized
-[CAM] Warm-up complete
-[BLE] Advertising as 'XIAO_Camera' — waiting for connection...
-```
+Events from Eye to app:
 
-### 2. Receive Photos (Python)
+- `BUTTON:DOUBLE`
+- `SIZE:{bytes}`
+- `END:{chunks}`
+- `STATUS:{profileIndex}:{profileName}:{IDLE|LIVE}:{intervalMs}`
+- `ERR:{code}`
 
-```bash
-pip install bleak
-```
+Image chunks are `[uint16_le sequence][jpeg payload]`, capped by negotiated
+BLE MTU and `IMAGE_MAX_PAYLOAD`.
 
-**V1 (single capture):**
-```bash
-python test_scripts/receive_photo.py
-```
+## Camera Profiles
 
-**V2 (interactive, recommended):**
-```bash
-# Start with BALANCED profile, interactive mode
-python test_scripts/receive_photo_v2.py
+| Index | Name | Resolution | JPEG Quality |
+| --- | --- | --- | --- |
+| 0 | FAST | VGA 640x480 | 12 |
+| 1 | BALANCED | SVGA 800x600 | 10 |
+| 2 | QUALITY | XGA 1024x768 | 8 |
+| 3 | MAX | UXGA 1600x1200 | 8 |
 
-# Start with QUALITY profile
-python test_scripts/receive_photo_v2.py --profile 2
+Lower JPEG quality numbers mean higher image quality and larger files.
 
-# Single MAX capture then exit
-python test_scripts/receive_photo_v2.py --profile 3 --once
+## Build
+
+Run from `firmware/ican_eye`:
+
+```powershell
+py -m platformio run -e xiao_esp32s3
 ```
 
-V2 interactive commands:
-| Input | Action |
-|-------|--------|
-| `Enter` | Capture a photo |
-| `0`-`3` | Switch quality profile |
-| `q` | Quit |
+Optional isolated builds:
 
-### Troubleshooting
-
-| Symptom | Fix |
-|---------|-----|
-| **Device not found** | Ensure ESP32 is powered, check Serial Monitor for advertising message, enable Bluetooth on PC |
-| **CRC mismatch** | Usually a one-off BLE glitch — the script retries automatically |
-| **Image too dark/bright** | The firmware warms up the sensor on boot. Wait a few seconds after power-on before capturing |
-| **Compile error:** `camera_pins.h not found` | Copy the file into the same folder as `ble_camera.ino` |
-| **Compile error:** `esp_rom_crc.h not found` | Update your ESP32 board package to the latest version |
-
-### Protocol Overview
-
-```
-Control Char (notify):  ESP32 → PC     "SIZE:12345"   (image size in bytes)
-                        ESP32 → PC     "CRC:AABBCCDD" (CRC32 hex)
-                        ESP32 → PC     "END:42"       (total chunk count)
-Control Char (write):   PC → ESP32     "CAPTURE"      (trigger photo)
-Data Char (notify):     ESP32 → PC     [2B seq#][180B data]  (image chunks)
+```powershell
+py -m platformio run -e test_camera
+py -m platformio run -e test_ble_stream
+py -m platformio run -e test_blink
 ```
 
-Each data chunk has a 2-byte little-endian sequence number so the receiver can
-detect dropped or reordered packets.
+## Flash
+
+Connect the Eye over USB. Find the COM port:
+
+```powershell
+py -m platformio device list
+```
+
+Upload, replacing `COM4` with the actual port:
+
+```powershell
+py -m platformio run -e xiao_esp32s3 -t upload --upload-port COM4
+```
+
+Monitor:
+
+```powershell
+py -m platformio device monitor -p COM4 -b 115200
+```
+
+Close the monitor before uploading again.
+
+## Demo Acceptance Gate
+
+- Full firmware builds with no camera deprecation warnings.
+- App protocol tests pass.
+- Eye advertises as `iCan Eye`.
+- App connects by Eye service UUID.
+- `STATUS` returns a control notification.
+- Single press captures and streams a JPEG.
+- Double press emits `BUTTON:DOUBLE`.
+- `LIVE_START` and `LIVE_STOP` operate without disconnecting.

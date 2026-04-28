@@ -1,7 +1,7 @@
 /**
  * camera.h — Camera Module Interface
  *
- * Wraps the OV2640 camera on the XIAO ESP32-S3 Sense behind a clean
+ * Wraps the XIAO ESP32-S3 Sense camera behind a clean
  * init / capture / profile API.  Callers never touch esp_camera directly.
  */
 

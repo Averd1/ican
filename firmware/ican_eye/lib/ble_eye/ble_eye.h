@@ -61,7 +61,7 @@ EyeCommandData getLastEyeCommand();
 /**
  * Send a status/control message to the connected client via the
  * control (capture) characteristic as a notify.
- * Examples: "SIZE:12345", "CRC:AABBCCDD", "END:42"
+ * Examples: "SIZE:12345", "END:42", "STATUS:1:BALANCED:IDLE:1500"
  */
 void sendControlMessage(const char *msg);
 

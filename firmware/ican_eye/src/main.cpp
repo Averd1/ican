@@ -8,8 +8,8 @@
  * connected BLE client (phone or computer).
  *
  * Subsystems (see lib/ for individual module implementations):
- *   - Camera: OV2640 via esp_camera, profile-based quality selection
- *   - BLE: NimBLE peripheral using shared iCan Eye service UUIDs
+ *   - Camera: XIAO Sense camera via esp_camera, profile-based JPEG capture
+ *   - BLE: ESP32 BLE peripheral using shared iCan Eye service UUIDs
  *
  * ============================================================================
  */
@@ -172,11 +172,14 @@ void loop() {
       Serial.println("[Main] Capture requested but no client connected.");
       break;
     }
+    sendControlMessage("CAPTURE:START");
     camera_fb_t *fb = capturePhoto();
     if (fb) {
       streamImageViaBle(fb->buf, fb->len,
                         profiles[getCurrentProfile()].name);
       esp_camera_fb_return(fb);
+    } else {
+      sendControlMessage("ERR:CAMERA_CAPTURE_FAILED");
     }
     break;
   }
@@ -214,6 +217,13 @@ void loop() {
     Serial.printf("[Main] Current profile: %d (%s), live=%s\n",
                   getCurrentProfile(), profiles[getCurrentProfile()].name,
                   liveMode ? "ON" : "OFF");
+    {
+      char msg[96];
+      snprintf(msg, sizeof(msg), "STATUS:%d:%s:%s:%d", getCurrentProfile(),
+               profiles[getCurrentProfile()].name, liveMode ? "LIVE" : "IDLE",
+               liveIntervalMs);
+      sendControlMessage(msg);
+    }
     break;
 
   case EYE_CMD_NONE:
@@ -226,11 +236,14 @@ void loop() {
     unsigned long now = millis();
     if (now - lastLiveCaptureMs >= (unsigned long)liveIntervalMs) {
       lastLiveCaptureMs = now;
+      sendControlMessage("CAPTURE:START");
       camera_fb_t *fb = capturePhoto();
       if (fb) {
         streamImageViaBle(fb->buf, fb->len,
                           profiles[getCurrentProfile()].name);
         esp_camera_fb_return(fb);
+      } else {
+        sendControlMessage("ERR:CAMERA_CAPTURE_FAILED");
       }
     }
   }

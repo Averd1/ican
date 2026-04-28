@@ -27,6 +27,8 @@ class _DetectionEvent {
   });
 }
 
+enum _LiveDetectionMode { full, basic }
+
 class LiveDetectionScreen extends StatefulWidget {
   const LiveDetectionScreen({super.key});
 
@@ -45,6 +47,8 @@ class _LiveDetectionScreenState extends State<LiveDetectionScreen> {
   StreamSubscription<Uint8List>? _imageSub;
   bool _processing = false;
   bool _liveStarted = false;
+  _LiveDetectionMode _mode = _LiveDetectionMode.basic;
+  String? _modeHint;
 
   Uint8List? _latestImage;
   List<SpatialObjectData> _detections = [];
@@ -58,19 +62,6 @@ class _LiveDetectionScreenState extends State<LiveDetectionScreen> {
   }
 
   Future<void> _checkPrerequisites() async {
-    final modelAvailable = await _vision.isObjectDetectionAvailable();
-    if (!modelAvailable) {
-      if (!mounted) return;
-      setState(() {
-        _checkingPrereqs = false;
-        _errorMessage = 'Object detection model not loaded.';
-        _errorHint =
-            'On your Mac, run download_coreml_models.sh and add '
-            'YOLOv3Tiny.mlmodel to the Xcode Runner target.';
-      });
-      return;
-    }
-
     if (BleService.instance.state != BleConnectionState.connected) {
       if (!mounted) return;
       setState(() {
@@ -82,15 +73,42 @@ class _LiveDetectionScreenState extends State<LiveDetectionScreen> {
       return;
     }
 
+    final nativeReady = await _vision.pingNativeChannel();
+    final appleVisionReady =
+        nativeReady && await _vision.isAppleVisionAvailable();
+    final status = await _vision.getOfflineVisionStatus();
+    final diagnostics = await _vision.getOfflineVisionDiagnostics();
+    if (!nativeReady || !appleVisionReady) {
+      if (!mounted) return;
+      setState(() {
+        _checkingPrereqs = false;
+        _errorMessage = 'Live Detection is unavailable on this iPhone.';
+        _errorHint = nativeReady
+            ? 'Apple Vision is unavailable on this device.'
+            : 'Native vision channel is not registered.';
+      });
+      return;
+    }
+
     if (!mounted) return;
-    setState(() => _checkingPrereqs = false);
+    setState(() {
+      _checkingPrereqs = false;
+      _mode = status.objectDetectionAvailable
+          ? _LiveDetectionMode.full
+          : _LiveDetectionMode.basic;
+      _modeHint = _mode == _LiveDetectionMode.basic
+          ? 'Basic live mode: ${diagnostics.objectDetector.message}'
+          : null;
+    });
     _startCaptureLoop();
   }
 
   Future<void> _startCaptureLoop() async {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       SemanticsService.announce(
-        'Live detection started. Objects will be announced as they are detected.',
+        _mode == _LiveDetectionMode.full
+            ? 'Full live detection started. Objects will be announced as they are detected.'
+            : 'Basic live mode started. Text, people, and scene cues will be announced.',
         TextDirection.ltr,
       );
     });
@@ -118,6 +136,12 @@ class _LiveDetectionScreenState extends State<LiveDetectionScreen> {
     try {
       final result = await _vision.analyzeScene(imageBytes);
       if (!mounted) {
+        _processing = false;
+        return;
+      }
+
+      if (_mode == _LiveDetectionMode.basic) {
+        _handleBasicResult(result);
         _processing = false;
         return;
       }
@@ -192,6 +216,67 @@ class _LiveDetectionScreenState extends State<LiveDetectionScreen> {
     }
 
     _processing = false;
+  }
+
+  void _handleBasicResult(ScenePerceptionResult result) {
+    final now = DateTime.now();
+    final cues = <_DetectionEvent>[];
+
+    if (result.personCount > 0) {
+      cues.add(
+        _DetectionEvent(
+          label: result.personCount == 1
+              ? '1 person detected'
+              : '${result.personCount} people detected',
+          position: '',
+          confidence: 1,
+          timestamp: now,
+        ),
+      );
+    }
+
+    if (result.ocrTexts.isNotEmpty) {
+      cues.add(
+        _DetectionEvent(
+          label: 'Text: ${result.ocrTexts.take(2).join(', ')}',
+          position: '',
+          confidence: 1,
+          timestamp: now,
+        ),
+      );
+    }
+
+    if (result.sceneClassification != 'unknown' &&
+        result.sceneConfidence > 0.25) {
+      cues.add(
+        _DetectionEvent(
+          label: '${result.sceneClassification.replaceAll('_', ' ')} setting',
+          position: '',
+          confidence: result.sceneConfidence,
+          timestamp: now,
+        ),
+      );
+    }
+
+    if (cues.isEmpty) return;
+    final spoken = cues.map((cue) => cue.label).join(', ');
+    final lastTime = _lastAnnounced[spoken];
+    if (lastTime == null ||
+        now.difference(lastTime) >= const Duration(seconds: 4)) {
+      _lastAnnounced[spoken] = now;
+      _tts.speak('Basic live mode: $spoken.');
+    }
+
+    if (!mounted) return;
+    setState(() {
+      for (final cue in cues.reversed) {
+        _log.insert(0, cue);
+      }
+      if (_log.length > 50) {
+        _log.removeRange(50, _log.length);
+      }
+      _detections = const [];
+    });
   }
 
   static String _positionFromCenterX(double cx) {
@@ -312,6 +397,8 @@ class _LiveDetectionScreenState extends State<LiveDetectionScreen> {
       body: SafeArea(
         child: Column(
           children: [
+            if (_mode == _LiveDetectionMode.basic) _buildBasicModeBanner(),
+
             // Image + bounding box overlay
             Expanded(flex: 3, child: _buildImageArea()),
 
@@ -337,9 +424,34 @@ class _LiveDetectionScreenState extends State<LiveDetectionScreen> {
     );
   }
 
+  Widget _buildBasicModeBanner() {
+    final text = _modeHint ?? 'Basic live mode is active.';
+    return Semantics(
+      label: text,
+      child: Container(
+        width: double.infinity,
+        color: const Color(0xFFFFF4D6),
+        padding: const EdgeInsets.symmetric(
+          horizontal: AppSpacing.sm,
+          vertical: AppSpacing.xs,
+        ),
+        child: Text(
+          text,
+          style: TextStyle(
+            fontSize: 14.sp,
+            fontWeight: FontWeight.w600,
+            color: AppColors.textOnLight,
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _buildImageArea() {
     return Semantics(
-      label: _detections.isEmpty
+      label: _mode == _LiveDetectionMode.basic
+          ? 'Camera feed. Basic live mode active.'
+          : _detections.isEmpty
           ? 'Camera feed. No objects detected.'
           : 'Camera feed. ${_detections.length} objects detected.',
       image: true,
@@ -402,7 +514,9 @@ class _LiveDetectionScreenState extends State<LiveDetectionScreen> {
             ),
             child: ExcludeSemantics(
               child: Text(
-                'Detection Log',
+                _mode == _LiveDetectionMode.basic
+                    ? 'Basic Live Log'
+                    : 'Detection Log',
                 style: TextStyle(
                   fontSize: 14.sp,
                   fontWeight: FontWeight.w600,

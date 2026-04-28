@@ -13,6 +13,8 @@ import '../models/home_view_model.dart';
 import '../models/settings_provider.dart';
 import '../services/ble_service.dart';
 import '../services/device_prefs_service.dart';
+import '../services/scene_description_service.dart';
+import '../services/tts_service.dart';
 import '../services/voice_command_service.dart';
 import '../widgets/accessible_button.dart';
 import '../widgets/device_status_card.dart';
@@ -102,7 +104,7 @@ class _AccessibleHomeScreenState extends State<AccessibleHomeScreen> {
 
                     FocusTraversalOrder(
                       order: const NumericFocusOrder(2),
-                      child: _buildModeSection(vm),
+                      child: _buildModeSection(context, vm, voice),
                     ),
 
                     const SizedBox(height: AppSpacing.md),
@@ -156,7 +158,11 @@ class _AccessibleHomeScreenState extends State<AccessibleHomeScreen> {
     );
   }
 
-  Widget _buildModeSection(HomeViewModel vm) {
+  Widget _buildModeSection(
+    BuildContext context,
+    HomeViewModel vm,
+    VoiceCommandService voice,
+  ) {
     final settings = vm.settingsProvider;
     final modeLabels = [
       'Focus: ${settings.promptProfile.label}',
@@ -178,13 +184,35 @@ class _AccessibleHomeScreenState extends State<AccessibleHomeScreen> {
               label: 'Focus',
               value: settings.promptProfile.label,
               profile: settings.promptProfile,
+              onTap: () => _showFocusSheet(context, settings),
             ),
-            _ModeChip(label: 'Detail', value: settings.detailLevel.label),
+            _ModeChip(
+              label: 'Detail',
+              value: settings.detailLevel.label,
+              onTap: () => _showDetailSheet(context, settings),
+            ),
             _ModeChip(
               label: 'Live',
               value: settings.liveDetectionVerbosity.label,
+              onTap: () => _showLiveVerbositySheet(context, settings),
             ),
-            _ModeChip(label: 'Vision', value: vm.sceneService.mode.label),
+            _ModeChip(
+              label: 'Vision',
+              value: vm.sceneService.mode.label,
+              onTap: () => _showVisionSourceSheet(context, vm),
+            ),
+            _ModeChip(
+              label: 'Voice',
+              value: voice.state == VoiceCommandState.listening
+                  ? 'Listening'
+                  : 'Ready',
+              onTap: () => _showVoiceSheet(context, settings),
+            ),
+            _ModeChip(
+              label: 'Speech',
+              value: '${settings.wordsPerMinute} wpm',
+              onTap: () => _showSpeechStyleSheet(context, settings),
+            ),
             if (vm.offlineVisionStatus != null)
               _ModeChip(
                 label: 'Local',
@@ -193,6 +221,209 @@ class _AccessibleHomeScreenState extends State<AccessibleHomeScreen> {
           ],
         ),
       ),
+    );
+  }
+
+  void _showFocusSheet(BuildContext context, SettingsProvider settings) {
+    _showModeSheet(
+      context,
+      title: 'Description Focus',
+      children: PromptProfile.values.map((profile) {
+        return _ModeSheetOption(
+          label: profile.label,
+          subtitle: profile.description,
+          selected: settings.promptProfile == profile,
+          onTap: () {
+            HapticFeedback.selectionClick();
+            settings.setPromptProfile(profile);
+            Navigator.of(context).pop();
+          },
+        );
+      }).toList(),
+    );
+  }
+
+  void _showDetailSheet(BuildContext context, SettingsProvider settings) {
+    _showModeSheet(
+      context,
+      title: 'Description Detail',
+      children: DetailLevel.values.map((level) {
+        return _ModeSheetOption(
+          label: level.label,
+          subtitle: level == DetailLevel.brief
+              ? 'Short summaries unless safety needs more detail.'
+              : 'Four to six concise sentences when useful.',
+          selected: settings.detailLevel == level,
+          onTap: () {
+            HapticFeedback.selectionClick();
+            settings.setDetailLevel(level);
+            Navigator.of(context).pop();
+          },
+        );
+      }).toList(),
+    );
+  }
+
+  void _showLiveVerbositySheet(
+    BuildContext context,
+    SettingsProvider settings,
+  ) {
+    _showModeSheet(
+      context,
+      title: 'Live Announcements',
+      children: LiveDetectionVerbosity.values.map((verbosity) {
+        return _ModeSheetOption(
+          label: verbosity.label,
+          subtitle: verbosity.description,
+          selected: settings.liveDetectionVerbosity == verbosity,
+          onTap: () {
+            HapticFeedback.selectionClick();
+            settings.setLiveDetectionVerbosity(verbosity);
+            Navigator.of(context).pop();
+          },
+        );
+      }).toList(),
+    );
+  }
+
+  void _showVisionSourceSheet(BuildContext context, HomeViewModel vm) {
+    _showModeSheet(
+      context,
+      title: 'Vision Source',
+      children: VisionMode.values.map((mode) {
+        return _ModeSheetOption(
+          label: mode.label,
+          subtitle: mode.description,
+          selected: vm.sceneService.mode == mode,
+          onTap: () {
+            HapticFeedback.selectionClick();
+            unawaited(vm.sceneService.setMode(mode));
+            Navigator.of(context).pop();
+          },
+        );
+      }).toList(),
+    );
+  }
+
+  void _showVoiceSheet(BuildContext context, SettingsProvider settings) {
+    _showModeSheet(
+      context,
+      title: 'Voice',
+      children: [
+        FutureBuilder<List<TtsVoiceOption>>(
+          future: settings.availableVoices(),
+          builder: (context, snapshot) {
+            final voices = snapshot.data ?? const <TtsVoiceOption>[];
+            if (snapshot.connectionState != ConnectionState.done) {
+              return const Padding(
+                padding: EdgeInsets.all(AppSpacing.sm),
+                child: Center(child: CircularProgressIndicator()),
+              );
+            }
+            if (voices.isEmpty) {
+              return const Padding(
+                padding: EdgeInsets.all(AppSpacing.sm),
+                child: Text('System voice'),
+              );
+            }
+            return Column(
+              children: voices.take(8).map((voice) {
+                return _ModeSheetOption(
+                  label: voice.label,
+                  subtitle: voice.locale,
+                  selected: settings.selectedVoiceId == voice.id,
+                  onTap: () {
+                    HapticFeedback.selectionClick();
+                    unawaited(settings.setVoiceOption(voice));
+                    Navigator.of(context).pop();
+                  },
+                );
+              }).toList(),
+            );
+          },
+        ),
+        const SizedBox(height: AppSpacing.xs),
+        AccessibleButton(
+          label: 'Preview Voice',
+          hint: 'Plays a short sample with the selected voice',
+          onPressed: () => unawaited(settings.previewVoice()),
+        ),
+      ],
+    );
+  }
+
+  void _showSpeechStyleSheet(BuildContext context, SettingsProvider settings) {
+    _showModeSheet(
+      context,
+      title: 'Speech Style',
+      children: [
+        AnimatedBuilder(
+          animation: settings,
+          builder: (context, _) {
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _SheetSlider(
+                  label: 'Speed',
+                  valueLabel: '${settings.wordsPerMinute} words per minute',
+                  value: settings.speechRate,
+                  min: 0,
+                  max: 1,
+                  divisions: 10,
+                  onChanged: settings.setSpeechRate,
+                ),
+                const SizedBox(height: AppSpacing.sm),
+                _SheetSlider(
+                  label: 'Pitch',
+                  valueLabel: settings.pitch.toStringAsFixed(1),
+                  value: settings.pitch,
+                  min: 0.5,
+                  max: 2,
+                  divisions: 15,
+                  onChanged: settings.setPitch,
+                ),
+              ],
+            );
+          },
+        ),
+      ],
+    );
+  }
+
+  void _showModeSheet(
+    BuildContext context, {
+    required String title,
+    required List<Widget> children,
+  }) {
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      builder: (sheetContext) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.all(AppSpacing.sm),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Semantics(
+                  header: true,
+                  child: Text(
+                    title,
+                    style: TextStyle(
+                      fontSize: 20.sp,
+                      fontWeight: FontWeight.w700,
+                      color: AppColors.textOnLight,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: AppSpacing.sm),
+                ...children,
+              ],
+            ),
+          ),
+        );
+      },
     );
   }
 
@@ -565,8 +796,14 @@ class _ModeChip extends StatelessWidget {
   final String label;
   final String value;
   final PromptProfile? profile;
+  final VoidCallback? onTap;
 
-  const _ModeChip({required this.label, required this.value, this.profile});
+  const _ModeChip({
+    required this.label,
+    required this.value,
+    this.profile,
+    this.onTap,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -577,21 +814,163 @@ class _ModeChip extends StatelessWidget {
       _ => AppColors.surfaceCardLight,
     };
 
-    return Container(
-      constraints: const BoxConstraints(minHeight: 36),
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      decoration: BoxDecoration(
-        color: background,
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: AppColors.borderLight),
+    return Semantics(
+      button: onTap != null,
+      label: '$label $value',
+      hint: onTap == null ? null : 'Opens $label options',
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(8),
+        child: Container(
+          constraints: const BoxConstraints(minHeight: 44),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          decoration: BoxDecoration(
+            color: background,
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: AppColors.borderLight),
+          ),
+          child: ExcludeSemantics(
+            child: Text(
+              '$label: $value',
+              style: TextStyle(
+                fontSize: 13.sp,
+                fontWeight: FontWeight.w700,
+                color: AppColors.textOnLight,
+                height: 1.1,
+              ),
+            ),
+          ),
+        ),
       ),
-      child: Text(
-        '$label: $value',
-        style: TextStyle(
-          fontSize: 13.sp,
-          fontWeight: FontWeight.w700,
-          color: AppColors.textOnLight,
-          height: 1.1,
+    );
+  }
+}
+
+class _ModeSheetOption extends StatelessWidget {
+  const _ModeSheetOption({
+    required this.label,
+    required this.subtitle,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final String label;
+  final String subtitle;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      button: true,
+      selected: selected,
+      label: '$label. $subtitle',
+      child: InkWell(
+        onTap: onTap,
+        child: Container(
+          constraints: const BoxConstraints(minHeight: 56),
+          padding: const EdgeInsets.symmetric(
+            vertical: AppSpacing.xs,
+            horizontal: AppSpacing.xs,
+          ),
+          child: Row(
+            children: [
+              Icon(
+                selected ? Icons.check_circle : Icons.circle_outlined,
+                color: selected ? AppColors.success : AppColors.disabledOnLight,
+              ),
+              const SizedBox(width: AppSpacing.xs),
+              Expanded(
+                child: ExcludeSemantics(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        label,
+                        style: TextStyle(
+                          fontSize: 17.sp,
+                          fontWeight: FontWeight.w700,
+                          color: AppColors.textOnLight,
+                        ),
+                      ),
+                      Text(
+                        subtitle,
+                        style: TextStyle(
+                          fontSize: 13.sp,
+                          color: AppColors.textSecondaryOnLight,
+                          height: 1.25,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _SheetSlider extends StatelessWidget {
+  const _SheetSlider({
+    required this.label,
+    required this.valueLabel,
+    required this.value,
+    required this.min,
+    required this.max,
+    required this.divisions,
+    required this.onChanged,
+  });
+
+  final String label;
+  final String valueLabel;
+  final double value;
+  final double min;
+  final double max;
+  final int divisions;
+  final ValueChanged<double> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      slider: true,
+      label: '$label. $valueLabel',
+      child: ExcludeSemantics(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    label,
+                    style: TextStyle(
+                      fontSize: 16.sp,
+                      fontWeight: FontWeight.w700,
+                      color: AppColors.textOnLight,
+                    ),
+                  ),
+                ),
+                Text(
+                  valueLabel,
+                  style: TextStyle(
+                    fontSize: 14.sp,
+                    color: AppColors.textSecondaryOnLight,
+                  ),
+                ),
+              ],
+            ),
+            Slider(
+              value: value,
+              min: min,
+              max: max,
+              divisions: divisions,
+              onChanged: onChanged,
+            ),
+          ],
         ),
       ),
     );

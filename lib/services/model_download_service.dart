@@ -43,15 +43,11 @@ class ModelDownloadService extends ChangeNotifier {
 
     _downloadSub = _visionService.startModelDownload().listen(
       (event) {
-        if (event is double) {
-          _progress = event;
-          notifyListeners();
-          _maybeSpeakProgress(event);
-        } else if (event is Map) {
-          final status = event['status'];
-          if (status == 'complete') {
-            _onComplete();
-          }
+        _progress = event.progress;
+        notifyListeners();
+        _maybeSpeakProgress(event.progress);
+        if (event.isComplete) {
+          _onComplete();
         }
       },
       onError: (error) {

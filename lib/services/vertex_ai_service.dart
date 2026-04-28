@@ -143,6 +143,11 @@ class VertexAiService extends ChangeNotifier {
   AiModel _model = AiModel.flash;
   AiModel get model => _model;
 
+  bool get isConfigured => _apiKey.isNotEmpty && _apiKey != 'dummy';
+
+  String? _lastFinishReason;
+  String? get lastFinishReason => _lastFinishReason;
+
   /// Load saved model preference. Call once at app startup.
   Future<void> loadSavedModel() async {
     try {
@@ -179,22 +184,29 @@ class VertexAiService extends ChangeNotifier {
     Uint8List imageBytes, {
     required String systemPrompt,
     String userPrompt = 'Describe what you see.',
+    int maxOutputTokens = 500,
   }) async {
     final base64Image = base64Encode(imageBytes);
 
-    return _sendRequest([
-      {
-        'inlineData': {'mimeType': 'image/jpeg', 'data': base64Image},
-      },
-      {'text': userPrompt},
-    ], systemPrompt: systemPrompt);
+    return _sendRequest(
+      [
+        {
+          'inlineData': {'mimeType': 'image/jpeg', 'data': base64Image},
+        },
+        {'text': userPrompt},
+      ],
+      systemPrompt: systemPrompt,
+      maxOutputTokens: maxOutputTokens,
+    );
   }
 
   Future<String> _sendRequest(
     List<Map<String, dynamic>> parts, {
     String? systemPrompt,
+    int maxOutputTokens = 500,
   }) async {
     _assertApiKeyPresent();
+    _lastFinishReason = null;
 
     final url = Uri.parse(
       '$_baseUrl/${_model.id}:generateContent?key=$_apiKey',
@@ -206,7 +218,7 @@ class VertexAiService extends ChangeNotifier {
       ],
       'generationConfig': {
         'temperature': 0.2,
-        'maxOutputTokens': 500,
+        'maxOutputTokens': maxOutputTokens,
         'topP': 0.8,
       },
     };
@@ -240,7 +252,7 @@ class VertexAiService extends ChangeNotifier {
           'Top-level response was ${decoded.runtimeType}',
         );
       }
-      return _extractText(decoded);
+      return _extractText(decoded).trim();
     } on CloudVisionException {
       rethrow;
     } on TimeoutException {
@@ -261,8 +273,10 @@ class VertexAiService extends ChangeNotifier {
     Uint8List imageBytes, {
     required String systemPrompt,
     String userPrompt = 'Describe what you see.',
+    int maxOutputTokens = 500,
   }) async* {
     _assertApiKeyPresent();
+    _lastFinishReason = null;
 
     final request = http.Request('POST', _streamUrl());
     request.headers.addAll(_requestHeaders);
@@ -271,6 +285,7 @@ class VertexAiService extends ChangeNotifier {
         imageBytes,
         systemPrompt: systemPrompt,
         userPrompt: userPrompt,
+        maxOutputTokens: maxOutputTokens,
       ),
     );
 
@@ -305,9 +320,11 @@ class VertexAiService extends ChangeNotifier {
             try {
               final json =
                   jsonDecode(line.substring(6)) as Map<String, dynamic>;
-              final text = _extractText(json);
-              yieldedText = true;
-              yield text;
+              final text = _extractText(json, allowEmptyText: true);
+              if (text.isNotEmpty) {
+                yieldedText = true;
+                yield text;
+              }
             } catch (e) {
               sawMalformedEvent = true;
               debugPrint('[VisionAI] SSE parse error: $e');
@@ -322,9 +339,11 @@ class VertexAiService extends ChangeNotifier {
         try {
           final json =
               jsonDecode(remaining.substring(6)) as Map<String, dynamic>;
-          final text = _extractText(json);
-          yieldedText = true;
-          yield text;
+          final text = _extractText(json, allowEmptyText: true);
+          if (text.isNotEmpty) {
+            yieldedText = true;
+            yield text;
+          }
         } catch (e) {
           sawMalformedEvent = true;
           debugPrint('[VisionAI] SSE flush parse error: $e');
@@ -375,6 +394,7 @@ class VertexAiService extends ChangeNotifier {
     Uint8List imageBytes, {
     required String systemPrompt,
     required String userPrompt,
+    required int maxOutputTokens,
   }) {
     final base64Image = base64Encode(imageBytes);
     return <String, dynamic>{
@@ -396,7 +416,7 @@ class VertexAiService extends ChangeNotifier {
       ],
       'generationConfig': {
         'temperature': 0.2,
-        'maxOutputTokens': 500,
+        'maxOutputTokens': maxOutputTokens,
         'topP': 0.8,
       },
     };
@@ -426,7 +446,10 @@ class VertexAiService extends ChangeNotifier {
     return body.substring(0, body.length > 120 ? 120 : body.length);
   }
 
-  String _extractText(Map<String, dynamic> json) {
+  String _extractText(
+    Map<String, dynamic> json, {
+    bool allowEmptyText = false,
+  }) {
     final candidates = json['candidates'] as List<dynamic>?;
     if (candidates == null || candidates.isEmpty) {
       throw CloudVisionException.malformedResponse('Missing candidates');
@@ -434,6 +457,15 @@ class VertexAiService extends ChangeNotifier {
     final first = candidates.first;
     if (first is! Map<String, dynamic>) {
       throw CloudVisionException.malformedResponse('Candidate was not a map');
+    }
+    final finishReason = first['finishReason'];
+    if (finishReason is String && finishReason.isNotEmpty) {
+      _lastFinishReason = finishReason;
+      if (finishReason == 'MAX_TOKENS') {
+        debugPrint(
+          '[VisionAI] Gemini finished because max tokens were reached',
+        );
+      }
     }
     final content = first['content'] as Map<String, dynamic>?;
     final parts = content?['parts'] as List<dynamic>?;
@@ -446,8 +478,8 @@ class VertexAiService extends ChangeNotifier {
       final txt = part['text'] as String?;
       if (txt != null) sb.write(txt);
     }
-    final result = sb.toString().trim();
-    if (result.isEmpty) {
+    final result = sb.toString();
+    if (result.trim().isEmpty && !allowEmptyText) {
       throw CloudVisionException.malformedResponse('Missing text content');
     }
     return result;

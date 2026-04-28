@@ -15,14 +15,19 @@ final class OnDeviceVisionChannel: NSObject {
     private static var vlmStreamChannel:        FlutterEventChannel?
     private static var fmStreamChannel:         FlutterEventChannel?
     private static var downloadProgressChannel: FlutterEventChannel?
+    private static var registeredMessenger: AnyObject?
 
     // Event sinks for streaming data back to Dart
     private static var vlmEventSink:      FlutterEventSink?
     private static var fmEventSink:       FlutterEventSink?
     private static var downloadEventSink: FlutterEventSink?
 
-    /// Call from AppDelegate.didFinishLaunchingWithOptions
+    /// Call after the FlutterViewController exists.
     static func register(with messenger: FlutterBinaryMessenger) {
+        let messengerObject = messenger as AnyObject
+        if registeredMessenger === messengerObject { return }
+        registeredMessenger = messengerObject
+
         let method = FlutterMethodChannel(name: methodChannelName, binaryMessenger: messenger)
         method.setMethodCallHandler(handleMethodCall)
         methodChannel = method
@@ -44,6 +49,11 @@ final class OnDeviceVisionChannel: NSObject {
 
     private static func handleMethodCall(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
         switch call.method {
+        case "ping":
+            result(true)
+
+        case "isAppleVisionAvailable":
+            result(true)
 
         // ── Layer 1: Legacy Apple Vision (backward-compat) ───────────────────
         case "analyzeWithVision":
@@ -68,6 +78,12 @@ final class OnDeviceVisionChannel: NSObject {
         // ── Depth Anything availability ─────────────────────────────────────
         case "isDepthEstimationAvailable":
             result(DepthEstimator.shared.isAvailable)
+
+        case "getNativeModelDiagnostics":
+            result([
+                "object_detector": ObjectDetector.shared.diagnostic,
+                "depth_estimator": DepthEstimator.shared.diagnostic
+            ])
 
         // ── Layer 3: Foundation Models availability check ────────────────────
         case "isFoundationModelsAvailable":
@@ -107,7 +123,11 @@ final class OnDeviceVisionChannel: NSObject {
 
         // ── Layer 2: SmolVLM model lifecycle ─────────────────────────────────
         case "getModelStatus":
-            result(LlamaService.shared.getModelStatus())
+            if ModelDownloadManager.shared.isDownloading {
+                result("downloading")
+            } else {
+                result(LlamaService.shared.getModelStatus())
+            }
 
         case "loadModel":
             Task {
@@ -149,8 +169,8 @@ final class OnDeviceVisionChannel: NSObject {
 
         // ── SmolVLM download management ───────────────────────────────────────
         case "downloadModel":
-            ModelDownloadManager.shared.startDownload { progress in
-                DispatchQueue.main.async { downloadEventSink?(progress) }
+            ModelDownloadManager.shared.startDownload { payload in
+                DispatchQueue.main.async { downloadEventSink?(payload) }
             } onComplete: { success, error in
                 DispatchQueue.main.async {
                     if success {

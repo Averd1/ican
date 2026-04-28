@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/semantics.dart';
 import 'package:flutter/services.dart';
@@ -11,6 +13,7 @@ import '../models/font_scale.dart';
 import '../models/settings_provider.dart';
 import '../services/ble_service.dart';
 import '../services/device_prefs_service.dart';
+import '../services/tts_service.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -181,35 +184,147 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
         const _Divider(),
 
-        // ── Voice type ──
+        // ── Pitch ──
         _SettingTile(
-          semanticLabel: 'Voice type. Currently ${s.voiceType.label}.',
+          semanticLabel:
+              'Speech engine. Currently ${s.speechEngine.label}. Auto uses cloud voices for full descriptions when available.',
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              _SettingLabel('Voice Type'),
+              _SettingLabel('Speech Engine'),
               const SizedBox(height: AppSpacing.xs),
               SizedBox(
                 width: double.infinity,
-                child: SegmentedButton<VoiceType>(
-                  segments: VoiceType.values
+                child: SegmentedButton<SpeechEngine>(
+                  segments: SpeechEngine.values
                       .map(
-                        (v) => ButtonSegment<VoiceType>(
-                          value: v,
-                          label: Text(v.label),
+                        (engine) => ButtonSegment<SpeechEngine>(
+                          value: engine,
+                          label: Text(engine.label),
                         ),
                       )
                       .toList(),
-                  selected: {s.voiceType},
+                  selected: {s.speechEngine},
                   onSelectionChanged: (sel) {
                     HapticFeedback.selectionClick();
-                    s.setVoiceType(sel.first);
+                    s.setSpeechEngine(sel.first);
                   },
                   style: _segmentedStyle(),
                 ),
               ),
+              const SizedBox(height: AppSpacing.xs),
+              Text(
+                'Auto keeps short commands on native speech and uses cloud speech for full descriptions when the Worker is reachable.',
+                style: TextStyle(
+                  fontSize: 14.sp,
+                  color: AppColors.textSecondaryOnLight,
+                ),
+              ),
             ],
           ),
+        ),
+
+        const _Divider(),
+
+        _SettingTile(
+          semanticLabel:
+              'Voice pitch. Current value ${s.pitch.toStringAsFixed(1)}.',
+          semanticSlider: true,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _SettingLabel('Voice Pitch'),
+              const SizedBox(height: 4),
+              _SettingValue(s.pitch.toStringAsFixed(1)),
+              const SizedBox(height: AppSpacing.xs),
+              _AccessibleSlider(
+                value: s.pitch,
+                min: 0.5,
+                max: 2.0,
+                divisions: 15,
+                onChanged: (v) {
+                  HapticFeedback.selectionClick();
+                  s.setPitch(v);
+                },
+              ),
+              _SliderLabels(left: 'Lower', right: 'Higher'),
+            ],
+          ),
+        ),
+
+        const _Divider(),
+
+        // ── Voice type ──
+        _SettingTile(
+          semanticLabel: 'Voice selection.',
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _SettingLabel('Voice'),
+              const SizedBox(height: AppSpacing.xs),
+              FutureBuilder<List<TtsVoiceOption>>(
+                future: s.availableVoices(),
+                builder: (context, snapshot) {
+                  final voices = snapshot.data ?? const <TtsVoiceOption>[];
+                  if (snapshot.connectionState != ConnectionState.done) {
+                    return const Center(child: CircularProgressIndicator());
+                  }
+                  if (voices.isEmpty) {
+                    return _SettingValue('System voice');
+                  }
+                  final visibleVoices = voices.take(12).toList();
+                  final selectedId =
+                      visibleVoices.any(
+                        (voice) => voice.id == s.selectedVoiceId,
+                      )
+                      ? s.selectedVoiceId
+                      : null;
+                  return Column(
+                    children: [
+                      DropdownButtonFormField<String>(
+                        initialValue: selectedId,
+                        isExpanded: true,
+                        items: visibleVoices
+                            .map(
+                              (voice) => DropdownMenuItem<String>(
+                                value: voice.id,
+                                child: Text(voice.label),
+                              ),
+                            )
+                            .toList(),
+                        onChanged: (id) {
+                          if (id == null) return;
+                          final match = voices.where((voice) => voice.id == id);
+                          if (match.isEmpty) return;
+                          HapticFeedback.selectionClick();
+                          unawaited(s.setVoiceOption(match.first));
+                        },
+                      ),
+                      const SizedBox(height: AppSpacing.xs),
+                      Align(
+                        alignment: Alignment.centerLeft,
+                        child: TextButton(
+                          onPressed: () => unawaited(s.previewVoice()),
+                          child: const Text('Preview Voice'),
+                        ),
+                      ),
+                    ],
+                  );
+                },
+              ),
+            ],
+          ),
+        ),
+
+        const _Divider(),
+
+        _TapTile(
+          label: 'Restore Speech Defaults',
+          hint: 'Restores safe audible speech settings',
+          onTap: () {
+            HapticFeedback.lightImpact();
+            unawaited(s.restoreSafeSpeechDefaults());
+          },
         ),
       ],
     );
@@ -227,7 +342,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         _SettingTile(
           semanticLabel:
               'Detail level. Currently ${s.detailLevel.label}. '
-              'Brief gives short summaries. Detailed gives full scene descriptions.',
+              'Brief gives short summaries. Rich gives full scene descriptions.',
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [

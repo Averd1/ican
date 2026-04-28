@@ -9,8 +9,11 @@ import 'vertex_ai_service.dart';
 
 /// User-selectable vision processing mode.
 enum VisionMode {
-  auto('Auto', 'Uses cloud when online, offline model when not'),
-  offlineOnly('Offline', 'Always uses on-device processing'),
+  auto(
+    'Auto: cloud reliable',
+    'Uses Gemini cloud first; local only when cloud is unavailable',
+  ),
+  offlineOnly('Local basic vision', 'Uses on-device Apple Vision cues'),
   cloudOnly('Cloud', 'Always uses Gemini cloud API');
 
   const VisionMode(this.label, this.description);
@@ -27,6 +30,26 @@ enum VisionBackend {
 }
 
 enum SceneDescriptionFailureStage { cloudVision, localVision }
+
+class SceneCompletionMetadata {
+  const SceneCompletionMetadata({
+    this.finishReason,
+    required this.wasTruncated,
+    required this.didRetryContinuation,
+    required this.diagnostic,
+  });
+
+  final String? finishReason;
+  final bool wasTruncated;
+  final bool didRetryContinuation;
+  final String diagnostic;
+
+  static const complete = SceneCompletionMetadata(
+    wasTruncated: false,
+    didRetryContinuation: false,
+    diagnostic: 'complete',
+  );
+}
 
 class SceneDescriptionException implements Exception {
   const SceneDescriptionException._(
@@ -68,6 +91,8 @@ class SceneDescriptionException implements Exception {
         if (failure is CloudVisionException) return failure.userMessage;
         return 'Cloud vision failed';
       case SceneDescriptionFailureStage.localVision:
+        final failure = cause;
+        if (failure is LocalVisionException) return failure.userMessage;
         return 'Local vision failed';
     }
   }
@@ -100,6 +125,10 @@ class SceneDescriptionService extends ChangeNotifier {
   Object? _lastCloudFailure;
   Object? get lastCloudFailure => _lastCloudFailure;
 
+  SceneCompletionMetadata _lastCompletionMetadata =
+      SceneCompletionMetadata.complete;
+  SceneCompletionMetadata get lastCompletionMetadata => _lastCompletionMetadata;
+
   /// Load saved mode preference. Call once at app startup.
   Future<void> loadSavedMode() async {
     try {
@@ -131,6 +160,8 @@ class SceneDescriptionService extends ChangeNotifier {
   Stream<String> describeScene(
     Uint8List imageBytes, {
     required String systemPrompt,
+    String userPrompt = 'Describe what you see.',
+    int maxOutputTokens = 500,
     void Function(String status, VisionBackend backend)? onStatusUpdate,
   }) async* {
     _lastCloudFailure = null;
@@ -143,7 +174,12 @@ class SceneDescriptionService extends ChangeNotifier {
           'Analyzing with ${cloudService.model.label}...',
           VisionBackend.cloud,
         );
-        yield* _describeWithCloud(imageBytes, systemPrompt: systemPrompt);
+        yield* _describeWithCloud(
+          imageBytes,
+          systemPrompt: systemPrompt,
+          userPrompt: userPrompt,
+          maxOutputTokens: maxOutputTokens,
+        );
 
       case VisionMode.offlineOnly:
         yield* _describeWithBestLocal(
@@ -165,6 +201,8 @@ class SceneDescriptionService extends ChangeNotifier {
             await for (final chunk in _describeWithCloud(
               imageBytes,
               systemPrompt: systemPrompt,
+              userPrompt: userPrompt,
+              maxOutputTokens: maxOutputTokens,
             )) {
               yield chunk;
             }
@@ -189,8 +227,15 @@ class SceneDescriptionService extends ChangeNotifier {
   Stream<String> describeWithGemini(
     Uint8List imageBytes, {
     required String systemPrompt,
+    String userPrompt = 'Describe what you see.',
+    int maxOutputTokens = 500,
   }) {
-    return _describeWithCloud(imageBytes, systemPrompt: systemPrompt);
+    return _describeWithCloud(
+      imageBytes,
+      systemPrompt: systemPrompt,
+      userPrompt: userPrompt,
+      maxOutputTokens: maxOutputTokens,
+    );
   }
 
   Stream<String> describeWithFoundationModels(
@@ -206,8 +251,24 @@ class SceneDescriptionService extends ChangeNotifier {
   Stream<String> describeWithSmolVLM(
     Uint8List imageBytes, {
     required String systemPrompt,
-  }) {
-    return _describeWithVlm(imageBytes, systemPrompt: systemPrompt);
+  }) async* {
+    final status = await onDeviceService.getModelStatus();
+    if (status == ModelStatus.notAvailable) {
+      throw StateError('SmolVLM runtime is not linked into this build.');
+    }
+    if (status == ModelStatus.notDownloaded) {
+      throw StateError('SmolVLM model files are not downloaded.');
+    }
+    if (status == ModelStatus.downloading) {
+      throw StateError('SmolVLM model download is still in progress.');
+    }
+    if (status == ModelStatus.ready) {
+      final loaded = await onDeviceService.loadVlmModel();
+      if (!loaded) {
+        throw StateError('SmolVLM model files are present but failed to load.');
+      }
+    }
+    yield* _describeWithVlm(imageBytes, systemPrompt: systemPrompt);
   }
 
   Stream<String> describeWithVisionTemplate(Uint8List imageBytes) {
@@ -280,7 +341,12 @@ class SceneDescriptionService extends ChangeNotifier {
   }) {
     switch (backend) {
       case VisionBackend.cloud:
-        return _describeWithCloud(imageBytes, systemPrompt: systemPrompt);
+        return _describeWithCloud(
+          imageBytes,
+          systemPrompt: systemPrompt,
+          userPrompt: 'Describe what you see.',
+          maxOutputTokens: 500,
+        );
       case VisionBackend.foundationModels:
         return _describeWithFoundationModels(
           imageBytes,
@@ -299,15 +365,176 @@ class SceneDescriptionService extends ChangeNotifier {
     return CloudVisionException.network(error);
   }
 
-  /// Cloud path: stream directly from Gemini.
+  /// Cloud path: collect Gemini output to completion before yielding text.
   Stream<String> _describeWithCloud(
     Uint8List imageBytes, {
     required String systemPrompt,
-  }) {
-    return cloudService.streamContentFromImage(
+    required String userPrompt,
+    required int maxOutputTokens,
+  }) async* {
+    final result = await _completeCloudDescription(
       imageBytes,
       systemPrompt: systemPrompt,
+      userPrompt: userPrompt,
+      maxOutputTokens: maxOutputTokens,
     );
+    _lastCompletionMetadata = result.metadata;
+    yield result.text;
+  }
+
+  Future<_CloudDescriptionResult> _completeCloudDescription(
+    Uint8List imageBytes, {
+    required String systemPrompt,
+    required String userPrompt,
+    required int maxOutputTokens,
+  }) async {
+    try {
+      final first = await _collectCloudPass(
+        imageBytes,
+        systemPrompt: systemPrompt,
+        userPrompt: userPrompt,
+        maxOutputTokens: maxOutputTokens,
+      );
+      return _finishCloudText(
+        first.text,
+        first.finishReason,
+        imageBytes: imageBytes,
+        systemPrompt: systemPrompt,
+        originalUserPrompt: userPrompt,
+      );
+    } on CloudVisionException catch (e) {
+      if (e.kind != CloudVisionFailureKind.timeout) rethrow;
+      final retry = await _collectCloudPass(
+        imageBytes,
+        systemPrompt: systemPrompt,
+        userPrompt: userPrompt,
+        maxOutputTokens: maxOutputTokens,
+      );
+      final finished = await _finishCloudText(
+        retry.text,
+        retry.finishReason,
+        imageBytes: imageBytes,
+        systemPrompt: systemPrompt,
+        originalUserPrompt: userPrompt,
+        didRetryAfterTimeout: true,
+      );
+      return finished;
+    }
+  }
+
+  Future<_CloudPass> _collectCloudPass(
+    Uint8List imageBytes, {
+    required String systemPrompt,
+    required String userPrompt,
+    required int maxOutputTokens,
+  }) async {
+    final chunks = await cloudService
+        .streamContentFromImage(
+          imageBytes,
+          systemPrompt: systemPrompt,
+          userPrompt: userPrompt,
+          maxOutputTokens: maxOutputTokens,
+        )
+        .toList();
+    return _CloudPass(chunks.join().trim(), cloudService.lastFinishReason);
+  }
+
+  Future<_CloudDescriptionResult> _finishCloudText(
+    String firstText,
+    String? firstFinishReason, {
+    required Uint8List imageBytes,
+    required String systemPrompt,
+    required String originalUserPrompt,
+    bool didRetryAfterTimeout = false,
+  }) async {
+    final needsContinuation =
+        firstFinishReason == 'MAX_TOKENS' ||
+        _hasIncompleteFinalSentence(firstText);
+    if (!needsContinuation) {
+      return _CloudDescriptionResult(
+        firstText,
+        SceneCompletionMetadata(
+          finishReason: firstFinishReason,
+          wasTruncated: false,
+          didRetryContinuation: didRetryAfterTimeout,
+          diagnostic: didRetryAfterTimeout
+              ? 'Retried Gemini after timeout.'
+              : 'Gemini completed normally.',
+        ),
+      );
+    }
+
+    try {
+      final continuation = await _collectCloudPass(
+        imageBytes,
+        systemPrompt: systemPrompt,
+        userPrompt: _continuationPrompt(firstText, originalUserPrompt),
+        maxOutputTokens: 220,
+      );
+      final combined = _joinContinuation(firstText, continuation.text);
+      final stillTruncated =
+          continuation.finishReason == 'MAX_TOKENS' ||
+          _hasIncompleteFinalSentence(combined);
+      final text = stillTruncated ? _cutOffMessage(combined) : combined;
+      return _CloudDescriptionResult(
+        text,
+        SceneCompletionMetadata(
+          finishReason: continuation.finishReason ?? firstFinishReason,
+          wasTruncated: stillTruncated,
+          didRetryContinuation: true,
+          diagnostic: stillTruncated
+              ? 'Gemini output was cut off after continuation retry.'
+              : 'Gemini continuation completed.',
+        ),
+      );
+    } on CloudVisionException {
+      return _CloudDescriptionResult(
+        _cutOffMessage(firstText),
+        SceneCompletionMetadata(
+          finishReason: firstFinishReason,
+          wasTruncated: true,
+          didRetryContinuation: true,
+          diagnostic: 'Gemini continuation retry failed.',
+        ),
+      );
+    }
+  }
+
+  static String _continuationPrompt(String partialText, String originalPrompt) {
+    return [
+      originalPrompt,
+      'The previous response was cut off. Continue from this partial spoken description and finish in plain speech. Do not repeat completed sentences.',
+      'Partial description: "$partialText"',
+    ].join('\n\n');
+  }
+
+  static bool _hasIncompleteFinalSentence(String text) {
+    final trimmed = text.trim();
+    if (trimmed.isEmpty) return true;
+    return !RegExp(r'''[.!?]["')\]]*$''').hasMatch(trimmed);
+  }
+
+  static String _joinContinuation(String first, String continuation) {
+    final a = first.trim();
+    final b = continuation.trim();
+    if (a.isEmpty) return b;
+    if (b.isEmpty) return a;
+    return '$a $b'.replaceAll(RegExp(r'\s+'), ' ').trim();
+  }
+
+  static String _cutOffMessage(String text) {
+    final complete = _completeSentencePrefix(text);
+    if (complete.isEmpty) {
+      return 'The description was cut off before a complete sentence was available.';
+    }
+    return '$complete The description was cut off.';
+  }
+
+  static String _completeSentencePrefix(String text) {
+    final trimmed = text.trim();
+    final matches = RegExp(r'''[.!?]["')\]]*(?=\s|$)''').allMatches(trimmed);
+    if (matches.isEmpty) return '';
+    return trimmed.substring(0, matches.last.end).trim();
   }
 
   /// Foundation Models path: Layer 1 perception -> Apple LLM synthesis.
@@ -425,4 +652,18 @@ extension ScenePerceptionResultTemplate on ScenePerceptionResult {
 
     return sentences.join(' ');
   }
+}
+
+class _CloudPass {
+  const _CloudPass(this.text, this.finishReason);
+
+  final String text;
+  final String? finishReason;
+}
+
+class _CloudDescriptionResult {
+  const _CloudDescriptionResult(this.text, this.metadata);
+
+  final String text;
+  final SceneCompletionMetadata metadata;
 }

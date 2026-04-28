@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:ican/services/stt_service.dart';
 import 'package:ican/services/voice_command_service.dart';
 import 'package:ican/services/voice_control_service.dart';
 
@@ -51,6 +52,75 @@ void main() {
       expect(service.state, VoiceCommandState.idle);
     });
 
+    test(
+      'exposes partial transcript without processing until final result',
+      () async {
+        await service.activateVoiceCommand();
+
+        stt.emitPartial('repeat');
+        await Future<void>.delayed(Duration.zero);
+
+        expect(service.partialText, 'repeat');
+        expect(processor.transcripts, isEmpty);
+        expect(service.state, VoiceCommandState.listening);
+      },
+    );
+
+    test('truthfully reports no speech after listen window expires', () async {
+      service.dispose();
+      service = VoiceCommandService.custom(
+        tts: tts,
+        stt: stt,
+        ble: ble,
+        processor: processor,
+        listenWindow: const Duration(milliseconds: 1),
+        pauseWindow: const Duration(milliseconds: 1),
+      );
+
+      await service.activateVoiceCommand();
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+
+      expect(stt.stopCount, 1);
+      expect(service.state, VoiceCommandState.idle);
+      expect(service.lastResult, "I didn't hear anything.");
+      expect(
+        tts.spoken,
+        contains(
+          "I didn't hear a command. Double press or tap Listen to try again.",
+        ),
+      );
+    });
+
+    test('records speech recognition errors', () async {
+      await service.activateVoiceCommand();
+
+      stt.emitError('network unavailable');
+      await Future<void>.delayed(Duration.zero);
+      await Future<void>.delayed(Duration.zero);
+
+      expect(service.lastError, 'network unavailable');
+      expect(
+        service.lastResult,
+        'I had trouble hearing that. Double press to try again.',
+      );
+      expect(service.state, VoiceCommandState.idle);
+    });
+
+    test(
+      'returns to idle when TTS fails during command confirmation',
+      () async {
+        tts.failOnSpeak = true;
+
+        await service.activateVoiceCommand();
+        stt.emit('repeat last');
+        await Future<void>.delayed(Duration.zero);
+        await Future<void>.delayed(Duration.zero);
+
+        expect(service.lastError, contains('TTS failed'));
+        expect(service.state, VoiceCommandState.idle);
+      },
+    );
+
     test('records microphone unavailable as the last result', () async {
       stt.available = false;
       stt.initResult = false;
@@ -79,9 +149,11 @@ void main() {
 class _FakeTts implements VoiceCommandTts {
   final List<String> spoken = [];
   var stopCount = 0;
+  var failOnSpeak = false;
 
   @override
   Future<void> speak(String text) async {
+    if (failOnSpeak) throw StateError('speaker unavailable');
     spoken.add(text);
   }
 
@@ -93,6 +165,8 @@ class _FakeTts implements VoiceCommandTts {
 
 class _FakeStt implements VoiceCommandStt {
   final _controller = StreamController<String>.broadcast();
+  final _partialController = StreamController<String>.broadcast();
+  final _errorController = StreamController<SttRecognitionError>.broadcast();
   @override
   var available = true;
   var initResult = true;
@@ -104,6 +178,12 @@ class _FakeStt implements VoiceCommandStt {
   Stream<String> get resultStream => _controller.stream;
 
   @override
+  Stream<String> get partialResultStream => _partialController.stream;
+
+  @override
+  Stream<SttRecognitionError> get errorStream => _errorController.stream;
+
+  @override
   Future<bool> init() async {
     initCount++;
     available = initResult;
@@ -111,7 +191,10 @@ class _FakeStt implements VoiceCommandStt {
   }
 
   @override
-  Future<void> startListening() async {
+  Future<void> startListening({
+    Duration listenFor = const Duration(seconds: 8),
+    Duration pauseFor = const Duration(seconds: 3),
+  }) async {
     startCount++;
   }
 
@@ -124,8 +207,20 @@ class _FakeStt implements VoiceCommandStt {
     _controller.add(text);
   }
 
+  void emitPartial(String text) {
+    _partialController.add(text);
+  }
+
+  void emitError(String message, {bool permanent = false}) {
+    _errorController.add(
+      SttRecognitionError(message: message, permanent: permanent),
+    );
+  }
+
   void dispose() {
     _controller.close();
+    _partialController.close();
+    _errorController.close();
   }
 }
 

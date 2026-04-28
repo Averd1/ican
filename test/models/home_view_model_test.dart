@@ -90,7 +90,7 @@ void main() {
 
       await viewModel.processImageForTesting(_validJpeg());
 
-      expect(speech.spoken.last, 'Local L01: Apple Vision/Core ML failure.');
+      expect(speech.spoken.last, 'Local L03: Apple Vision or Core ML failed.');
     });
 
     test('speaks BLE CRC mismatch diagnostic exactly', () async {
@@ -142,9 +142,16 @@ Uint8List _validJpeg() {
 class _FakeSpeechOutput implements TtsSettingsController {
   final List<String> spoken = [];
   double _rate = 0.5;
+  double _pitch = 1.0;
 
   @override
   double get rate => _rate;
+
+  @override
+  double get pitch => _pitch;
+
+  @override
+  String? get selectedVoiceId => null;
 
   @override
   Future<void> speak(String text) async {
@@ -160,7 +167,23 @@ class _FakeSpeechOutput implements TtsSettingsController {
   }
 
   @override
+  void setPitch(double pitch) {
+    _pitch = pitch;
+  }
+
+  @override
   void setVolume(double vol) {}
+
+  @override
+  Future<List<TtsVoiceOption>> availableVoices() async => const [];
+
+  @override
+  Future<void> setVoice(TtsVoiceOption voice) async {}
+
+  @override
+  Future<void> previewVoice([String sample = '']) async {
+    spoken.add(sample);
+  }
 }
 
 class _FakeSceneDescriptionService extends SceneDescriptionService {
@@ -177,6 +200,8 @@ class _FakeSceneDescriptionService extends SceneDescriptionService {
   Stream<String> describeScene(
     Uint8List imageBytes, {
     required String systemPrompt,
+    String userPrompt = 'Describe what you see.',
+    int maxOutputTokens = 500,
     void Function(String status, VisionBackend backend)? onStatusUpdate,
   }) async* {
     describeCalls++;

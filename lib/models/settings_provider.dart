@@ -15,7 +15,7 @@ enum VoiceType {
 
 enum DetailLevel {
   brief('Brief'),
-  detailed('Detailed');
+  detailed('Rich');
 
   const DetailLevel(this.label);
   final String label;
@@ -43,7 +43,7 @@ enum LiveDetectionVerbosity {
 
 enum PromptProfile {
   balanced(
-    'Balanced',
+    'Scene',
     'General scene description with safety, text, and landmarks',
   ),
   safety('Safety', 'Hazards, motion, crossings, obstacles, and people first'),
@@ -80,16 +80,26 @@ class SettingsProvider extends ChangeNotifier {
 
   // ── Audio ──
   double get speechRate => ttsService.rate;
+  double get pitch => ttsService.pitch;
   int get wordsPerMinute => _rateToWpm(ttsService.rate);
   double get volume => _volume;
   VoiceType get voiceType => _voiceType;
+  String? get selectedVoiceId => ttsService.selectedVoiceId;
+  SpeechEngine get speechEngine => _speechEngine;
 
   double _volume = 1.0;
   VoiceType _voiceType = VoiceType.neutral;
+  SpeechEngine _speechEngine = SpeechEngine.auto;
 
   void setSpeechRate(double rate) {
     ttsService.setRate(rate);
     _save('speech_rate', rate);
+    notifyListeners();
+  }
+
+  void setPitch(double pitch) {
+    ttsService.setPitch(pitch);
+    _save('speech_pitch', pitch);
     notifyListeners();
   }
 
@@ -104,6 +114,50 @@ class SettingsProvider extends ChangeNotifier {
     _voiceType = type;
     _save('voice_type', type.index);
     notifyListeners();
+  }
+
+  void setSpeechEngine(SpeechEngine engine) {
+    _speechEngine = engine;
+    if (ttsService is SpeechEngineController) {
+      (ttsService as SpeechEngineController).setSpeechEngine(engine);
+    }
+    _save('speech_engine', engine.name);
+    notifyListeners();
+  }
+
+  Future<void> restoreSafeSpeechDefaults() async {
+    _volume = 1.0;
+    _voiceType = VoiceType.neutral;
+    _speechEngine = SpeechEngine.auto;
+    if (ttsService is SpeechEngineController) {
+      await (ttsService as SpeechEngineController).resetSpeechDefaults();
+    } else {
+      ttsService.setRate(0.5);
+      ttsService.setPitch(1.0);
+      ttsService.setVolume(1.0);
+    }
+    await _save('speech_rate', 0.5);
+    await _save('speech_pitch', 1.0);
+    await _save('volume', 1.0);
+    await _save('voice_type', VoiceType.neutral.index);
+    await _save('speech_engine', SpeechEngine.auto.name);
+    notifyListeners();
+  }
+
+  Future<List<TtsVoiceOption>> availableVoices() {
+    return ttsService.availableVoices();
+  }
+
+  Future<void> setVoiceOption(TtsVoiceOption voice) async {
+    await ttsService.setVoice(voice);
+    await _save('voice_id', voice.id);
+    notifyListeners();
+  }
+
+  Future<void> previewVoice() {
+    return ttsService.previewVoice(
+      'iCan will use this voice for descriptions and commands.',
+    );
   }
 
   // ── Descriptions ──
@@ -180,12 +234,35 @@ class SettingsProvider extends ChangeNotifier {
       final rate = prefs.getDouble('speech_rate');
       if (rate != null) ttsService.setRate(rate);
 
+      final pitch = prefs.getDouble('speech_pitch');
+      if (pitch != null) ttsService.setPitch(pitch);
+
       _volume = prefs.getDouble('volume') ?? 1.0;
       ttsService.setVolume(_volume);
+
+      final speechEngineName = prefs.getString('speech_engine');
+      if (speechEngineName != null) {
+        _speechEngine = SpeechEngine.values.firstWhere(
+          (engine) => engine.name == speechEngineName,
+          orElse: () => SpeechEngine.auto,
+        );
+      }
+      if (ttsService is SpeechEngineController) {
+        (ttsService as SpeechEngineController).setSpeechEngine(_speechEngine);
+      }
 
       final voiceIdx = prefs.getInt('voice_type');
       if (voiceIdx != null && voiceIdx < VoiceType.values.length) {
         _voiceType = VoiceType.values[voiceIdx];
+      }
+
+      final voiceId = prefs.getString('voice_id');
+      if (voiceId != null && voiceId.isNotEmpty) {
+        final voices = await ttsService.availableVoices();
+        final matching = voices.where((voice) => voice.id == voiceId);
+        if (matching.isNotEmpty) {
+          await ttsService.setVoice(matching.first);
+        }
       }
 
       final detailIdx = prefs.getInt('detail_level');

@@ -2,6 +2,19 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:speech_to_text/speech_to_text.dart' as stt;
 
+class SttRecognitionError {
+  const SttRecognitionError({required this.message, required this.permanent});
+
+  final String message;
+  final bool permanent;
+
+  bool get isNoSpeech =>
+      message == 'error_no_match' ||
+      message == 'error_speech_timeout' ||
+      message.toLowerCase().contains('no match') ||
+      message.toLowerCase().contains('speech timeout');
+}
+
 class SttService extends ChangeNotifier {
   SttService._();
   static final SttService instance = SttService._();
@@ -20,11 +33,25 @@ class SttService extends ChangeNotifier {
   final _resultController = StreamController<String>.broadcast();
   Stream<String> get resultStream => _resultController.stream;
 
+  final _partialResultController = StreamController<String>.broadcast();
+  Stream<String> get partialResultStream => _partialResultController.stream;
+
+  final _errorController = StreamController<SttRecognitionError>.broadcast();
+  Stream<SttRecognitionError> get errorStream => _errorController.stream;
+
+  SttRecognitionError? _lastError;
+  SttRecognitionError? get lastError => _lastError;
+
   Future<bool> init() async {
     try {
       _available = await _speech.initialize(
         onError: (error) {
           debugPrint('[STT] Error: ${error.errorMsg}');
+          _lastError = SttRecognitionError(
+            message: error.errorMsg,
+            permanent: error.permanent,
+          );
+          _errorController.add(_lastError!);
           _isListening = false;
           notifyListeners();
         },
@@ -44,7 +71,10 @@ class SttService extends ChangeNotifier {
     return _available;
   }
 
-  Future<void> startListening() async {
+  Future<void> startListening({
+    Duration listenFor = const Duration(seconds: 8),
+    Duration pauseFor = const Duration(seconds: 3),
+  }) async {
     if (_isListening) return;
     if (!_available) {
       final ok = await init();
@@ -52,19 +82,23 @@ class SttService extends ChangeNotifier {
     }
     _isListening = true;
     _lastResult = '';
+    _lastError = null;
     notifyListeners();
 
     await _speech.listen(
       onResult: (result) {
         _lastResult = result.recognizedWords;
         notifyListeners();
-        if (result.finalResult && _lastResult.isNotEmpty) {
+        if (_lastResult.isEmpty) return;
+        if (result.finalResult) {
           _resultController.add(_lastResult);
           debugPrint('[STT] Final: "$_lastResult"');
+        } else {
+          _partialResultController.add(_lastResult);
         }
       },
-      listenFor: const Duration(seconds: 8),
-      pauseFor: const Duration(seconds: 3),
+      listenFor: listenFor,
+      pauseFor: pauseFor,
       localeId: 'en_US',
       cancelOnError: true,
       listenMode: stt.ListenMode.confirmation,
@@ -85,6 +119,8 @@ class SttService extends ChangeNotifier {
   void dispose() {
     _speech.stop();
     _resultController.close();
+    _partialResultController.close();
+    _errorController.close();
     super.dispose();
   }
 }

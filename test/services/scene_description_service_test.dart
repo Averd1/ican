@@ -86,6 +86,20 @@ void main() {
         expect(onDevice.loadVlmCalls, 1);
       },
     );
+
+    test(
+      'direct SmolVLM diagnostic reports missing downloaded model',
+      () async {
+        onDevice.modelStatus = ModelStatus.notDownloaded;
+
+        await expectLater(
+          service
+              .describeWithSmolVLM(_jpegBytes, systemPrompt: 'Describe safely.')
+              .drain<void>(),
+          throwsA(isA<StateError>()),
+        );
+      },
+    );
   });
 
   group('SceneDescriptionService cloud fallback', () {
@@ -138,6 +152,46 @@ void main() {
       expect(cloud.streamCalls, 1);
       expect(service.lastBackend, VisionBackend.cloud);
       expect(onDevice.analyzeSceneCalls, 0);
+    });
+
+    test(
+      'Gemini MAX_TOKENS retries continuation before yielding text',
+      () async {
+        await service.setMode(VisionMode.cloudOnly);
+        cloud.responseChunks = [
+          ['A hallway has a clear'],
+          [' path ahead.'],
+        ];
+        cloud.finishReasons = ['MAX_TOKENS', 'STOP'];
+
+        final chunks = await service
+            .describeScene(_jpegBytes, systemPrompt: 'Describe safely.')
+            .toList();
+
+        expect(cloud.streamCalls, 2);
+        expect(chunks, ['A hallway has a clear path ahead.']);
+        expect(service.lastCompletionMetadata.didRetryContinuation, isTrue);
+        expect(service.lastCompletionMetadata.wasTruncated, isFalse);
+      },
+    );
+
+    test('Gemini still cut off drops incomplete final sentence', () async {
+      await service.setMode(VisionMode.cloudOnly);
+      cloud.responseChunks = [
+        ['A hallway has a clear path ahead. A sign says'],
+        [' EXIT'],
+      ];
+      cloud.finishReasons = ['MAX_TOKENS', 'MAX_TOKENS'];
+
+      final chunks = await service
+          .describeScene(_jpegBytes, systemPrompt: 'Describe safely.')
+          .toList();
+
+      expect(
+        chunks.single,
+        'A hallway has a clear path ahead. The description was cut off.',
+      );
+      expect(service.lastCompletionMetadata.wasTruncated, isTrue);
     });
   });
 }
@@ -207,17 +261,35 @@ class _FakeOnDeviceVisionService extends OnDeviceVisionService {
 class _FakeVertexAiService extends VertexAiService {
   Object? error;
   int streamCalls = 0;
+  List<List<String>> responseChunks = const [
+    ['Cloud description.'],
+  ];
+  List<String?> finishReasons = const [null];
+  String? _lastFinishReason;
+
+  @override
+  String? get lastFinishReason => _lastFinishReason;
 
   @override
   Stream<String> streamContentFromImage(
     Uint8List imageBytes, {
     required String systemPrompt,
     String userPrompt = 'Describe what you see.',
+    int maxOutputTokens = 500,
   }) async* {
     streamCalls++;
     final failure = error;
     if (failure != null) throw failure;
-    yield 'Cloud description.';
+    final index = streamCalls - 1;
+    _lastFinishReason = index < finishReasons.length
+        ? finishReasons[index]
+        : (finishReasons.isEmpty ? null : finishReasons.last);
+    final chunks = index < responseChunks.length
+        ? responseChunks[index]
+        : responseChunks.last;
+    for (final chunk in chunks) {
+      yield chunk;
+    }
   }
 }
 

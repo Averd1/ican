@@ -8,8 +8,10 @@ import '../protocol/ble_protocol.dart';
 import '../services/ble_service.dart';
 import '../services/on_device_vision_service.dart';
 import '../services/scene_description_service.dart';
+import '../services/scene_prompt_builder.dart';
 import '../services/tts_service.dart';
 import '../services/vertex_ai_service.dart';
+import '../services/vision_health_service.dart';
 import 'settings_provider.dart';
 
 export 'font_scale.dart';
@@ -27,6 +29,8 @@ class DescriptionEntry {
 }
 
 enum _CapturedImageFailure { corrupt, incomplete }
+
+enum _LiveVisionMode { full, basic }
 
 class HomeViewModel extends ChangeNotifier {
   final SceneDescriptionService sceneService;
@@ -53,6 +57,7 @@ class HomeViewModel extends ChangeNotifier {
   DateTime? _lastImageTime;
   int _batteryPercent = -1;
   Timer? _processingTimeout;
+  final ScenePromptBuilder _promptBuilder = const ScenePromptBuilder();
 
   StreamSubscription<ObstacleAlert>? _obstacleSub;
   StreamSubscription<Uint8List>? _imageSub;
@@ -69,9 +74,11 @@ class HomeViewModel extends ChangeNotifier {
   bool get liveVisionActive => _liveVisionActive;
   final OnDeviceVisionService _onDeviceVision = OnDeviceVisionService();
   OfflineVisionStatus? _offlineVisionStatus;
+  VisionRuntimeStatus? _visionRuntimeStatus;
   StreamSubscription<Uint8List>? _liveImageSub;
   final Map<String, DateTime> _liveLastAnnounced = {};
   bool _liveProcessing = false;
+  _LiveVisionMode _liveMode = _LiveVisionMode.basic;
 
   // ── Public getters ──
   BleConnectionState get caneConnection => BleService.instance.caneState;
@@ -96,6 +103,7 @@ class HomeViewModel extends ChangeNotifier {
   List<DescriptionEntry> get history => List.unmodifiable(_history);
   bool get hasAnyDevice => isEyeConnected || isCaneConnected;
   OfflineVisionStatus? get offlineVisionStatus => _offlineVisionStatus;
+  VisionRuntimeStatus? get visionRuntimeStatus => _visionRuntimeStatus;
 
   bool get isEyeConnected =>
       BleService.instance.state == BleConnectionState.connected;
@@ -191,8 +199,13 @@ class HomeViewModel extends ChangeNotifier {
 
   Future<void> refreshOfflineVisionStatus() async {
     final status = await _onDeviceVision.getOfflineVisionStatus();
+    final runtimeStatus = await VisionHealthService(
+      onDeviceService: _onDeviceVision,
+      cloudService: sceneService.cloudService,
+    ).check(eyeConnected: isEyeConnected, includeNetworkCheck: false);
     if (_disposed) return;
     _offlineVisionStatus = status;
+    _visionRuntimeStatus = runtimeStatus;
     notifyListeners();
   }
 
@@ -242,6 +255,11 @@ class HomeViewModel extends ChangeNotifier {
 
   Future<void> startLiveVision() async {
     if (_liveVisionActive || !isEyeConnected) return;
+    final status = await _onDeviceVision.getOfflineVisionStatus();
+    _offlineVisionStatus = status;
+    _liveMode = status.objectDetectionAvailable
+        ? _LiveVisionMode.full
+        : _LiveVisionMode.basic;
     _liveVisionActive = true;
     _liveLastAnnounced.clear();
     notifyListeners();
@@ -263,7 +281,11 @@ class HomeViewModel extends ChangeNotifier {
     });
 
     try {
-      await ttsService.speak('Live vision started.');
+      await ttsService.speak(
+        _liveMode == _LiveVisionMode.full
+            ? 'Full live detection started.'
+            : 'Basic live mode started. Object detection is degraded.',
+      );
     } catch (_) {}
   }
 
@@ -295,6 +317,11 @@ class HomeViewModel extends ChangeNotifier {
 
     final result = await _onDeviceVision.analyzeScene(imageBytes);
     if (!_liveVisionActive) return;
+
+    if (_liveMode == _LiveVisionMode.basic) {
+      await _processBasicLiveFrame(result);
+      return;
+    }
 
     final filtered =
         result.detectedObjects.where((o) => o.confidence >= 0.5).toList()
@@ -329,6 +356,39 @@ class HomeViewModel extends ChangeNotifier {
         await ttsService.speak(toAnnounce.join(', '));
       } catch (_) {}
     }
+  }
+
+  Future<void> _processBasicLiveFrame(ScenePerceptionResult result) async {
+    final now = DateTime.now();
+    final cues = <String>[];
+
+    if (result.personCount > 0) {
+      final people = result.personCount == 1
+          ? '1 person detected'
+          : '${result.personCount} people detected';
+      cues.add(people);
+    }
+
+    if (result.ocrTexts.isNotEmpty) {
+      cues.add('Text reads ${result.ocrTexts.take(2).join(', ')}');
+    }
+
+    if (result.sceneClassification != 'unknown' &&
+        result.sceneConfidence > 0.25) {
+      cues.add('${result.sceneClassification.replaceAll('_', ' ')} setting');
+    }
+
+    if (cues.isEmpty) return;
+    final key = cues.join('|');
+    final lastTime = _liveLastAnnounced[key];
+    if (lastTime != null &&
+        now.difference(lastTime) < const Duration(seconds: 4)) {
+      return;
+    }
+    _liveLastAnnounced[key] = now;
+    try {
+      await ttsService.speak('Basic live mode: ${cues.join(', ')}.');
+    } catch (_) {}
   }
 
   static String _positionFromCenterX(double cx) {
@@ -392,31 +452,6 @@ class HomeViewModel extends ChangeNotifier {
   void startScanForCane() => BleService.instance.startScanForCane();
 
   // ── Image processing ──
-  static const _baseSystemPrompt =
-      'You are the vision system for a blind person wearing a chest camera. '
-      'Speak in plain, conversational English — no markdown, no bullet points, no lists — '
-      'everything you say is read aloud by a text-to-speech engine. '
-      'Describe the scene in 4–6 sentences:\n'
-      '1) Start with WHERE you are (room type, indoor/outdoor, general setting).\n'
-      '2) SAFETY: name any obstacles, steps, edges, vehicles, or people. '
-      'Use clock positions for direction (e.g. "chair at 2 o\'clock").\n'
-      '3) Describe what is DIRECTLY AHEAD and within arm\'s reach.\n'
-      '4) Read any visible text verbatim — signs, labels, screens, buttons.\n'
-      '5) Mention notable objects, colors, or landmarks that help orientation.\n'
-      'Be specific and spatial. Never say "I see" — describe as if you are the person\'s eyes.';
-
-  String get _systemPrompt {
-    final detailInstruction = settingsProvider.detailLevel == DetailLevel.brief
-        ? 'Keep the answer to 1-2 short sentences unless there is an immediate safety risk.'
-        : 'Use 4-6 concise sentences when enough useful scene detail exists.';
-
-    return [
-      _baseSystemPrompt,
-      'User preference: ${settingsProvider.promptProfile.instruction}',
-      'Detail level: $detailInstruction',
-    ].join('\n');
-  }
-
   @visibleForTesting
   Future<void> processImageForTesting(Uint8List imageBytes) {
     return _processImage(imageBytes);
@@ -446,42 +481,30 @@ class HomeViewModel extends ChangeNotifier {
 
     try {
       final enhancedBytes = await compute(_enhanceImageForApi, imageBytes);
-      final textBuffer = StringBuffer();
       final fullTextBuffer = StringBuffer();
-      final sentenceEnd = RegExp(r'[.!?](?:\s|$)');
+      final prompt = _promptBuilder.build(
+        detailLevel: settingsProvider.detailLevel,
+        promptProfile: settingsProvider.promptProfile,
+      );
 
       await for (final chunk in sceneService.describeScene(
         enhancedBytes,
-        systemPrompt: _systemPrompt,
+        systemPrompt: prompt.systemPrompt,
+        userPrompt: prompt.userPrompt,
+        maxOutputTokens: prompt.maxOutputTokens,
         onStatusUpdate: (_, __) {},
       )) {
         if (_isPaused) continue;
-        textBuffer.write(chunk);
         fullTextBuffer.write(chunk);
-
-        while (true) {
-          final accumulated = textBuffer.toString();
-          final match = sentenceEnd.firstMatch(accumulated);
-          if (match == null) break;
-          final sentence = accumulated.substring(0, match.end).trim();
-          final leftover = accumulated.substring(match.end);
-          textBuffer.clear();
-          textBuffer.write(leftover);
-          try {
-            await ttsService.speak(sentence);
-          } catch (_) {}
-        }
-      }
-
-      final remaining = textBuffer.toString().trim();
-      if (remaining.isNotEmpty && !_isPaused) {
-        try {
-          await ttsService.speak(remaining);
-        } catch (_) {}
       }
 
       final fullText = fullTextBuffer.toString().trim();
       if (fullText.isNotEmpty) {
+        if (!_isPaused) {
+          try {
+            await ttsService.speak(fullText);
+          } catch (_) {}
+        }
         _lastDescription = fullText;
         _clearLastDiagnostic();
         _history.insert(
@@ -587,12 +610,18 @@ class HomeViewModel extends ChangeNotifier {
         }
         return 'Cloud C03: cloud timeout/network failure.';
       }
+      final local = _localFailureDiagnostic(error.cause);
       if (error.cloudFailure != null) {
-        return '${_cloudFailureDiagnostic(error.cloudFailure!)} Local L01: Apple Vision/Core ML failure.';
+        return '${_cloudFailureDiagnostic(error.cloudFailure!)} $local';
       }
-      return 'Local L01: Apple Vision/Core ML failure.';
+      return local;
     }
-    return 'Local L01: Apple Vision/Core ML failure.';
+    return _localFailureDiagnostic(error);
+  }
+
+  static String _localFailureDiagnostic(Object failure) {
+    if (failure is LocalVisionException) return failure.userMessage;
+    return 'Local L03: Apple Vision or Core ML failed.';
   }
 
   static String _cloudFailureDiagnostic(Object failure) {

@@ -1,7 +1,10 @@
+import 'dart:convert';
+
 import '../models/home_view_model.dart';
 import '../models/settings_provider.dart';
 import 'ble_service.dart';
 import 'scene_description_service.dart';
+import 'vertex_ai_service.dart';
 
 enum VoiceActionType {
   describeNow,
@@ -12,6 +15,7 @@ enum VoiceActionType {
   stopLiveDetection,
   setSpeechRate,
   setVolume,
+  resetSpeechDefaults,
   setDetailLevel,
   setPromptProfile,
   setVisionMode,
@@ -63,7 +67,17 @@ class VoiceIntentParser {
       return _intent(transcript, VoiceActionType.unknown, confidence: 0);
     }
 
-    if (_containsAny(normalized, ['describe', 'what around', 'scan scene'])) {
+    if (_containsAny(normalized, [
+      'describe',
+      'what around',
+      'scan scene',
+      'what is in front',
+      'whats in front',
+      'what s in front',
+      'what is ahead',
+      'what am i facing',
+      'look around',
+    ])) {
       return _intent(transcript, VoiceActionType.describeNow);
     }
     if (_containsAny(normalized, [
@@ -76,7 +90,12 @@ class VoiceIntentParser {
     if (_containsAny(normalized, ['vision status', 'vision mode status'])) {
       return _intent(transcript, VoiceActionType.announceVisionStatus);
     }
-    if (_containsAny(normalized, ['repeat', 'say again', 'last image'])) {
+    if (_containsAny(normalized, [
+      'repeat',
+      'say again',
+      'last image',
+      'what did you say',
+    ])) {
       return _intent(transcript, VoiceActionType.repeatLast);
     }
     if (_containsAny(normalized, ['pause', 'stop talking', 'be quiet'])) {
@@ -85,11 +104,16 @@ class VoiceIntentParser {
     if (_containsAny(normalized, ['resume', 'continue', 'keep going'])) {
       return _intent(transcript, VoiceActionType.resumeDescriptions);
     }
-    if (_containsAny(normalized, ['start live', 'go live', 'live detection'])) {
-      return _intent(transcript, VoiceActionType.startLiveDetection);
-    }
     if (_containsAny(normalized, ['stop live', 'end live', 'exit live'])) {
       return _intent(transcript, VoiceActionType.stopLiveDetection);
+    }
+    if (_containsAny(normalized, [
+      'start live',
+      'go live',
+      'turn on live',
+      'live detection',
+    ])) {
+      return _intent(transcript, VoiceActionType.startLiveDetection);
     }
     if (_containsAny(normalized, ['status', 'battery', 'device status'])) {
       return _intent(transcript, VoiceActionType.announceStatus);
@@ -97,13 +121,24 @@ class VoiceIntentParser {
     if (_containsAny(normalized, ['what time', 'time is it', 'current time'])) {
       return _intent(transcript, VoiceActionType.announceTime);
     }
-    if (_containsAny(normalized, ['connect', 'reconnect', 'find device'])) {
+    if (_containsAny(normalized, [
+      'connect',
+      'reconnect',
+      'find device',
+      'scan devices',
+      'find camera',
+    ])) {
       return _intent(transcript, VoiceActionType.scanDevices);
     }
     if (_containsAny(normalized, ['help', 'what can i say', 'commands'])) {
       return _intent(transcript, VoiceActionType.help);
     }
-    if (_containsAny(normalized, ['contact caretaker', 'call caretaker'])) {
+    if (_containsAny(normalized, [
+      'contact caretaker',
+      'call caretaker',
+      'message caretaker',
+      'alert caretaker',
+    ])) {
       return _intent(transcript, VoiceActionType.contactCaretaker);
     }
 
@@ -156,6 +191,15 @@ class VoiceIntentParser {
         slots: {'delta': -0.1},
       );
     }
+    if (_containsAny(normalized, [
+      'reset speech',
+      'restore speech',
+      'safe speech defaults',
+      'fix voice',
+      'reset voice',
+    ])) {
+      return _intent(transcript, VoiceActionType.resetSpeechDefaults);
+    }
 
     if (_containsAny(normalized, ['live less chatty', 'less live detail'])) {
       return _intent(
@@ -172,14 +216,27 @@ class VoiceIntentParser {
       );
     }
 
-    if (_containsAny(normalized, ['less chatty', 'be brief', 'shorter'])) {
+    if (_containsAny(normalized, [
+      'less chatty',
+      'be brief',
+      'shorter',
+      'less detail',
+      'brief mode',
+      'keep it short',
+    ])) {
       return _intent(
         transcript,
         VoiceActionType.setDetailLevel,
         slots: {'detailLevel': DetailLevel.brief.name},
       );
     }
-    if (_containsAny(normalized, ['more detail', 'detailed', 'explain more'])) {
+    if (_containsAny(normalized, [
+      'more detail',
+      'detailed',
+      'rich detail',
+      'rich mode',
+      'explain more',
+    ])) {
       return _intent(
         transcript,
         VoiceActionType.setDetailLevel,
@@ -190,8 +247,11 @@ class VoiceIntentParser {
     if (_containsAny(normalized, [
       'only hazards',
       'only tell me hazards',
+      'only warn me about hazards',
       'safety mode',
       'focus on hazards',
+      'am i clear to walk',
+      'clear to walk',
     ])) {
       return _intent(
         transcript,
@@ -201,6 +261,9 @@ class VoiceIntentParser {
     }
     if (_containsAny(normalized, [
       'read signs',
+      'read that sign',
+      'read the sign',
+      'read that text',
       'read text first',
       'reading mode',
     ])) {
@@ -231,8 +294,10 @@ class VoiceIntentParser {
 
     if (_containsAny(normalized, [
       'use local',
+      'use local vision',
       'offline mode',
       'local model',
+      'local vision',
     ])) {
       return _intent(
         transcript,
@@ -247,11 +312,34 @@ class VoiceIntentParser {
         slots: {'visionMode': VisionMode.cloudOnly.name},
       );
     }
-    if (_containsAny(normalized, ['auto mode', 'automatic mode'])) {
+    if (_containsAny(normalized, [
+      'auto mode',
+      'automatic mode',
+      'best available',
+    ])) {
       return _intent(
         transcript,
         VoiceActionType.setVisionMode,
         slots: {'visionMode': VisionMode.auto.name},
+      );
+    }
+
+    if (_containsAny(normalized, ['change detail', 'detail level'])) {
+      return _clarification(
+        transcript,
+        'Do you want brief descriptions or rich descriptions?',
+      );
+    }
+    if (_containsAny(normalized, ['change vision', 'vision source'])) {
+      return _clarification(
+        transcript,
+        'Do you want local basic vision, cloud vision, or auto vision?',
+      );
+    }
+    if (_containsAny(normalized, ['change focus', 'focus mode'])) {
+      return _clarification(
+        transcript,
+        'Do you want scene, safety, navigation, or reading focus?',
       );
     }
 
@@ -273,11 +361,184 @@ class VoiceIntentParser {
     );
   }
 
+  static VoiceIntent _clarification(String rawTranscript, String message) {
+    return _intent(
+      rawTranscript,
+      VoiceActionType.unknown,
+      slots: {'clarification': message},
+      confidence: 0.45,
+    );
+  }
+
   static bool _containsAny(String text, List<String> phrases) =>
       phrases.any(text.contains);
 
   static String _normalize(String text) =>
       text.toLowerCase().replaceAll(RegExp(r'[^a-z0-9\s]'), ' ').trim();
+}
+
+abstract interface class VoiceIntentFallbackParser {
+  Future<VoiceIntent?> resolve(String transcript);
+}
+
+class VoiceIntentResolver {
+  const VoiceIntentResolver({
+    this.ruleParser = const VoiceIntentParser(),
+    this.localParser,
+    this.cloudParser,
+    this.minimumFallbackConfidence = 0.72,
+  });
+
+  final VoiceIntentParser ruleParser;
+  final VoiceIntentFallbackParser? localParser;
+  final VoiceIntentFallbackParser? cloudParser;
+  final double minimumFallbackConfidence;
+
+  Future<VoiceIntent> resolve(String transcript) async {
+    final ruleIntent = ruleParser.parse(transcript);
+    if (ruleIntent.action != VoiceActionType.unknown) return ruleIntent;
+
+    for (final parser in [localParser, cloudParser]) {
+      if (parser == null) continue;
+      final fallbackIntent = await parser.resolve(transcript);
+      if (_isSafeFallback(transcript, fallbackIntent)) {
+        return fallbackIntent!;
+      }
+    }
+
+    final clarification = ruleIntent.slots['clarification'];
+    return VoiceIntent(
+      action: VoiceActionType.unknown,
+      confidence: ruleIntent.confidence,
+      source: ruleIntent.source,
+      rawTranscript: transcript,
+      slots: {
+        'clarification': clarification is String
+            ? clarification
+            : "I didn't understand. Say help for available commands.",
+      },
+    );
+  }
+
+  bool _isSafeFallback(String transcript, VoiceIntent? intent) {
+    if (intent == null || intent.action == VoiceActionType.unknown) {
+      return false;
+    }
+    if (intent.confidence < minimumFallbackConfidence) return false;
+    if (intent.action == VoiceActionType.contactCaretaker &&
+        !_explicitCaretakerContact(transcript)) {
+      return false;
+    }
+    return _slotsAreAllowlisted(intent);
+  }
+
+  static bool _explicitCaretakerContact(String transcript) {
+    final normalized = VoiceIntentParser._normalize(transcript);
+    return normalized.contains('caretaker') &&
+        VoiceIntentParser._containsAny(normalized, [
+          'call',
+          'contact',
+          'message',
+          'alert',
+        ]);
+  }
+
+  static bool _slotsAreAllowlisted(VoiceIntent intent) {
+    for (final entry in intent.slots.entries) {
+      switch (entry.key) {
+        case 'delta':
+          if (entry.value is! double) return false;
+        case 'wpm':
+        case 'percent':
+          if (entry.value is! int) return false;
+        case 'detailLevel':
+          if (!DetailLevel.values.any((v) => v.name == entry.value)) {
+            return false;
+          }
+        case 'promptProfile':
+          if (!PromptProfile.values.any((v) => v.name == entry.value)) {
+            return false;
+          }
+        case 'visionMode':
+          if (!VisionMode.values.any((v) => v.name == entry.value)) {
+            return false;
+          }
+        case 'liveVerbosity':
+          if (!LiveDetectionVerbosity.values.any(
+            (v) => v.name == entry.value,
+          )) {
+            return false;
+          }
+        case 'selfTune':
+          if (entry.value is! bool) return false;
+        default:
+          return false;
+      }
+    }
+    return true;
+  }
+}
+
+class GeminiVoiceIntentFallbackParser implements VoiceIntentFallbackParser {
+  GeminiVoiceIntentFallbackParser({required this.service});
+
+  final VertexAiService service;
+
+  @override
+  Future<VoiceIntent?> resolve(String transcript) async {
+    try {
+      final jsonText = await service.generateContent(_prompt(transcript));
+      final decoded = jsonDecode(jsonText);
+      if (decoded is! Map<String, dynamic>) return null;
+      return _intentFromJson(transcript, decoded);
+    } catch (e) {
+      return null;
+    }
+  }
+
+  String _prompt(String transcript) {
+    return '''
+Return strict JSON only. Convert this iCan voice command into one allowlisted action.
+Allowed actions: ${VoiceActionType.values.map((v) => v.name).join(', ')}.
+Allowed slots: delta(double), wpm(int), percent(int), detailLevel(${DetailLevel.values.map((v) => v.name).join('|')}), promptProfile(${PromptProfile.values.map((v) => v.name).join('|')}), visionMode(${VisionMode.values.map((v) => v.name).join('|')}), liveVerbosity(${LiveDetectionVerbosity.values.map((v) => v.name).join('|')}), selfTune(bool).
+If uncertain, use action "unknown" with confidence below 0.72.
+Transcript: "$transcript"
+JSON shape: {"action":"describeNow","confidence":0.0,"slots":{}}
+''';
+  }
+
+  VoiceIntent? _intentFromJson(
+    String transcript,
+    Map<String, dynamic> decoded,
+  ) {
+    final actionName = decoded['action'];
+    final confidence = decoded['confidence'];
+    if (actionName is! String || confidence is! num) return null;
+    final action = VoiceActionType.values.firstWhere(
+      (value) => value.name == actionName,
+      orElse: () => VoiceActionType.unknown,
+    );
+    final rawSlots = decoded['slots'];
+    final slots = <String, Object?>{};
+    if (rawSlots is Map<String, dynamic>) {
+      for (final entry in rawSlots.entries) {
+        final value = entry.value;
+        if (value is String ||
+            value is int ||
+            value is double ||
+            value is bool) {
+          slots[entry.key] = value;
+        }
+      }
+    }
+    return VoiceIntent(
+      action: action,
+      slots: slots,
+      confidence: confidence.toDouble().clamp(0.0, 1.0),
+      source: 'gemini',
+      rawTranscript: transcript,
+    );
+  }
 }
 
 abstract class VoiceControlTarget {
@@ -301,6 +562,7 @@ abstract class VoiceControlTarget {
 
   Future<void> setSpeechRate(double rate);
   Future<void> setVolume(double volume);
+  Future<void> resetSpeechDefaults();
   Future<void> setDetailLevel(DetailLevel level);
   Future<void> setPromptProfile(PromptProfile profile);
   Future<void> setLiveDetectionVerbosity(LiveDetectionVerbosity verbosity);
@@ -407,6 +669,11 @@ class AppVoiceControlTarget implements VoiceControlTarget {
   }
 
   @override
+  Future<void> resetSpeechDefaults() async {
+    await settings?.restoreSafeSpeechDefaults();
+  }
+
+  @override
   Future<void> setDetailLevel(DetailLevel level) async {
     settings?.setDetailLevel(level);
   }
@@ -460,18 +727,25 @@ class AppVoiceControlTarget implements VoiceControlTarget {
 
 class VoiceControlService {
   final VoiceIntentParser parser;
+  final VoiceIntentResolver resolver;
   final VoiceControlTarget target;
 
-  const VoiceControlService({
+  VoiceControlService({
     this.parser = const VoiceIntentParser(),
+    VoiceIntentResolver? resolver,
     required this.target,
-  });
+  }) : resolver = resolver ?? VoiceIntentResolver(ruleParser: parser);
 
-  Future<VoiceActionResult> handleTranscript(String transcript) {
-    return execute(parser.parse(transcript));
+  Future<VoiceActionResult> handleTranscript(String transcript) async {
+    return execute(await resolver.resolve(transcript));
   }
 
   Future<VoiceActionResult> execute(VoiceIntent intent) async {
+    if (intent.confidence < 0.65 && intent.action != VoiceActionType.unknown) {
+      return _fail(
+        'I heard "${intent.rawTranscript}", but I am not confident enough to change settings.',
+      );
+    }
     switch (intent.action) {
       case VoiceActionType.describeNow:
         if (!target.canDescribeNow) {
@@ -533,6 +807,12 @@ class VoiceControlService {
         return _setSpeechRate(intent);
       case VoiceActionType.setVolume:
         return _setVolume(intent);
+      case VoiceActionType.resetSpeechDefaults:
+        await target.resetSpeechDefaults();
+        return _ok('Speech defaults restored.', {
+          'speechEngine': 'auto',
+          'volume': 1.0,
+        });
       case VoiceActionType.setDetailLevel:
         return _setDetailLevel(intent);
       case VoiceActionType.setPromptProfile:
@@ -542,10 +822,12 @@ class VoiceControlService {
       case VoiceActionType.setLiveVerbosity:
         return _setLiveVerbosity(intent);
       case VoiceActionType.unknown:
-        return const VoiceActionResult(
+        final clarification = intent.slots['clarification'];
+        return VoiceActionResult(
           success: false,
-          spokenConfirmation:
-              "I didn't understand. Say help for available commands.",
+          spokenConfirmation: clarification is String
+              ? clarification
+              : "I didn't understand. Say help for available commands.",
         );
     }
   }
@@ -590,7 +872,7 @@ class VoiceControlService {
     return _ok(
       level == DetailLevel.brief
           ? 'Brief mode on. I will keep descriptions shorter.'
-          : 'Detailed mode on. I will describe more context.',
+          : 'Rich mode on. I will describe more context.',
       {'detailLevel': level.name},
     );
   }
@@ -619,7 +901,7 @@ class VoiceControlService {
       orElse: () => target.visionMode,
     );
     await target.setVisionMode(mode);
-    return _ok('${mode.label} vision mode on.', {'visionMode': mode.name});
+    return _ok(_visionModeConfirmation(mode), {'visionMode': mode.name});
   }
 
   Future<VoiceActionResult> _setLiveVerbosity(VoiceIntent intent) async {
@@ -651,13 +933,24 @@ class VoiceControlService {
   static String _profileConfirmation(PromptProfile profile) {
     switch (profile) {
       case PromptProfile.balanced:
-        return 'Balanced mode on.';
+        return 'Scene focus on.';
       case PromptProfile.safety:
         return 'Safety mode on. I will prioritize hazards.';
       case PromptProfile.navigation:
         return 'Navigation mode on. I will prioritize landmarks and walking cues.';
       case PromptProfile.reading:
         return 'Reading mode on. I will read visible text first.';
+    }
+  }
+
+  static String _visionModeConfirmation(VisionMode mode) {
+    switch (mode) {
+      case VisionMode.auto:
+        return 'Auto vision mode on. I will use the best available backend.';
+      case VisionMode.offlineOnly:
+        return 'Local basic vision on.';
+      case VisionMode.cloudOnly:
+        return 'Cloud vision mode on.';
     }
   }
 
@@ -673,6 +966,6 @@ class VoiceControlService {
   static const _helpText =
       'You can say: describe, repeat, pause, resume, start live detection, '
       'stop live detection, status, talk faster, talk slower, louder, quieter, '
-      'only hazards, read signs first, use local model, use cloud, vision status, '
-      'what failed, or contact caretaker.';
+      'reset speech, only hazards, read signs first, use local model, use cloud, '
+      'vision status, what failed, or contact caretaker.';
 }

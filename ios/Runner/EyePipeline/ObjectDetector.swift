@@ -19,6 +19,13 @@ final class ObjectDetector {
     private let maxObjects = 12
 
     private var vnModel: VNCoreMLModel?
+    private(set) var diagnostic: [String: Any] = [
+        "name": modelName,
+        "bundle_found": false,
+        "compiled_model_found": false,
+        "loaded": false,
+        "message": "Model has not been checked yet."
+    ]
 
     private init() {
         loadModel()
@@ -29,8 +36,16 @@ final class ObjectDetector {
     // MARK: - Model Loading
 
     private func loadModel() {
-        guard let url = Bundle.main.url(forResource: Self.modelName, withExtension: "mlmodel")
-                     ?? Bundle.main.url(forResource: Self.modelName, withExtension: "mlmodelc") else {
+        let sourceUrl = Bundle.main.url(forResource: Self.modelName, withExtension: "mlmodel")
+        let compiledUrl = Bundle.main.url(forResource: Self.modelName, withExtension: "mlmodelc")
+        guard let url = compiledUrl ?? sourceUrl else {
+            diagnostic = [
+                "name": Self.modelName,
+                "bundle_found": false,
+                "compiled_model_found": false,
+                "loaded": false,
+                "message": "\(Self.modelName) was not found in the app bundle."
+            ]
             print("[ObjectDetector] \(Self.modelName).mlmodel not found in bundle — detection disabled")
             return
         }
@@ -39,8 +54,22 @@ final class ObjectDetector {
             config.computeUnits = .all
             let mlModel = try MLModel(contentsOf: url, configuration: config)
             vnModel = try VNCoreMLModel(for: mlModel)
+            diagnostic = [
+                "name": Self.modelName,
+                "bundle_found": sourceUrl != nil || compiledUrl != nil,
+                "compiled_model_found": compiledUrl != nil,
+                "loaded": true,
+                "message": "\(Self.modelName) loaded successfully."
+            ]
             print("[ObjectDetector] Loaded \(Self.modelName)")
         } catch {
+            diagnostic = [
+                "name": Self.modelName,
+                "bundle_found": sourceUrl != nil || compiledUrl != nil,
+                "compiled_model_found": compiledUrl != nil,
+                "loaded": false,
+                "message": "\(Self.modelName) failed to load: \(error.localizedDescription)"
+            ]
             print("[ObjectDetector] Failed to load model: \(error)")
         }
     }

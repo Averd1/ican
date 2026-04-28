@@ -31,6 +31,16 @@ void main() {
       expect(result.spokenConfirmation, 'Volume set to 70 percent.');
     });
 
+    test('restores safe speech defaults by voice command', () async {
+      target.volume = 0.2;
+
+      final result = await service.handleTranscript('reset speech');
+
+      expect(result.success, isTrue);
+      expect(target.resetSpeechDefaultsCount, 1);
+      expect(result.spokenConfirmation, 'Speech defaults restored.');
+    });
+
     test('self-tunes safety mode for concise hazard-first output', () async {
       final result = await service.handleTranscript('only tell me hazards');
 
@@ -49,8 +59,103 @@ void main() {
       expect(result.success, isTrue);
       expect(target.visionMode, VisionMode.offlineOnly);
       expect(result.changedState['visionMode'], 'offlineOnly');
-      expect(result.spokenConfirmation, 'Offline vision mode on.');
+      expect(result.spokenConfirmation, 'Local basic vision on.');
     });
+
+    test('stop live detection does not match start live detection', () async {
+      final result = await service.handleTranscript('stop live detection');
+
+      expect(result.success, isTrue);
+      expect(target.stopLiveCount, 1);
+      expect(target.startLiveCount, 0);
+      expect(result.spokenConfirmation, 'Stopping live detection.');
+    });
+
+    test('understands natural scene and safety phrases', () async {
+      var result = await service.handleTranscript("what's in front of me");
+      expect(result.success, isTrue);
+      expect(target.describeCount, 1);
+
+      result = await service.handleTranscript('am I clear to walk');
+      expect(result.success, isTrue);
+      expect(target.promptProfile, PromptProfile.safety);
+      expect(target.detailLevel, DetailLevel.brief);
+    });
+
+    test('asks clarification for ambiguous mode commands', () async {
+      final result = await service.handleTranscript('change detail');
+
+      expect(result.success, isFalse);
+      expect(result.spokenConfirmation, contains('brief descriptions'));
+      expect(target.detailLevel, DetailLevel.detailed);
+    });
+
+    test('rule hit skips fallback parsers', () async {
+      final fallback = _FakeFallbackParser(
+        const VoiceIntent(
+          action: VoiceActionType.setVolume,
+          slots: {'percent': 10},
+          confidence: 0.95,
+          source: 'cloud',
+          rawTranscript: 'describe now',
+        ),
+      );
+      service = VoiceControlService(
+        target: target,
+        resolver: VoiceIntentResolver(cloudParser: fallback),
+      );
+
+      final result = await service.handleTranscript('describe now');
+
+      expect(result.success, isTrue);
+      expect(fallback.calls, 0);
+      expect(target.describeCount, 1);
+      expect(target.volume, 1.0);
+    });
+
+    test('low-confidence fallback does not mutate settings', () async {
+      final fallback = _FakeFallbackParser(
+        const VoiceIntent(
+          action: VoiceActionType.setVisionMode,
+          slots: {'visionMode': 'cloudOnly'},
+          confidence: 0.5,
+          source: 'cloud',
+          rawTranscript: 'maybe internet thing',
+        ),
+      );
+      service = VoiceControlService(
+        target: target,
+        resolver: VoiceIntentResolver(cloudParser: fallback),
+      );
+
+      final result = await service.handleTranscript('maybe internet thing');
+
+      expect(result.success, isFalse);
+      expect(target.visionMode, VisionMode.auto);
+    });
+
+    test(
+      'fallback cannot contact caretaker without explicit caretaker intent',
+      () async {
+        final fallback = _FakeFallbackParser(
+          const VoiceIntent(
+            action: VoiceActionType.contactCaretaker,
+            confidence: 0.95,
+            source: 'cloud',
+            rawTranscript: 'call someone',
+          ),
+        );
+        service = VoiceControlService(
+          target: target,
+          resolver: VoiceIntentResolver(cloudParser: fallback),
+        );
+
+        final result = await service.handleTranscript('call someone');
+
+        expect(result.success, isFalse);
+        expect(result.spokenConfirmation, contains("I didn't understand"));
+      },
+    );
 
     test('switches to reading-first prompt profile', () async {
       final result = await service.handleTranscript('read signs first');
@@ -184,6 +289,9 @@ class _FakeVoiceControlTarget implements VoiceControlTarget {
 
   var describeCount = 0;
   var repeatCount = 0;
+  var startLiveCount = 0;
+  var stopLiveCount = 0;
+  var resetSpeechDefaultsCount = 0;
   var describeOutcome = 'Scene description complete.';
 
   @override
@@ -197,6 +305,13 @@ class _FakeVoiceControlTarget implements VoiceControlTarget {
   @override
   Future<void> setVolume(double volume) async {
     this.volume = volume;
+  }
+
+  @override
+  Future<void> resetSpeechDefaults() async {
+    resetSpeechDefaultsCount++;
+    speechRate = 0.5;
+    volume = 1.0;
   }
 
   @override
@@ -239,11 +354,34 @@ class _FakeVoiceControlTarget implements VoiceControlTarget {
   Future<void> resumeDescriptions() async {}
 
   @override
-  Future<void> startLiveDetection() async {}
+  Future<void> startLiveDetection() async {
+    startLiveCount++;
+  }
 
   @override
-  Future<void> stopLiveDetection() async {}
+  Future<void> stopLiveDetection() async {
+    stopLiveCount++;
+  }
 
   @override
   Future<void> scanDevices() async {}
+}
+
+class _FakeFallbackParser implements VoiceIntentFallbackParser {
+  _FakeFallbackParser(this.intent);
+
+  final VoiceIntent intent;
+  var calls = 0;
+
+  @override
+  Future<VoiceIntent?> resolve(String transcript) async {
+    calls++;
+    return VoiceIntent(
+      action: intent.action,
+      slots: intent.slots,
+      confidence: intent.confidence,
+      source: intent.source,
+      rawTranscript: transcript,
+    );
+  }
 }

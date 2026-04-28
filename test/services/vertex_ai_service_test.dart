@@ -137,6 +137,50 @@ void main() {
         );
       },
     );
+
+    test('streaming preserves chunk spacing and finish reason', () async {
+      final service = VertexAiService(
+        apiKey: 'test-key',
+        httpClient: MockClient((_) async {
+          return http.Response(
+            [
+              'data: {"candidates":[{"content":{"parts":[{"text":"A clear "}]}}]}',
+              '',
+              'data: {"candidates":[{"content":{"parts":[{"text":"path ahead."}]},"finishReason":"MAX_TOKENS"}]}',
+              '',
+            ].join('\n'),
+            200,
+          );
+        }),
+      );
+
+      final chunks = await service
+          .streamContentFromImage(_jpegBytes, systemPrompt: 'Describe safely.')
+          .toList();
+
+      expect(chunks.join(), 'A clear path ahead.');
+      expect(service.lastFinishReason, 'MAX_TOKENS');
+    });
+
+    test('image requests use prompt-specific max output tokens', () async {
+      late Map<String, dynamic> body;
+      final service = VertexAiService(
+        apiKey: 'test-key',
+        httpClient: MockClient((request) async {
+          body = jsonDecode(request.body) as Map<String, dynamic>;
+          return http.Response(_successBody, 200);
+        }),
+      );
+
+      await service.generateContentFromImage(
+        _jpegBytes,
+        systemPrompt: 'Describe safely.',
+        maxOutputTokens: 760,
+      );
+
+      final generationConfig = body['generationConfig'] as Map<String, dynamic>;
+      expect(generationConfig['maxOutputTokens'], 760);
+    });
   });
 }
 

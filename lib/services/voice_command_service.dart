@@ -21,8 +21,10 @@ abstract class VoiceCommandTts {
 abstract class VoiceCommandStt {
   bool get available;
   Stream<String> get resultStream;
+  Stream<String> get partialResultStream;
+  Stream<SttRecognitionError> get errorStream;
   Future<bool> init();
-  Future<void> startListening();
+  Future<void> startListening({Duration listenFor, Duration pauseFor});
   Future<void> stopListening();
 }
 
@@ -39,11 +41,15 @@ class VoiceCommandService extends ChangeNotifier {
     required TtsService tts,
     required SttService stt,
     required BleService ble,
+    Duration listenWindow = const Duration(seconds: 8),
+    Duration pauseWindow = const Duration(seconds: 3),
   }) : this.custom(
          tts: _TtsVoiceCommandAdapter(tts),
          stt: _SttVoiceCommandAdapter(stt),
          ble: _BleVoiceCommandAdapter(ble),
          target: AppVoiceControlTarget(ble: ble),
+         listenWindow: listenWindow,
+         pauseWindow: pauseWindow,
        );
 
   @visibleForTesting
@@ -53,15 +59,21 @@ class VoiceCommandService extends ChangeNotifier {
     required VoiceCommandBle ble,
     AppVoiceControlTarget? target,
     VoiceCommandProcessor? processor,
+    Duration listenWindow = const Duration(seconds: 8),
+    Duration pauseWindow = const Duration(seconds: 3),
   }) : _tts = tts,
        _stt = stt,
        _ble = ble,
        _voiceTarget = target,
+       _listenWindow = listenWindow,
+       _pauseWindow = pauseWindow,
        _voiceControl =
            processor ??
            _VoiceControlProcessor(VoiceControlService(target: target!)) {
     _buttonSub = _ble.buttonEventStream.listen(_onButtonEvent);
     _sttSub = _stt.resultStream.listen(_onSpeechResult);
+    _sttPartialSub = _stt.partialResultStream.listen(_onPartialSpeechResult);
+    _sttErrorSub = _stt.errorStream.listen(_onSpeechError);
   }
 
   final VoiceCommandTts _tts;
@@ -69,20 +81,27 @@ class VoiceCommandService extends ChangeNotifier {
   final VoiceCommandBle _ble;
   final AppVoiceControlTarget? _voiceTarget;
   final VoiceCommandProcessor _voiceControl;
+  final Duration _listenWindow;
+  final Duration _pauseWindow;
 
   StreamSubscription<String>? _buttonSub;
   StreamSubscription<String>? _sttSub;
+  StreamSubscription<String>? _sttPartialSub;
+  StreamSubscription<SttRecognitionError>? _sttErrorSub;
   Timer? _silenceTimer;
 
   VoiceCommandState _state = VoiceCommandState.idle;
   String _partialText = '';
   String _lastResult = '';
+  String _lastError = '';
 
   VoiceCommandState get state => _state;
 
   String get partialText => _partialText;
 
   String get lastResult => _lastResult;
+
+  String get lastError => _lastError;
 
   void attachHomeViewModel(HomeViewModel vm) {
     _voiceTarget?.homeViewModel = vm;
@@ -104,16 +123,17 @@ class VoiceCommandService extends ChangeNotifier {
     if (_state != VoiceCommandState.idle) return;
 
     _partialText = '';
+    _lastError = '';
     _setState(VoiceCommandState.listening);
     HapticFeedback.mediumImpact();
 
-    await _tts.stop();
-    await _tts.speak('Listening.');
+    await _stopTtsSafely();
+    await _speakSafely('Listening.');
 
     if (!_stt.available) {
       final ok = await _stt.init();
       if (!ok) {
-        await _tts.speak(
+        await _speakSafely(
           'Microphone not available. Check permissions in settings.',
         );
         _lastResult = 'Microphone not available.';
@@ -122,15 +142,32 @@ class VoiceCommandService extends ChangeNotifier {
       }
     }
 
-    await _stt.startListening();
+    try {
+      await _stt.startListening(
+        listenFor: _listenWindow,
+        pauseFor: _pauseWindow,
+      );
+    } catch (e) {
+      _lastError = 'Speech recognition failed to start: $e';
+      _lastResult = 'Speech recognition failed to start.';
+      await _speakSafely(_lastResult);
+      _setState(VoiceCommandState.idle);
+      return;
+    }
 
     _silenceTimer?.cancel();
-    _silenceTimer = Timer(const Duration(seconds: 8), () {
+    _silenceTimer = Timer(_listenWindow + _pauseWindow, () {
       if (_state == VoiceCommandState.listening) {
         _stt.stopListening();
         _onNoSpeech();
       }
     });
+  }
+
+  void _onPartialSpeechResult(String text) {
+    if (_state != VoiceCommandState.listening) return;
+    _partialText = text;
+    notifyListeners();
   }
 
   void _onSpeechResult(String text) {
@@ -141,8 +178,26 @@ class VoiceCommandService extends ChangeNotifier {
     _processCommand(text);
   }
 
+  Future<void> _onSpeechError(SttRecognitionError error) async {
+    if (_state != VoiceCommandState.listening) return;
+    _silenceTimer?.cancel();
+    _lastError = error.message;
+    await _stt.stopListening();
+    if (error.isNoSpeech) {
+      await _onNoSpeech();
+      return;
+    }
+    _lastResult = error.permanent
+        ? 'Microphone error. Check speech recognition permissions.'
+        : 'I had trouble hearing that. Double press to try again.';
+    await _speakSafely(_lastResult);
+    _setState(VoiceCommandState.idle);
+  }
+
   Future<void> _onNoSpeech() async {
-    await _tts.speak("I didn't hear anything. Double press to try again.");
+    await _speakSafely(
+      "I didn't hear a command. Double press or tap Listen to try again.",
+    );
     _lastResult = "I didn't hear anything.";
     _setState(VoiceCommandState.idle);
   }
@@ -157,14 +212,31 @@ class VoiceCommandService extends ChangeNotifier {
     try {
       final result = await _voiceControl.handleTranscript(normalized);
       _lastResult = result.spokenConfirmation;
-      await _tts.speak(result.spokenConfirmation);
+      await _speakSafely(result.spokenConfirmation);
     } catch (e) {
       debugPrint('[VoiceCmd] Action error: $e');
       _lastResult = 'Sorry, something went wrong.';
-      await _tts.speak(_lastResult);
+      await _speakSafely(_lastResult);
     }
 
     _setState(VoiceCommandState.idle);
+  }
+
+  Future<void> _stopTtsSafely() async {
+    try {
+      await _tts.stop();
+    } catch (e) {
+      debugPrint('[VoiceCmd] TTS stop failed: $e');
+    }
+  }
+
+  Future<void> _speakSafely(String text) async {
+    try {
+      await _tts.speak(text);
+    } catch (e) {
+      _lastError = 'TTS failed: $e';
+      debugPrint('[VoiceCmd] TTS speak failed: $e');
+    }
   }
 
   void _setState(VoiceCommandState newState) {
@@ -176,6 +248,8 @@ class VoiceCommandService extends ChangeNotifier {
   void dispose() {
     _buttonSub?.cancel();
     _sttSub?.cancel();
+    _sttPartialSub?.cancel();
+    _sttErrorSub?.cancel();
     _silenceTimer?.cancel();
     super.dispose();
   }
@@ -205,10 +279,21 @@ class _SttVoiceCommandAdapter implements VoiceCommandStt {
   Stream<String> get resultStream => _stt.resultStream;
 
   @override
+  Stream<String> get partialResultStream => _stt.partialResultStream;
+
+  @override
+  Stream<SttRecognitionError> get errorStream => _stt.errorStream;
+
+  @override
   Future<bool> init() => _stt.init();
 
   @override
-  Future<void> startListening() => _stt.startListening();
+  Future<void> startListening({
+    Duration listenFor = const Duration(seconds: 8),
+    Duration pauseFor = const Duration(seconds: 3),
+  }) {
+    return _stt.startListening(listenFor: listenFor, pauseFor: pauseFor);
+  }
 
   @override
   Future<void> stopListening() => _stt.stopListening();

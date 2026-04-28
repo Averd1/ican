@@ -11,6 +11,7 @@ import 'package:ican/protocol/eye_capture_diagnostics.dart';
 import 'package:ican/screens/accessible_home_screen.dart';
 import 'package:ican/services/on_device_vision_service.dart';
 import 'package:ican/services/scene_description_service.dart';
+import 'package:ican/services/stt_service.dart';
 import 'package:ican/services/tts_service.dart';
 import 'package:ican/services/vertex_ai_service.dart';
 import 'package:ican/services/voice_command_service.dart';
@@ -31,6 +32,23 @@ void main() {
             'getModelStatus' => 'not_available',
             'isObjectDetectionAvailable' => false,
             'isDepthEstimationAvailable' => false,
+            'getNativeModelDiagnostics' => {
+              'object_detector': {
+                'name': 'YOLOv3Tiny',
+                'bundle_found': false,
+                'compiled_model_found': false,
+                'loaded': false,
+                'message': 'YOLOv3Tiny was not found in the app bundle.',
+              },
+              'depth_estimator': {
+                'name': 'DepthAnythingV2SmallF16P6',
+                'bundle_found': false,
+                'compiled_model_found': false,
+                'loaded': false,
+                'message':
+                    'DepthAnythingV2SmallF16P6 was not found in the app bundle.',
+              },
+            },
             _ => throw PlatformException(code: 'unexpected'),
           };
         });
@@ -86,9 +104,9 @@ void main() {
     expect(find.text('Focus: Safety'), findsOneWidget);
     expect(find.text('Detail: Brief'), findsOneWidget);
     expect(find.text('Live: Minimal'), findsOneWidget);
-    expect(find.text('Vision: Auto'), findsOneWidget);
+    expect(find.text('Vision: Auto: cloud reliable'), findsOneWidget);
     await tester.pump();
-    expect(find.text('Local: Vision only'), findsOneWidget);
+    expect(find.text('Local: Local basic vision'), findsOneWidget);
 
     await tester.ensureVisible(find.text('Start Voice Command'));
     await tester.pump();
@@ -193,6 +211,8 @@ class _FakeTts implements VoiceCommandTts, SpeechOutput {
 
 class _FakeStt implements VoiceCommandStt {
   final _controller = StreamController<String>.broadcast();
+  final _partialController = StreamController<String>.broadcast();
+  final _errorController = StreamController<SttRecognitionError>.broadcast();
 
   @override
   bool get available => true;
@@ -201,10 +221,19 @@ class _FakeStt implements VoiceCommandStt {
   Stream<String> get resultStream => _controller.stream;
 
   @override
+  Stream<String> get partialResultStream => _partialController.stream;
+
+  @override
+  Stream<SttRecognitionError> get errorStream => _errorController.stream;
+
+  @override
   Future<bool> init() async => true;
 
   @override
-  Future<void> startListening() async {}
+  Future<void> startListening({
+    Duration listenFor = const Duration(seconds: 8),
+    Duration pauseFor = const Duration(seconds: 3),
+  }) async {}
 
   @override
   Future<void> stopListening() async {}
@@ -215,6 +244,8 @@ class _FakeStt implements VoiceCommandStt {
 
   void dispose() {
     _controller.close();
+    _partialController.close();
+    _errorController.close();
   }
 }
 

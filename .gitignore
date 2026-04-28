@@ -67,6 +67,10 @@ compile_commands.json
 # Secrets and Configs
 .env
 secret.json
+.codex/
+*.local.md
+LOCAL_PRIVATE*.md
+work/
 
 # Android
 **/android/**/gradle-wrapper.jar

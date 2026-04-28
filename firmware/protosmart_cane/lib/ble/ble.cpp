@@ -63,6 +63,7 @@ void updateBLETelemetry() {
     if (obstacleNear) packet.flags |= 0x04;
     if (obstacleImminent) packet.flags |= 0x08;
     packet.flags |= hapticDriverStatusBits();
+    if (imuOrientationOk) packet.flags |= 0x80;
     
     // Send the simplified packet
     if (telemetryCharacteristic) {

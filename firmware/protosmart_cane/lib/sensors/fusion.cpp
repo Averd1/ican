@@ -6,6 +6,12 @@
 #include "fusion.h"
 
 void fuseSituations() {
+    // PRIORITY 1: IMU fall detection overrides all other situation fusion.
+    if (imuFallDetected) {
+        currentSituation = FALL_DETECTED;
+        return;
+    }
+
     // Get minimum distance from all sensors
     uint16_t minDistance = 0xFFFF;  // Start with max value
 
@@ -22,9 +28,6 @@ void fuseSituations() {
         currentSensors.matrixSensorDistance < minDistance) {
         minDistance = currentSensors.matrixSensorDistance;
     }
-
-    // PRIORITY 1: FALL DETECTION (highest priority - triggers emergency)
-    // This is handled by the IMU update function directly
 
     // PRIORITY 2: HIGH STRESS CONDITION
     // Close obstacle + abnormal heart rate

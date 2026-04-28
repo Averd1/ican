@@ -53,6 +53,8 @@ bool obstacleNear = false;
 bool obstacleImminent = false;
 bool ultrasonicNear = false;
 bool ultrasonicImminent = false;
+bool imuFallDetected = false;
+bool imuOrientationOk = true;
 
 unsigned long lastIMUUpdate = 0;
 unsigned long lastUltrasonicUpdate = 0;
@@ -203,6 +205,11 @@ void loop() {
 #endif
 
 #if ISOLATED_SENSOR_TEST_MODE
+    if (now - lastIMUUpdate > modeConfig.imuInterval) {
+        updateIMU();
+        lastIMUUpdate = now;
+    }
+
     if (now - lastUltrasonicUpdate > modeConfig.ultrasonicInterval) {
         updateUltrasonic();
         lastUltrasonicUpdate = now;
@@ -213,7 +220,28 @@ void loop() {
         lastMatrixSensorUpdate = now;
     }
 
+    // Keep IMU fault recovery active in isolated mode as well.
+    checkFaults();
+
     fuseSituations();
+
+    // Preserve IMU emergency behavior while staying in isolated sensor set.
+    if (currentSituation == FALL_DETECTED || systemFaults.imu_fail) {
+        if (currentMode != EMERGENCY) {
+            setMode(EMERGENCY);
+            currentEmergencyType = (currentSituation == FALL_DETECTED) ?
+                                 EMERGENCY_FALL : EMERGENCY_SENSOR_FAIL;
+            if (DEBUG_MODE) Serial.println("EMERGENCY MODE: Fall/IMU failure detected (isolated)");
+        }
+    } else if (currentMode == EMERGENCY &&
+               currentSituation != FALL_DETECTED &&
+               !systemFaults.imu_fail) {
+        setMode(NORMAL);
+        currentEmergencyType = EMERGENCY_NONE;
+        emergencyActive = false;
+        if (DEBUG_MODE) Serial.println("EMERGENCY CLEARED: returning to isolated normal mode");
+    }
+
     handleResponses();
 
 #if ENABLE_BLE

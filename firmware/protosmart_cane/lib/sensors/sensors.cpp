@@ -10,9 +10,7 @@
 #include "pulse.h"
 
 void sensorsInit() {
-#if !ISOLATED_SENSOR_TEST_MODE
     imuInit();
-#endif
     ultrasonicInit();
     matrixSensorInit();
 #if !ISOLATED_SENSOR_TEST_MODE

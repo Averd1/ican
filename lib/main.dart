@@ -6,6 +6,7 @@ import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'core/router.dart';
 import 'core/theme.dart';
 import 'models/settings_provider.dart';
+import 'services/app_log_service.dart';
 import 'services/ble_service.dart';
 import 'services/notification_service.dart';
 import 'services/stt_service.dart';
@@ -19,8 +20,18 @@ Future<void> main() async {
   await runZonedGuarded<Future<void>>(
     () async {
       WidgetsFlutterBinding.ensureInitialized();
+      await AppLogService.instance.init();
+      AppLogService.instance.installDebugPrintHook();
+      await AppLogService.instance.record('App startup begin', source: 'main');
+
       FlutterError.onError = (details) {
         debugPrint('[FlutterError] ${details.exceptionAsString()}');
+        unawaited(
+          AppLogService.instance.record(
+            '[FlutterError] ${details.exceptionAsString()}',
+            source: 'flutter',
+          ),
+        );
         FlutterError.presentError(details);
       };
 
@@ -56,9 +67,13 @@ Future<void> main() async {
       voiceCommandService.attachSettings(appSettingsProvider);
 
       runApp(const ICanApp());
+      debugPrint('[main] App startup complete');
     },
     (error, stackTrace) {
       debugPrint('[ZoneError] $error');
+      unawaited(
+        AppLogService.instance.record('[ZoneError] $error', source: 'zone'),
+      );
       debugPrintStack(stackTrace: stackTrace);
     },
   );

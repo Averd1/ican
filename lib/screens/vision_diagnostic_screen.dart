@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -7,6 +6,7 @@ import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:image_picker/image_picker.dart';
 
 import '../core/theme.dart';
+import '../services/app_log_service.dart';
 import '../services/ble_service.dart';
 import '../services/on_device_vision_service.dart';
 import '../services/scene_description_service.dart';
@@ -41,6 +41,7 @@ class _VisionDiagnosticScreenState extends State<VisionDiagnosticScreen> {
   bool _isRunning = false;
   String _outputText = '';
   String _errorText = '';
+  String _activeDiagnosticLabel = 'Not run';
   int? _timeToFirstTokenMs;
   int? _totalTimeMs;
 
@@ -180,11 +181,228 @@ class _VisionDiagnosticScreenState extends State<VisionDiagnosticScreen> {
     _totalTimeMs = null;
   }
 
+  Future<void> _runTextDiagnostic(
+    String label,
+    Future<String> Function() action, {
+    bool requiresImage = false,
+  }) async {
+    if (_isRunning || (requiresImage && _imageBytes == null)) return;
+
+    setState(() {
+      _isRunning = true;
+      _activeDiagnosticLabel = label;
+      _clearResults();
+    });
+
+    final stopwatch = Stopwatch()..start();
+    try {
+      final text = await action();
+      stopwatch.stop();
+      setState(() {
+        _outputText = text;
+        _totalTimeMs = stopwatch.elapsedMilliseconds;
+        _isRunning = false;
+      });
+    } catch (e) {
+      stopwatch.stop();
+      setState(() {
+        _errorText = e.toString();
+        _totalTimeMs = stopwatch.elapsedMilliseconds;
+        _isRunning = false;
+      });
+    }
+  }
+
+  Future<void> _runStreamingDiagnostic(
+    String label,
+    Future<Stream<String>> Function() streamBuilder, {
+    bool requiresImage = true,
+  }) async {
+    if (_isRunning || (requiresImage && _imageBytes == null)) return;
+
+    setState(() {
+      _isRunning = true;
+      _activeDiagnosticLabel = label;
+      _clearResults();
+    });
+
+    final stopwatch = Stopwatch()..start();
+    bool gotFirstToken = false;
+    final buffer = StringBuffer();
+
+    try {
+      final stream = await streamBuilder();
+      await for (final chunk in stream) {
+        if (!gotFirstToken) {
+          gotFirstToken = true;
+          setState(() {
+            _timeToFirstTokenMs = stopwatch.elapsedMilliseconds;
+          });
+        }
+        buffer.write(chunk);
+        setState(() {
+          _outputText = buffer.toString();
+        });
+      }
+    } catch (e) {
+      setState(() {
+        _errorText = e.toString();
+      });
+    }
+
+    stopwatch.stop();
+    setState(() {
+      _totalTimeMs = stopwatch.elapsedMilliseconds;
+      _outputText = buffer.toString();
+      if (_outputText.isEmpty && _errorText.isEmpty) {
+        _errorText = '$label produced no output.';
+      }
+      _isRunning = false;
+    });
+  }
+
+  Future<String> _buildLocalStackDiagnostic() async {
+    final status = await _onDeviceService.getOfflineVisionStatus();
+    final diagnostics = await _onDeviceService.getOfflineVisionDiagnostics();
+    final info = await _onDeviceService.getSmolVlmModelInfo();
+
+    final buffer = StringBuffer()
+      ..writeln('Local Stack')
+      ..writeln('Foundation Models: ${status.foundationModelsAvailable}')
+      ..writeln('SmolVLM status: ${_modelStatusLabel(status.modelStatus)}')
+      ..writeln('Object detection: ${status.objectDetectionAvailable}')
+      ..writeln('Depth estimation: ${status.depthEstimationAvailable}')
+      ..writeln('Best local backend: ${status.bestLocalBackendLabel}')
+      ..writeln(
+        'Missing requirements: ${status.missingRequirements.isEmpty ? "none" : status.missingRequirements.join(", ")}',
+      )
+      ..writeln()
+      ..writeln('Core ML Models')
+      ..writeln(_nativeModelLine(diagnostics.objectDetector))
+      ..writeln(_nativeModelLine(diagnostics.depthEstimator))
+      ..writeln()
+      ..writeln('SmolVLM Files')
+      ..writeln('Directory: ${info.path.isEmpty ? "(unknown)" : info.path}')
+      ..writeln('Downloaded: ${info.downloaded}')
+      ..writeln('Valid: ${info.valid}')
+      ..writeln('Bytes: ${info.sizeBytes} / ${info.requiredBytes}');
+
+    for (final file in info.files) {
+      buffer
+        ..writeln()
+        ..writeln(file.name)
+        ..writeln('  present: ${file.downloaded}')
+        ..writeln('  sizeBytes: ${file.sizeBytes}')
+        ..writeln('  expectedSizeBytes: ${file.expectedSizeBytes}')
+        ..writeln('  sha256: ${file.sha256}');
+    }
+
+    return buffer.toString().trim();
+  }
+
+  String _nativeModelLine(NativeModelDiagnostic diagnostic) {
+    return '${diagnostic.name}: loaded=${diagnostic.loaded}, bundle=${diagnostic.bundleFound}, compiled=${diagnostic.compiledModelFound}. ${diagnostic.message}';
+  }
+
+  Future<String> _runLayer1OnlyText() async {
+    final perception = await _onDeviceService.analyzeScene(_imageBytes!);
+    return [
+      'Layer 1 Perception',
+      'OCR: ${perception.ocrTexts.isEmpty ? "(none)" : perception.ocrTexts.join(" | ")}',
+      'Scene: ${perception.sceneClassification} (${(perception.sceneConfidence * 100).round()}%)',
+      'People: ${perception.personCount}',
+      'Depth map: ${perception.hasDepthMap}',
+      'Objects: ${perception.detectedObjects.map((o) => o.spatialLabel).join("; ")}',
+      '',
+      'Template',
+      perception.toTemplateDescription(),
+      '',
+      'Prompt Context',
+      perception.toPromptContext().isEmpty
+          ? '(empty)'
+          : perception.toPromptContext(),
+    ].join('\n');
+  }
+
+  Future<Stream<String>> _buildSmolVlmDirectStream() async {
+    await _ensureSmolVlmLoadedForDiagnostic();
+    return _onDeviceService.describeWithVlm(
+      _imageBytes!,
+      systemPrompt:
+          'Describe this image in 4-6 concise spoken sentences. Include hazards, text, and spatial positions.',
+    );
+  }
+
+  Future<Stream<String>> _buildFullLocalPipelineStream() async {
+    await _ensureSmolVlmLoadedForDiagnostic();
+    return _sceneService.describeWithSmolVLM(
+      _imageBytes!,
+      systemPrompt:
+          'Describe this image in 4-6 concise spoken sentences. Include hazards, text, and spatial positions.',
+    );
+  }
+
+  Future<void> _ensureSmolVlmLoadedForDiagnostic() async {
+    final status = await _onDeviceService.getModelStatus();
+    switch (status) {
+      case ModelStatus.loaded:
+        return;
+      case ModelStatus.ready:
+        final loaded = await _onDeviceService.loadVlmModel();
+        if (loaded) return;
+        throw StateError('SmolVLM files are present but loadModel failed.');
+      case ModelStatus.downloading:
+        throw StateError('SmolVLM model download is still in progress.');
+      case ModelStatus.notAvailable:
+        throw StateError('SmolVLM runtime is not linked into this build.');
+      case ModelStatus.notDownloaded:
+        throw StateError('SmolVLM model files are not downloaded.');
+    }
+  }
+
+  Future<String> _runSmolVlmSelfTestText() async {
+    final result = await _onDeviceService.runSmolVlmSelfTest(_imageBytes!);
+    return _formatDiagnosticMap(result);
+  }
+
+  String _formatDiagnosticMap(Map<String, dynamic> map) {
+    final buffer = StringBuffer()..writeln('SmolVLM Self-Test');
+    _writeDiagnosticMap(buffer, map);
+    return buffer.toString().trim();
+  }
+
+  void _writeDiagnosticMap(
+    StringBuffer buffer,
+    Map<String, dynamic> map, {
+    int indent = 0,
+  }) {
+    final prefix = ' ' * indent;
+    for (final entry in map.entries) {
+      final value = entry.value;
+      if (value is Map<String, dynamic>) {
+        buffer.writeln('$prefix${entry.key}:');
+        _writeDiagnosticMap(buffer, value, indent: indent + 2);
+      } else if (value is List) {
+        buffer.writeln('$prefix${entry.key}:');
+        for (final item in value) {
+          if (item is Map<String, dynamic>) {
+            _writeDiagnosticMap(buffer, item, indent: indent + 2);
+          } else {
+            buffer.writeln('$prefix  $item');
+          }
+        }
+      } else {
+        buffer.writeln('$prefix${entry.key}: $value');
+      }
+    }
+  }
+
   Future<void> _runDiagnostic() async {
     if (_imageBytes == null || _isRunning) return;
 
     setState(() {
       _isRunning = true;
+      _activeDiagnosticLabel = _selectedBackend.label;
       _clearResults();
     });
 
@@ -249,7 +467,7 @@ class _VisionDiagnosticScreenState extends State<VisionDiagnosticScreen> {
 
   void _copyResult() {
     final text = StringBuffer()
-      ..writeln('Backend: ${_selectedBackend.label}')
+      ..writeln('Diagnostic: $_activeDiagnosticLabel')
       ..writeln('Image: $_imageSource')
       ..writeln('Time to first token: ${_timeToFirstTokenMs ?? "--"} ms')
       ..writeln('Total time: ${_totalTimeMs ?? "--"} ms')
@@ -262,6 +480,20 @@ class _VisionDiagnosticScreenState extends State<VisionDiagnosticScreen> {
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
         content: Text('Copied to clipboard'),
+        duration: Duration(seconds: 2),
+      ),
+    );
+  }
+
+  Future<void> _copyAppLogs() async {
+    final logs = await AppLogService.instance.exportText();
+    if (!mounted) return;
+    final text = logs.trim().isEmpty ? 'No app logs recorded.' : logs;
+    await Clipboard.setData(ClipboardData(text: text));
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Copied app logs'),
         duration: Duration(seconds: 2),
       ),
     );
@@ -289,6 +521,8 @@ class _VisionDiagnosticScreenState extends State<VisionDiagnosticScreen> {
               _buildBackendSelector(),
               const SizedBox(height: AppSpacing.md),
               _buildSmolVlmSetupSection(),
+              const SizedBox(height: AppSpacing.md),
+              _buildLayerTestSection(),
               const SizedBox(height: AppSpacing.md),
               _buildRunButton(),
               const SizedBox(height: AppSpacing.md),
@@ -469,6 +703,13 @@ class _VisionDiagnosticScreenState extends State<VisionDiagnosticScreen> {
           ),
           if (info?.path.isNotEmpty ?? false)
             _ResultRow(label: 'Path', value: info!.path),
+          if (info != null)
+            for (final file in info.files)
+              _ResultRow(
+                label: file.name.contains('mmproj') ? 'Projector' : 'Model',
+                value:
+                    '${file.name} at ${info.path}/${file.name} (${_formatBytes(file.sizeBytes)} of ${_formatBytes(file.expectedSizeBytes)})',
+              ),
           const SizedBox(height: AppSpacing.xs),
           LinearProgressIndicator(
             value: downloaded || loaded ? 1 : _smolVlmProgress,
@@ -500,6 +741,89 @@ class _VisionDiagnosticScreenState extends State<VisionDiagnosticScreen> {
               ),
             ),
           ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildLayerTestSection() {
+    final hasImage = _imageBytes != null;
+    return Container(
+      padding: const EdgeInsets.all(AppSpacing.sm),
+      decoration: BoxDecoration(
+        color: AppColors.surfaceCardLight,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppColors.borderLight),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Layer Tests',
+            style: TextStyle(
+              fontSize: 18.sp,
+              fontWeight: FontWeight.w600,
+              color: AppColors.textOnLight,
+            ),
+          ),
+          const SizedBox(height: AppSpacing.xs),
+          Wrap(
+            spacing: AppSpacing.xs,
+            runSpacing: AppSpacing.xs,
+            children: [
+              _DiagButton(
+                label: 'Check Local Stack',
+                onPressed: _isRunning
+                    ? null
+                    : () => _runTextDiagnostic(
+                        'Check Local Stack',
+                        _buildLocalStackDiagnostic,
+                      ),
+              ),
+              _DiagButton(
+                label: 'Copy App Logs',
+                onPressed: _isRunning ? null : _copyAppLogs,
+              ),
+              _DiagButton(
+                label: 'Run SmolVLM Self-Test',
+                onPressed: (_isRunning || !hasImage)
+                    ? null
+                    : () => _runTextDiagnostic(
+                        'Run SmolVLM Self-Test',
+                        _runSmolVlmSelfTestText,
+                        requiresImage: true,
+                      ),
+              ),
+              _DiagButton(
+                label: 'Run Layer 1 Only',
+                onPressed: (_isRunning || !hasImage)
+                    ? null
+                    : () => _runTextDiagnostic(
+                        'Run Layer 1 Only',
+                        _runLayer1OnlyText,
+                        requiresImage: true,
+                      ),
+              ),
+              _DiagButton(
+                label: 'Run SmolVLM Direct',
+                onPressed: (_isRunning || !hasImage)
+                    ? null
+                    : () => _runStreamingDiagnostic(
+                        'Run SmolVLM Direct',
+                        _buildSmolVlmDirectStream,
+                      ),
+              ),
+              _DiagButton(
+                label: 'Run Full Local Pipeline',
+                onPressed: (_isRunning || !hasImage)
+                    ? null
+                    : () => _runStreamingDiagnostic(
+                        'Run Full Local Pipeline',
+                        _buildFullLocalPipelineStream,
+                      ),
+              ),
+            ],
+          ),
         ],
       ),
     );
@@ -579,16 +903,16 @@ class _VisionDiagnosticScreenState extends State<VisionDiagnosticScreen> {
           ),
           const SizedBox(height: AppSpacing.xs),
 
-          _ResultRow(label: 'Backend', value: _selectedBackend.label),
+          _ResultRow(label: 'Diagnostic', value: _activeDiagnosticLabel),
           _ResultRow(
             label: 'First token',
             value: _timeToFirstTokenMs != null
-                ? '${_timeToFirstTokenMs} ms'
+                ? '$_timeToFirstTokenMs ms'
                 : '--',
           ),
           _ResultRow(
             label: 'Total time',
-            value: _totalTimeMs != null ? '${_totalTimeMs} ms' : '--',
+            value: _totalTimeMs != null ? '$_totalTimeMs ms' : '--',
           ),
 
           const Divider(height: 24, color: AppColors.borderLight),

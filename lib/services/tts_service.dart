@@ -137,7 +137,7 @@ class TtsService extends ChangeNotifier
   double _volume = 1.0;
   double get volume => _volume;
 
-  SpeechEngine _speechEngine = SpeechEngine.auto;
+  SpeechEngine _speechEngine = SpeechEngine.nativeIos;
   @override
   SpeechEngine get speechEngine => _speechEngine;
 
@@ -328,7 +328,7 @@ class TtsService extends ChangeNotifier
     _pitch = 1.0;
     _volume = 1.0;
     _selectedVoice = null;
-    _speechEngine = SpeechEngine.auto;
+    _speechEngine = SpeechEngine.nativeIos;
     await _tryNativeSetup(
       'reset language',
       () => _flutterTts.setLanguage('en-US'),

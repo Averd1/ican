@@ -138,10 +138,31 @@ void main() {
       },
     );
 
-    test('streaming preserves chunk spacing and finish reason', () async {
+    test('requests send API key by header and not URL query', () async {
+      late http.Request capturedRequest;
       final service = VertexAiService(
         apiKey: 'test-key',
-        httpClient: MockClient((_) async {
+        httpClient: MockClient((request) async {
+          capturedRequest = request;
+          return http.Response(_successBody, 200);
+        }),
+      );
+
+      await service.generateContentFromImage(
+        _jpegBytes,
+        systemPrompt: 'Describe safely.',
+      );
+
+      expect(capturedRequest.headers['x-goog-api-key'], 'test-key');
+      expect(capturedRequest.url.queryParameters, isNot(contains('key')));
+    });
+
+    test('streaming preserves chunk spacing and finish reason', () async {
+      late http.Request capturedRequest;
+      final service = VertexAiService(
+        apiKey: 'test-key',
+        httpClient: MockClient((request) async {
+          capturedRequest = request;
           return http.Response(
             [
               'data: {"candidates":[{"content":{"parts":[{"text":"A clear "}]}}]}',
@@ -160,6 +181,8 @@ void main() {
 
       expect(chunks.join(), 'A clear path ahead.');
       expect(service.lastFinishReason, 'MAX_TOKENS');
+      expect(capturedRequest.headers['x-goog-api-key'], 'test-key');
+      expect(capturedRequest.url.queryParameters, isNot(contains('key')));
     });
 
     test('image requests use prompt-specific max output tokens', () async {

@@ -516,6 +516,7 @@ class OnDeviceVisionService {
   static const _downloadStream = EventChannel(
     'com.ican/model_download_progress',
   );
+  static const _firstNativeTokenTimeout = Duration(seconds: 120);
 
   Future<bool> pingNativeChannel() async {
     try {
@@ -738,19 +739,14 @@ class OnDeviceVisionService {
   Stream<String> synthesizeWithFoundationModels(
     String context, {
     required String systemPrompt,
-  }) async* {
-    try {
-      await _method.invokeMethod<bool>('synthesizeDescription', {
-        'context': context,
-        'systemPrompt': systemPrompt,
-      });
-
-      await for (final event in _fmStream.receiveBroadcastStream()) {
-        if (event is String) yield event;
-      }
-    } on PlatformException catch (e) {
-      debugPrint('[OnDeviceVision] Foundation Models error: ${e.message}');
-    }
+  }) {
+    return _invokeTokenStream(
+      channel: _fmStream,
+      method: 'synthesizeDescription',
+      arguments: {'context': context, 'systemPrompt': systemPrompt},
+      localCode: 'Local L30',
+      stageLabel: 'Foundation Models',
+    );
   }
 
   // ── Layer 2: SmolVLM ────────────────────────────────────────────────────
@@ -787,20 +783,18 @@ class OnDeviceVisionService {
     Uint8List jpegBytes, {
     required String systemPrompt,
     String? visionContext,
-  }) async* {
-    try {
-      await _method.invokeMethod<bool>('describeImage', {
+  }) {
+    return _invokeTokenStream(
+      channel: _vlmStream,
+      method: 'describeImage',
+      arguments: {
         'imageBytes': jpegBytes,
         'systemPrompt': systemPrompt,
         'visionContext': visionContext,
-      });
-
-      await for (final event in _vlmStream.receiveBroadcastStream()) {
-        if (event is String) yield event;
-      }
-    } on PlatformException catch (e) {
-      debugPrint('[OnDeviceVision] VLM inference error: ${e.message}');
-    }
+      },
+      localCode: 'Local L20',
+      stageLabel: 'SmolVLM',
+    );
   }
 
   // ── Download management ──────────────────────────────────────────────────
@@ -880,7 +874,167 @@ class OnDeviceVisionService {
     }
   }
 
+  Future<Map<String, dynamic>> runSmolVlmSelfTest(
+    Uint8List jpegBytes, {
+    String systemPrompt =
+        'Describe this image in one concise sentence for a blind user.',
+  }) async {
+    try {
+      final result = await _method.invokeMethod<Map<dynamic, dynamic>>(
+        'runSmolVlmSelfTest',
+        {'imageBytes': jpegBytes, 'systemPrompt': systemPrompt},
+      );
+      return _stringKeyedMap(result ?? const {});
+    } on MissingPluginException {
+      return {
+        'llamaLinked': false,
+        'loadSuccess': false,
+        'error': 'Native vision channel is not registered.',
+      };
+    } on PlatformException catch (e) {
+      return {
+        'llamaLinked': false,
+        'loadSuccess': false,
+        'error': _platformDetail(e),
+      };
+    } catch (e) {
+      return {'llamaLinked': false, 'loadSuccess': false, 'error': '$e'};
+    }
+  }
+
   // ── Private helpers ──────────────────────────────────────────────────────
+
+  Stream<String> _invokeTokenStream({
+    required EventChannel channel,
+    required String method,
+    required Map<String, Object?> arguments,
+    required String localCode,
+    required String stageLabel,
+  }) {
+    late final StreamController<String> controller;
+    StreamSubscription<dynamic>? subscription;
+    Timer? firstTokenTimer;
+    var gotToken = false;
+    var finished = false;
+
+    void finish() {
+      if (finished) return;
+      finished = true;
+      firstTokenTimer?.cancel();
+      unawaited(subscription?.cancel());
+      unawaited(controller.close());
+    }
+
+    void fail(Object error, [StackTrace? stackTrace]) {
+      if (finished) return;
+      finished = true;
+      firstTokenTimer?.cancel();
+      final exception = _asLocalVisionException(
+        error,
+        localCode: localCode,
+        stageLabel: stageLabel,
+      );
+      debugPrint('[OnDeviceVision] $stageLabel stream failed: $exception');
+      controller.addError(exception, stackTrace);
+      unawaited(subscription?.cancel());
+      unawaited(controller.close());
+    }
+
+    controller = StreamController<String>(
+      onListen: () async {
+        firstTokenTimer = Timer(_firstNativeTokenTimeout, () {
+          fail(
+            LocalVisionException(
+              localCode,
+              '$stageLabel produced no text before the timeout.',
+              detail:
+                  'Waited ${_firstNativeTokenTimeout.inSeconds} seconds for the first token.',
+            ),
+          );
+        });
+
+        subscription = channel.receiveBroadcastStream().listen(
+          (event) {
+            if (finished) return;
+            if (event is! String || event.isEmpty) return;
+            gotToken = true;
+            firstTokenTimer?.cancel();
+            controller.add(event);
+          },
+          onError: fail,
+          onDone: () {
+            if (gotToken) {
+              finish();
+            } else {
+              fail(
+                LocalVisionException(
+                  localCode,
+                  '$stageLabel produced no output.',
+                  detail: 'Native stream ended without any text tokens.',
+                ),
+              );
+            }
+          },
+        );
+
+        try {
+          await _method.invokeMethod<bool>(method, arguments);
+        } catch (e, stackTrace) {
+          fail(e, stackTrace);
+        }
+      },
+      onCancel: () async {
+        firstTokenTimer?.cancel();
+        await subscription?.cancel();
+      },
+    );
+
+    return controller.stream;
+  }
+
+  LocalVisionException _asLocalVisionException(
+    Object error, {
+    required String localCode,
+    required String stageLabel,
+  }) {
+    if (error is LocalVisionException) return error;
+    if (error is MissingPluginException) {
+      return const LocalVisionException(
+        'Local L01',
+        'native vision channel is not registered.',
+      );
+    }
+    if (error is PlatformException) {
+      return LocalVisionException(
+        localCode,
+        '$stageLabel native inference failed.',
+        detail: _platformDetail(error),
+      );
+    }
+    return LocalVisionException(
+      localCode,
+      '$stageLabel native inference failed.',
+      detail: error.toString(),
+    );
+  }
+
+  static Map<String, dynamic> _stringKeyedMap(Map<dynamic, dynamic> source) {
+    return source.map((key, value) {
+      final dynamic mappedValue = switch (value) {
+        Map<dynamic, dynamic> map => _stringKeyedMap(map),
+        List list =>
+          list
+              .map(
+                (item) => item is Map<dynamic, dynamic>
+                    ? _stringKeyedMap(item)
+                    : item,
+              )
+              .toList(),
+        _ => value,
+      };
+      return MapEntry(key.toString(), mappedValue);
+    });
+  }
 
   static String _platformDetail(PlatformException e) {
     final parts = <String>[e.code];

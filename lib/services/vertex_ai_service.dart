@@ -208,9 +208,7 @@ class VertexAiService extends ChangeNotifier {
     _assertApiKeyPresent();
     _lastFinishReason = null;
 
-    final url = Uri.parse(
-      '$_baseUrl/${_model.id}:generateContent?key=$_apiKey',
-    );
+    final url = Uri.parse('$_baseUrl/${_model.id}:generateContent');
 
     final body = <String, dynamic>{
       'contents': [
@@ -378,14 +376,13 @@ class VertexAiService extends ChangeNotifier {
   }
 
   Uri _streamUrl() {
-    return Uri.parse(
-      '$_baseUrl/${_model.id}:streamGenerateContent?alt=sse&key=$_apiKey',
-    );
+    return Uri.parse('$_baseUrl/${_model.id}:streamGenerateContent?alt=sse');
   }
 
   Map<String, String> get _requestHeaders {
-    return const {
+    return {
       'Content-Type': 'application/json',
+      'x-goog-api-key': _apiKey,
       'X-Ios-Bundle-Identifier': _iosBundleIdentifier,
     };
   }

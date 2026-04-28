@@ -213,12 +213,34 @@ class SceneDescriptionService extends ChangeNotifier {
           }
         }
 
+        final localReady = await _basicLocalVisionReady();
+        if (!localReady) {
+          throw SceneDescriptionException.localVision(
+            const LocalVisionException(
+              'Local L02',
+              'Local vision is unavailable until Apple Vision passes health checks.',
+            ),
+            cloudFailure: _lastCloudFailure,
+          );
+        }
+
         yield* _describeWithBestLocal(
           imageBytes,
           systemPrompt: systemPrompt,
           onStatusUpdate: onStatusUpdate,
           cloudFailure: _lastCloudFailure,
         );
+    }
+  }
+
+  Future<bool> _basicLocalVisionReady() async {
+    try {
+      final nativeReady = await onDeviceService.pingNativeChannel();
+      if (!nativeReady) return false;
+      return onDeviceService.isAppleVisionAvailable();
+    } catch (e) {
+      debugPrint('[SceneDescription] Local health check failed: $e');
+      return false;
     }
   }
 
@@ -268,7 +290,11 @@ class SceneDescriptionService extends ChangeNotifier {
         throw StateError('SmolVLM model files are present but failed to load.');
       }
     }
-    yield* _describeWithVlm(imageBytes, systemPrompt: systemPrompt);
+    yield* _describeWithVlm(
+      imageBytes,
+      systemPrompt: systemPrompt,
+      allowTemplateFallback: false,
+    );
   }
 
   Stream<String> describeWithVisionTemplate(Uint8List imageBytes) {
@@ -570,6 +596,7 @@ class SceneDescriptionService extends ChangeNotifier {
   Stream<String> _describeWithVlm(
     Uint8List imageBytes, {
     required String systemPrompt,
+    bool allowTemplateFallback = true,
   }) async* {
     final perception = await onDeviceService.analyzeScene(imageBytes);
     final context = perception.toPromptContext();
@@ -591,9 +618,16 @@ class SceneDescriptionService extends ChangeNotifier {
       }
     } catch (e) {
       debugPrint('[SceneDescription] VLM inference failed: $e');
+      if (!allowTemplateFallback) rethrow;
     }
 
     if (!gotTokens) {
+      if (!allowTemplateFallback) {
+        throw const LocalVisionException(
+          'Local L20',
+          'SmolVLM produced no output.',
+        );
+      }
       debugPrint('[SceneDescription] VLM produced no output; using template');
       yield perception.toTemplateDescription();
     }

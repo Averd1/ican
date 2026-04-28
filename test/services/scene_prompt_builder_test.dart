@@ -15,7 +15,7 @@ void main() {
       expect(contract.systemPrompt, contains('4-6 concise'));
       expect(contract.systemPrompt, contains('clock positions'));
       expect(contract.systemPrompt, contains('visible text verbatim'));
-      expect(contract.maxOutputTokens, greaterThanOrEqualTo(700));
+      expect(contract.maxOutputTokens, 500);
     });
 
     test('reading profile puts visible text first', () {

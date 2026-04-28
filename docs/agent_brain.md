@@ -28,6 +28,14 @@ Tone:
 
 iCan is an assistive app centered on the iCan Eye.
 
+## April 2026 Repair Batch
+
+- Startup always routes to Home for the demo; persisted caretaker role is ignored at splash.
+- Describe attempts persist `DescribeAttemptTrace` breadcrumbs so the next Home launch can surface the last unfinished stage.
+- Auto vision mode is Gemini cloud first. Local/native fallback runs only after native channel and Apple Vision health checks pass.
+- Eye readiness means services are discovered and image, control, and instant-text notifications are subscribed.
+- Future agents must use `AGENTS.md` for workstream ownership and `docs/regression_matrix.md` for gates before TestFlight.
+
 The core demo must prove:
 - The user can talk to the app.
 - The app changes real behavior from voice commands.

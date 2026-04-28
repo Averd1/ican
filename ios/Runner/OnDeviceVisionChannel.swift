@@ -115,6 +115,7 @@ final class OnDeviceVisionChannel: NSObject {
                             fmEventSink?(FlutterError(code: "FM_ERROR",
                                                       message: error,
                                                       details: nil))
+                            fmEventSink?(FlutterEndOfEventStream)
                         }
                     }
                 )
@@ -161,6 +162,7 @@ final class OnDeviceVisionChannel: NSObject {
                             vlmEventSink?(FlutterError(code: "VLM_ERROR",
                                                        message: error,
                                                        details: nil))
+                            vlmEventSink?(FlutterEndOfEventStream)
                         }
                     }
                 )
@@ -194,6 +196,18 @@ final class OnDeviceVisionChannel: NSObject {
 
         case "getModelInfo":
             result(ModelDownloadManager.shared.getModelInfo())
+
+        case "runSmolVlmSelfTest":
+            guard let imageBytes = imageBytes(from: call, result: result) else { return }
+            let args = call.arguments as? [String: Any] ?? [:]
+            let systemPrompt = args["systemPrompt"] as? String ?? ""
+            Task {
+                let diagnostic = await LlamaService.shared.runSelfTest(
+                    jpegData: imageBytes,
+                    systemPrompt: systemPrompt
+                )
+                DispatchQueue.main.async { result(diagnostic) }
+            }
 
         default:
             result(FlutterMethodNotImplemented)

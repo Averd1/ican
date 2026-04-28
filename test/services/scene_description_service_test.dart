@@ -100,6 +100,23 @@ void main() {
         );
       },
     );
+
+    test(
+      'direct SmolVLM diagnostic reports no tokens without template fallback',
+      () async {
+        onDevice.modelStatus = ModelStatus.loaded;
+        onDevice.vlmProducesOutput = false;
+
+        await expectLater(
+          service
+              .describeWithSmolVLM(_jpegBytes, systemPrompt: 'Describe safely.')
+              .drain<void>(),
+          throwsA(isA<LocalVisionException>()),
+        );
+
+        expect(onDevice.analyzeSceneCalls, 1);
+      },
+    );
   });
 
   group('SceneDescriptionService cloud fallback', () {
@@ -122,6 +139,8 @@ void main() {
 
     test('Auto mode falls back to local vision after cloud failure', () async {
       cloud.error = CloudVisionException.httpStatus(403);
+      onDevice.nativeReady = true;
+      onDevice.appleVisionReady = true;
 
       final chunks = await service
           .describeScene(_jpegBytes, systemPrompt: 'Describe safely.')
@@ -133,6 +152,33 @@ void main() {
       expect(chunks.join(), contains('hallway setting'));
       expect(onDevice.analyzeSceneCalls, 1);
     });
+
+    test(
+      'Auto mode blocks local fallback when native Vision is unhealthy',
+      () async {
+        cloud.error = CloudVisionException.httpStatus(403);
+        onDevice.nativeReady = false;
+        onDevice.appleVisionReady = false;
+
+        await expectLater(
+          service
+              .describeScene(_jpegBytes, systemPrompt: 'Describe safely.')
+              .toList(),
+          throwsA(
+            isA<SceneDescriptionException>()
+                .having(
+                  (e) => e.stage,
+                  'stage',
+                  SceneDescriptionFailureStage.localVision,
+                )
+                .having((e) => e.cloudFailure, 'cloudFailure', isNotNull),
+          ),
+        );
+
+        expect(cloud.streamCalls, 1);
+        expect(onDevice.analyzeSceneCalls, 0);
+      },
+    );
 
     test('Cloud-only mode reports cloud failure without fallback', () async {
       cloud.error = CloudVisionException.httpStatus(429);
@@ -202,6 +248,9 @@ class _FakeOnDeviceVisionService extends OnDeviceVisionService {
   bool foundationModelsAvailable = false;
   ModelStatus modelStatus = ModelStatus.notDownloaded;
   bool loadVlmResult = false;
+  bool nativeReady = false;
+  bool appleVisionReady = false;
+  bool vlmProducesOutput = true;
   int loadVlmCalls = 0;
   int analyzeSceneCalls = 0;
 
@@ -210,6 +259,12 @@ class _FakeOnDeviceVisionService extends OnDeviceVisionService {
 
   @override
   Future<ModelStatus> getModelStatus() async => modelStatus;
+
+  @override
+  Future<bool> pingNativeChannel() async => nativeReady;
+
+  @override
+  Future<bool> isAppleVisionAvailable() async => appleVisionReady;
 
   @override
   Future<bool> loadVlmModel() async {
@@ -254,6 +309,7 @@ class _FakeOnDeviceVisionService extends OnDeviceVisionService {
     required String systemPrompt,
     String? visionContext,
   }) async* {
+    if (!vlmProducesOutput) return;
     yield 'SmolVLM description.';
   }
 }

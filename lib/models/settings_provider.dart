@@ -89,7 +89,7 @@ class SettingsProvider extends ChangeNotifier {
 
   double _volume = 1.0;
   VoiceType _voiceType = VoiceType.neutral;
-  SpeechEngine _speechEngine = SpeechEngine.auto;
+  SpeechEngine _speechEngine = SpeechEngine.nativeIos;
 
   void setSpeechRate(double rate) {
     ttsService.setRate(rate);
@@ -128,7 +128,7 @@ class SettingsProvider extends ChangeNotifier {
   Future<void> restoreSafeSpeechDefaults() async {
     _volume = 1.0;
     _voiceType = VoiceType.neutral;
-    _speechEngine = SpeechEngine.auto;
+    _speechEngine = SpeechEngine.nativeIos;
     if (ttsService is SpeechEngineController) {
       await (ttsService as SpeechEngineController).resetSpeechDefaults();
     } else {
@@ -140,7 +140,7 @@ class SettingsProvider extends ChangeNotifier {
     await _save('speech_pitch', 1.0);
     await _save('volume', 1.0);
     await _save('voice_type', VoiceType.neutral.index);
-    await _save('speech_engine', SpeechEngine.auto.name);
+    await _save('speech_engine', SpeechEngine.nativeIos.name);
     notifyListeners();
   }
 
@@ -244,7 +244,7 @@ class SettingsProvider extends ChangeNotifier {
       if (speechEngineName != null) {
         _speechEngine = SpeechEngine.values.firstWhere(
           (engine) => engine.name == speechEngineName,
-          orElse: () => SpeechEngine.auto,
+          orElse: () => SpeechEngine.nativeIos,
         );
       }
       if (ttsService is SpeechEngineController) {

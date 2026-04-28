@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:image/image.dart' as img;
 
+import '../protocol/describe_attempt_trace.dart';
 import '../protocol/eye_capture_diagnostics.dart';
 import '../protocol/ble_protocol.dart';
 import '../services/ble_service.dart';
@@ -36,14 +37,17 @@ class HomeViewModel extends ChangeNotifier {
   final SceneDescriptionService sceneService;
   final SpeechOutput ttsService;
   final SettingsProvider settingsProvider;
+  final DescribeAttemptTraceStore _traceStore;
   final Duration _processingTimeoutDuration;
 
   HomeViewModel({
     required this.sceneService,
     required this.ttsService,
     required this.settingsProvider,
+    DescribeAttemptTraceStore? traceStore,
     Duration processingTimeout = const Duration(seconds: 60),
-  }) : _processingTimeoutDuration = processingTimeout {
+  }) : _traceStore = traceStore ?? DescribeAttemptTraceStore(),
+       _processingTimeoutDuration = processingTimeout {
     _init();
   }
 
@@ -62,12 +66,15 @@ class HomeViewModel extends ChangeNotifier {
   StreamSubscription<ObstacleAlert>? _obstacleSub;
   StreamSubscription<Uint8List>? _imageSub;
   StreamSubscription<EyeCaptureDiagnostic>? _eyeDiagnosticSub;
+  StreamSubscription<BleConnectionEvent>? _connectionEventSub;
   StreamSubscription<void>? _captureSub;
   StreamSubscription<TelemetryPacket>? _telemetrySub;
   VoidCallback? _bleListener;
   VoidCallback? _sceneServiceListener;
   Completer<String>? _describeNowCompleter;
   String _lastDiagnostic = '';
+  DescribeAttemptTrace? _currentTrace;
+  String? _lastBleAnnouncementKey;
 
   // ── Live vision mode state ──
   bool _liveVisionActive = false;
@@ -159,6 +166,7 @@ class HomeViewModel extends ChangeNotifier {
       if (!_liveVisionActive) {
         _isProcessing = true;
         _waitingForCaptureImage = true;
+        unawaited(_updateDescribeTrace(DescribePipelineStage.captureStarted));
         notifyListeners();
         _startProcessingTimeout(cameraTransfer: true);
       }
@@ -193,8 +201,31 @@ class HomeViewModel extends ChangeNotifier {
       _handleEyeCaptureDiagnostic(diagnostic);
     });
 
+    _connectionEventSub = BleService.instance.connectionEventStream.listen((
+      event,
+    ) {
+      if (event.deviceKind != BleDeviceKind.eye) return;
+      if (event.ready) {
+        _speakBleTransition('eye-ready', 'iCan Eye connected.');
+      } else if (event.phase == BleReadinessPhase.idle) {
+        _speakBleTransition('eye-idle', 'iCan Eye disconnected.');
+      }
+    });
+
     _announceStartup();
+    unawaited(_surfaceUnfinishedDescribeTrace());
     unawaited(refreshOfflineVisionStatus());
+  }
+
+  Future<void> _surfaceUnfinishedDescribeTrace() async {
+    final trace = await _traceStore.loadLastUnfinished();
+    if (_disposed || trace == null) return;
+    final message =
+        'Previous Describe did not finish. Last stage: ${trace.stage.label}. '
+        'Mode: ${trace.visionMode}. Detail: ${trace.detailLevel}.';
+    _setLastDiagnostic(
+      trace.lastError == null ? message : '$message ${trace.lastError}',
+    );
   }
 
   Future<void> refreshOfflineVisionStatus() async {
@@ -249,6 +280,16 @@ class HomeViewModel extends ChangeNotifier {
       parts.add('No devices connected yet.');
     }
     await ttsService.speak(parts.join(' '));
+  }
+
+  void _speakBleTransition(String key, String message) {
+    if (_lastBleAnnouncementKey == key) return;
+    _lastBleAnnouncementKey = key;
+    unawaited(
+      ttsService.speak(message).catchError((Object e) {
+        debugPrint('[HomeViewModel] BLE announcement failed: $e');
+      }),
+    );
   }
 
   // ── Live Vision Mode ──
@@ -429,6 +470,12 @@ class HomeViewModel extends ChangeNotifier {
     _isProcessing = true;
     _waitingForCaptureImage = true;
     notifyListeners();
+    unawaited(
+      _beginDescribeTrace(
+        DescribePipelineStage.captureRequested,
+        imageBytes: 0,
+      ),
+    );
     _startProcessingTimeout(cameraTransfer: true);
     unawaited(BleService.instance.triggerEyeCapture());
     return _describeNowCompleter!.future;
@@ -466,6 +513,10 @@ class HomeViewModel extends ChangeNotifier {
 
   Future<void> _processImage(Uint8List imageBytes) async {
     _waitingForCaptureImage = false;
+    await _updateDescribeTrace(
+      DescribePipelineStage.jpegValidation,
+      imageBytes: imageBytes.length,
+    );
     final imageFailure = _validateCapturedJpeg(imageBytes);
     if (imageFailure != null) {
       _isProcessing = false;
@@ -480,13 +531,24 @@ class HomeViewModel extends ChangeNotifier {
     _startProcessingTimeout();
 
     try {
-      final enhancedBytes = await compute(_enhanceImageForApi, imageBytes);
+      await _updateDescribeTrace(DescribePipelineStage.imageEnhancement);
+      var enhancedBytes = imageBytes;
+      try {
+        enhancedBytes = await compute(_enhanceImageForApi, imageBytes);
+      } catch (e) {
+        debugPrint('[HomeViewModel] Image enhancement failed: $e');
+        await _updateDescribeTrace(
+          DescribePipelineStage.imageEnhancement,
+          lastError: 'Image enhancement failed; using original JPEG.',
+        );
+      }
       final fullTextBuffer = StringBuffer();
       final prompt = _promptBuilder.build(
         detailLevel: settingsProvider.detailLevel,
         promptProfile: settingsProvider.promptProfile,
       );
 
+      await _updateDescribeTrace(DescribePipelineStage.cloudRequest);
       await for (final chunk in sceneService.describeScene(
         enhancedBytes,
         systemPrompt: prompt.systemPrompt,
@@ -501,20 +563,34 @@ class HomeViewModel extends ChangeNotifier {
       final fullText = fullTextBuffer.toString().trim();
       if (fullText.isNotEmpty) {
         if (!_isPaused) {
+          await _updateDescribeTrace(DescribePipelineStage.speech);
           try {
             await ttsService.speak(fullText);
-          } catch (_) {}
+          } catch (e) {
+            _setLastDiagnostic('Speech S01: playback failed. $e');
+            await _updateDescribeTrace(
+              DescribePipelineStage.speech,
+              lastError: 'Speech playback failed: $e',
+            );
+          }
         }
         _lastDescription = fullText;
-        _clearLastDiagnostic();
+        if (!_lastDiagnostic.startsWith('Speech S01:')) {
+          _clearLastDiagnostic();
+        }
         _history.insert(
           0,
           DescriptionEntry(text: fullText, timestamp: DateTime.now()),
         );
+        await _updateDescribeTrace(DescribePipelineStage.completed);
         _completeDescribeNow('Scene description complete.');
       }
     } catch (e) {
       debugPrint('[HomeViewModel] Error processing image: $e');
+      await _updateDescribeTrace(
+        DescribePipelineStage.failed,
+        lastError: _processingErrorMessage(e),
+      );
       await _speakProcessingError(e);
     } finally {
       _isProcessing = false;
@@ -558,16 +634,26 @@ class HomeViewModel extends ChangeNotifier {
       jpegMagicValid: failure != _CapturedImageFailure.corrupt,
       jpegEndValid: failure != _CapturedImageFailure.incomplete,
     );
+    await _updateDescribeTrace(
+      DescribePipelineStage.failed,
+      lastError: diagnostic.spokenMessage,
+    );
     await _speakEyeCaptureDiagnostic(diagnostic);
   }
 
   void _handleEyeCaptureDiagnostic(EyeCaptureDiagnostic diagnostic) {
+    unawaited(_handleEyeCaptureDiagnosticAsync(diagnostic));
+  }
+
+  Future<void> _handleEyeCaptureDiagnosticAsync(
+    EyeCaptureDiagnostic diagnostic,
+  ) async {
     if (!_isProcessing && !_waitingForCaptureImage) return;
     _isProcessing = false;
     _waitingForCaptureImage = false;
     _processingTimeout?.cancel();
     notifyListeners();
-    unawaited(_speakEyeCaptureDiagnostic(diagnostic));
+    await _speakEyeCaptureDiagnostic(diagnostic);
   }
 
   Future<void> _speakEyeCaptureDiagnostic(
@@ -575,6 +661,10 @@ class HomeViewModel extends ChangeNotifier {
   ) async {
     final message = diagnostic.spokenMessage;
     _setLastDiagnostic(message);
+    await _updateDescribeTrace(
+      DescribePipelineStage.failed,
+      lastError: message,
+    );
     _completeDescribeNow(message);
     try {
       await ttsService.speak(message);
@@ -585,8 +675,7 @@ class HomeViewModel extends ChangeNotifier {
   Future<void> handleEyeCaptureDiagnosticForTesting(
     EyeCaptureDiagnostic diagnostic,
   ) async {
-    _handleEyeCaptureDiagnostic(diagnostic);
-    await Future<void>.value();
+    await _handleEyeCaptureDiagnosticAsync(diagnostic);
   }
 
   Future<void> _speakProcessingError(Object error) async {
@@ -665,6 +754,46 @@ class HomeViewModel extends ChangeNotifier {
     if (!_disposed) notifyListeners();
   }
 
+  Future<void> _beginDescribeTrace(
+    DescribePipelineStage stage, {
+    required int imageBytes,
+  }) async {
+    final now = DateTime.now();
+    final trace = DescribeAttemptTrace(
+      attemptId: now.microsecondsSinceEpoch.toString(),
+      stage: stage,
+      startedAt: now,
+      updatedAt: now,
+      imageBytes: imageBytes,
+      visionMode: sceneService.mode.name,
+      detailLevel: settingsProvider.detailLevel.name,
+    );
+    _currentTrace = trace;
+    await _traceStore.save(trace);
+  }
+
+  Future<void> _updateDescribeTrace(
+    DescribePipelineStage stage, {
+    int? imageBytes,
+    String? lastError,
+  }) async {
+    var trace = _currentTrace;
+    if (trace == null) {
+      await _beginDescribeTrace(stage, imageBytes: imageBytes ?? 0);
+      trace = _currentTrace;
+      if (trace == null) return;
+    }
+    final next = trace.copyWith(
+      stage: stage,
+      imageBytes: imageBytes,
+      visionMode: sceneService.mode.name,
+      detailLevel: settingsProvider.detailLevel.name,
+      lastError: lastError,
+    );
+    _currentTrace = next;
+    await _traceStore.save(next);
+  }
+
   String _computeFingerprint(Uint8List data) {
     if (data.isEmpty) return 'empty';
     final headLen = data.length < 16 ? data.length : 16;
@@ -683,6 +812,7 @@ class HomeViewModel extends ChangeNotifier {
     _obstacleSub?.cancel();
     _imageSub?.cancel();
     _eyeDiagnosticSub?.cancel();
+    _connectionEventSub?.cancel();
     _liveImageSub?.cancel();
     _captureSub?.cancel();
     _telemetrySub?.cancel();

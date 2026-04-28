@@ -78,17 +78,8 @@ class _SplashScreenState extends State<SplashScreen>
 
     if (!mounted) return;
 
-    // Determine where to go next
-    final role = await DevicePrefsService.instance.getUserRole();
-    if (!mounted) return;
-
-    if (role == null || role.isEmpty) {
-      context.goNamed('role-selection');
-    } else if (role == 'caretaker') {
-      context.goNamed('caretaker-dashboard');
-    } else {
-      context.goNamed('home');
-    }
+    // Demo startup is deterministic: persisted role is ignored here.
+    context.goNamed('home');
   }
 
   void _startBleAutoConnect() async {

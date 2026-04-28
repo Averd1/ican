@@ -6,11 +6,17 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   const channel = MethodChannel('com.ican/on_device_vision');
+  const vlmChannel = EventChannel('com.ican/vlm_stream');
+  const fmChannel = EventChannel('com.ican/fm_stream');
   const downloadChannel = EventChannel('com.ican/model_download_progress');
 
   tearDown(() {
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(channel, null);
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockStreamHandler(vlmChannel, null);
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockStreamHandler(fmChannel, null);
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockStreamHandler(downloadChannel, null);
   });
@@ -202,6 +208,177 @@ void main() {
       expect(events.last.isComplete, isTrue);
     },
   );
+
+  test('VLM stream subscribes before invoking native inference', () async {
+    final order = <String>[];
+
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockStreamHandler(
+          vlmChannel,
+          MockStreamHandler.inline(
+            onListen: (_, events) {
+              order.add('listen');
+              Future<void>.microtask(() {
+                events.success('direct ');
+                events.success('description');
+                events.endOfStream();
+              });
+            },
+          ),
+        );
+
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(channel, (call) async {
+          if (call.method == 'describeImage') {
+            order.add('invoke');
+            return true;
+          }
+          throw PlatformException(code: 'unexpected');
+        });
+
+    final chunks = await OnDeviceVisionService()
+        .describeWithVlm(
+          Uint8List.fromList([0xff, 0xd8, 0xff, 0xd9]),
+          systemPrompt: 'Describe.',
+        )
+        .toList();
+
+    expect(order.take(2), ['listen', 'invoke']);
+    expect(chunks.join(), 'direct description');
+  });
+
+  test(
+    'Foundation Models stream subscribes before invoking native synthesis',
+    () async {
+      final order = <String>[];
+
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockStreamHandler(
+            fmChannel,
+            MockStreamHandler.inline(
+              onListen: (_, events) {
+                order.add('listen');
+                Future<void>.microtask(() {
+                  events.success('foundation description');
+                  events.endOfStream();
+                });
+              },
+            ),
+          );
+
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(channel, (call) async {
+            if (call.method == 'synthesizeDescription') {
+              order.add('invoke');
+              return true;
+            }
+            throw PlatformException(code: 'unexpected');
+          });
+
+      final chunks = await OnDeviceVisionService()
+          .synthesizeWithFoundationModels(
+            'Layer 1 context',
+            systemPrompt: 'Describe.',
+          )
+          .toList();
+
+      expect(order.take(2), ['listen', 'invoke']);
+      expect(chunks.single, 'foundation description');
+    },
+  );
+
+  test('empty VLM stream reports a Local diagnostic', () async {
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockStreamHandler(
+          vlmChannel,
+          MockStreamHandler.inline(
+            onListen: (_, events) {
+              Future<void>.microtask(events.endOfStream);
+            },
+          ),
+        );
+
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(channel, (call) async {
+          if (call.method == 'describeImage') return true;
+          throw PlatformException(code: 'unexpected');
+        });
+
+    await expectLater(
+      OnDeviceVisionService()
+          .describeWithVlm(
+            Uint8List.fromList([0xff, 0xd8, 0xff, 0xd9]),
+            systemPrompt: 'Describe.',
+          )
+          .drain<void>(),
+      throwsA(
+        isA<LocalVisionException>()
+            .having((e) => e.code, 'code', 'Local L20')
+            .having((e) => e.message, 'message', contains('no output')),
+      ),
+    );
+  });
+
+  test('native stream errors become Local diagnostics', () async {
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockStreamHandler(
+          fmChannel,
+          MockStreamHandler.inline(
+            onListen: (_, events) {
+              Future<void>.microtask(() {
+                events.error(
+                  code: 'FM_ERROR',
+                  message: 'Foundation Models unavailable',
+                );
+                events.endOfStream();
+              });
+            },
+          ),
+        );
+
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(channel, (call) async {
+          if (call.method == 'synthesizeDescription') return true;
+          throw PlatformException(code: 'unexpected');
+        });
+
+    await expectLater(
+      OnDeviceVisionService()
+          .synthesizeWithFoundationModels('context', systemPrompt: 'Describe.')
+          .drain<void>(),
+      throwsA(
+        isA<LocalVisionException>()
+            .having((e) => e.code, 'code', 'Local L30')
+            .having((e) => e.detail, 'detail', contains('FM_ERROR')),
+      ),
+    );
+  });
+
+  test('returns copyable SmolVLM self-test diagnostics', () async {
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(channel, (call) async {
+          return switch (call.method) {
+            'runSmolVlmSelfTest' => {
+              'llamaLinked': true,
+              'loadSuccess': true,
+              'tokenCount': 4,
+              'textModel': {'fileName': 'SmolVLM-500M-Instruct-Q8_0.gguf'},
+            },
+            _ => throw PlatformException(code: 'unexpected'),
+          };
+        });
+
+    final result = await OnDeviceVisionService().runSmolVlmSelfTest(
+      Uint8List.fromList([0xff, 0xd8, 0xff, 0xd9]),
+    );
+
+    expect(result['llamaLinked'], isTrue);
+    expect(result['tokenCount'], 4);
+    expect(
+      result['textModel'],
+      containsPair('fileName', 'SmolVLM-500M-Instruct-Q8_0.gguf'),
+    );
+  });
 }
 
 const _diagnostics = {

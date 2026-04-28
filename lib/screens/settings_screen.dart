@@ -12,7 +12,6 @@ import '../core/theme.dart';
 import '../models/font_scale.dart';
 import '../models/settings_provider.dart';
 import '../services/ble_service.dart';
-import '../services/device_prefs_service.dart';
 import '../services/tts_service.dart';
 
 class SettingsScreen extends StatefulWidget {
@@ -644,19 +643,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
           onTap: () {
             HapticFeedback.lightImpact();
             context.goNamed('help');
-          },
-        ),
-
-        const _Divider(),
-
-        _TapTile(
-          label: 'Switch Role',
-          hint:
-              'Go back to role selection to switch between user and caretaker',
-          onTap: () {
-            HapticFeedback.lightImpact();
-            DevicePrefsService.instance.saveUserRole('');
-            context.goNamed('role-selection');
           },
         ),
       ],

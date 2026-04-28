@@ -3,6 +3,7 @@ import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:ican/models/home_view_model.dart';
 import 'package:ican/models/settings_provider.dart';
+import 'package:ican/protocol/describe_attempt_trace.dart';
 import 'package:ican/protocol/eye_capture_diagnostics.dart';
 import 'package:ican/services/on_device_vision_service.dart';
 import 'package:ican/services/scene_description_service.dart';
@@ -130,6 +131,62 @@ void main() {
 
       expect(viewModel.visionMode, VisionMode.cloudOnly);
       expect(notifications, greaterThan(0));
+    });
+
+    test(
+      'persists completed describe trace after successful processing',
+      () async {
+        await viewModel.processImageForTesting(_validJpeg());
+
+        final trace = await DescribeAttemptTraceStore().loadLast();
+
+        expect(trace, isNotNull);
+        expect(trace!.stage, DescribePipelineStage.completed);
+        expect(trace.imageBytes, greaterThan(0));
+        expect(trace.visionMode, VisionMode.auto.name);
+        expect(trace.detailLevel, DetailLevel.detailed.name);
+      },
+    );
+
+    test('surfaces unfinished describe trace on startup', () async {
+      final now = DateTime.now();
+      SharedPreferences.setMockInitialValues({
+        'describe_trace.attemptId': 'previous',
+        'describe_trace.stage': DescribePipelineStage.cloudRequest.name,
+        'describe_trace.startedAt': now
+            .subtract(const Duration(minutes: 1))
+            .toIso8601String(),
+        'describe_trace.updatedAt': now.toIso8601String(),
+        'describe_trace.imageBytes': 12,
+        'describe_trace.visionMode': VisionMode.auto.name,
+        'describe_trace.detailLevel': DetailLevel.detailed.name,
+      });
+      final vm = HomeViewModel(
+        sceneService: _FakeSceneDescriptionService(),
+        ttsService: speech,
+        settingsProvider: SettingsProvider(ttsService: speech),
+      );
+
+      await Future<void>.delayed(Duration.zero);
+      await Future<void>.delayed(Duration.zero);
+
+      expect(vm.lastDiagnostic, contains('Previous Describe did not finish'));
+      expect(vm.lastDiagnostic, contains('Cloud describe request'));
+      vm.dispose();
+    });
+  });
+
+  group('SettingsProvider speech defaults', () {
+    test('defaults to native iOS/system speech settings', () async {
+      SharedPreferences.setMockInitialValues({});
+      final speech = _FakeSpeechOutput();
+      final settings = SettingsProvider(ttsService: speech);
+      await Future<void>.delayed(Duration.zero);
+
+      expect(settings.speechEngine, SpeechEngine.nativeIos);
+      expect(settings.speechRate, 0.5);
+      expect(settings.pitch, 1.0);
+      expect(settings.volume, 1.0);
     });
   });
 }

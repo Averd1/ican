@@ -54,6 +54,7 @@ Agent connection model:
 - The setup script discovers Flutter from `PATH`, `FLUTTER_BIN`, or common installs such as `~/flutter/bin/flutter`, because GitHub Actions uses a non-login shell on the Mac.
 - The setup and release scripts prefer Homebrew Ruby when Apple system Ruby is too old for Fastlane/CocoaPods, and they install runner gems into the Mac user's gem directory.
 - If `ios/Frameworks/llama.xcframework` is missing static library slices, the workflows set `ICAN_BUILD_LLAMA=1` so the Mac rebuilds it from `LLAMA_CPP_DIR` or `~/Desktop/llama.cpp`.
+- The workflows pin `LLAMA_CPP_REF` to a known-compatible llama.cpp commit. Do not switch this to floating `master`; bump the commit only after `iOS Compile Check` passes.
 
 ## Required Secrets
 

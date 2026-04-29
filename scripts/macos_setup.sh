@@ -110,6 +110,25 @@ ensure_cmake() {
   ensure_command cmake
 }
 
+prepare_llama_cpp() {
+  local llama_dir="${LLAMA_CPP_DIR:-$HOME/Desktop/llama.cpp}"
+  local llama_ref="${LLAMA_CPP_REF:-}"
+
+  if [[ ! -d "$llama_dir/.git" ]]; then
+    if [[ "${ICAN_ALLOW_BOOTSTRAP:-0}" != "1" ]]; then
+      fail "llama.cpp is missing at $llama_dir. Set ICAN_ALLOW_BOOTSTRAP=1 to clone it."
+    fi
+    git clone https://github.com/ggml-org/llama.cpp "$llama_dir"
+  fi
+
+  if [[ -n "$llama_ref" ]]; then
+    git -C "$llama_dir" fetch --tags origin
+    git -C "$llama_dir" checkout --detach "$llama_ref"
+  fi
+
+  printf '%s' "$llama_dir"
+}
+
 ensure_llama_framework() {
   local device_lib="ios/Frameworks/llama.xcframework/ios-arm64/libllama.a"
   local sim_lib="ios/Frameworks/llama.xcframework/ios-arm64_x86_64-simulator/libllama.a"
@@ -126,7 +145,9 @@ ensure_llama_framework() {
   fi
 
   ensure_cmake
-  bash scripts/build_llama_ios.sh "${LLAMA_CPP_DIR:-$HOME/Desktop/llama.cpp}"
+  local llama_dir
+  llama_dir="$(prepare_llama_cpp)"
+  bash scripts/build_llama_ios.sh "$llama_dir"
 }
 
 if [[ "$(uname -s)" != "Darwin" ]]; then

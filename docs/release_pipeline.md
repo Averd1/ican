@@ -53,6 +53,7 @@ Agent connection model:
 - If the runner is offline, check it with `ssh ican-mac 'cd ~/actions-runner-ican && tail -20 runner.log'`, then restart it from the Mac runner directory.
 - The setup script discovers Flutter from `PATH`, `FLUTTER_BIN`, or common installs such as `~/flutter/bin/flutter`, because GitHub Actions uses a non-login shell on the Mac.
 - The setup and release scripts prefer Homebrew Ruby when Apple system Ruby is too old for Fastlane/CocoaPods, and they install runner gems into the Mac user's gem directory.
+- If `ios/Frameworks/llama.xcframework` is missing static library slices, the workflows set `ICAN_BUILD_LLAMA=1` so the Mac rebuilds it from `LLAMA_CPP_DIR` or `~/Desktop/llama.cpp`.
 
 ## Required Secrets
 

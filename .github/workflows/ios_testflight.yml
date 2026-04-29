@@ -39,6 +39,7 @@ jobs:
       ELEVENLABS_TTS_WORKER_URL: ${{ secrets.ELEVENLABS_TTS_WORKER_URL }}
       ICAN_ALLOW_BOOTSTRAP: "1"
       ICAN_DOWNLOAD_COREML: "1"
+      ICAN_BUILD_LLAMA: "1"
     steps:
       - name: Check out repository
         uses: actions/checkout@v4

@@ -28,6 +28,7 @@ jobs:
       IOS_BUNDLE_IDENTIFIER: com.icannavigation.app
       ICAN_ALLOW_BOOTSTRAP: "1"
       ICAN_DOWNLOAD_COREML: "1"
+      ICAN_BUILD_LLAMA: "1"
       ICAN_SKIP_SIGNING_CHECK: "1"
     steps:
       - name: Check out repository

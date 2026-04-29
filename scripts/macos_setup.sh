@@ -23,6 +23,16 @@ fail() {
   exit 1
 }
 
+find_brew() {
+  if command -v brew >/dev/null 2>&1; then
+    command -v brew
+  elif [[ -x "/opt/homebrew/bin/brew" ]]; then
+    printf '/opt/homebrew/bin/brew'
+  elif [[ -x "/usr/local/bin/brew" ]]; then
+    printf '/usr/local/bin/brew'
+  fi
+}
+
 ensure_command() {
   local cmd="$1"
   command -v "$cmd" >/dev/null 2>&1 || fail "$cmd is required on the Mac runner"
@@ -30,13 +40,7 @@ ensure_command() {
 
 configure_ruby() {
   local brew_bin=""
-  if command -v brew >/dev/null 2>&1; then
-    brew_bin="$(command -v brew)"
-  elif [[ -x "/opt/homebrew/bin/brew" ]]; then
-    brew_bin="/opt/homebrew/bin/brew"
-  elif [[ -x "/usr/local/bin/brew" ]]; then
-    brew_bin="/usr/local/bin/brew"
-  fi
+  brew_bin="$(find_brew || true)"
 
   if [[ -x "/opt/homebrew/opt/ruby/bin/ruby" ]]; then
     export PATH="/opt/homebrew/opt/ruby/bin:$PATH"
@@ -90,6 +94,39 @@ find_flutter() {
   done
 
   fail "flutter is required on the Mac runner. Set FLUTTER_BIN or install Flutter at ~/flutter/bin/flutter."
+}
+
+ensure_cmake() {
+  if command -v cmake >/dev/null 2>&1; then
+    return
+  fi
+
+  local brew_bin=""
+  brew_bin="$(find_brew || true)"
+  if [[ "${ICAN_ALLOW_BOOTSTRAP:-0}" == "1" && -n "$brew_bin" ]]; then
+    "$brew_bin" install cmake
+  fi
+
+  ensure_command cmake
+}
+
+ensure_llama_framework() {
+  local device_lib="ios/Frameworks/llama.xcframework/ios-arm64/libllama.a"
+  local sim_lib="ios/Frameworks/llama.xcframework/ios-arm64_x86_64-simulator/libllama.a"
+  if [[ -f "$device_lib" && -f "$sim_lib" ]]; then
+    return
+  fi
+
+  printf 'Missing llama static library slices:\n' >&2
+  [[ -f "$device_lib" ]] || printf '  %s\n' "$device_lib" >&2
+  [[ -f "$sim_lib" ]] || printf '  %s\n' "$sim_lib" >&2
+
+  if [[ "${ICAN_BUILD_LLAMA:-0}" != "1" ]]; then
+    fail "llama.xcframework libraries are missing. Set ICAN_BUILD_LLAMA=1 to rebuild from llama.cpp."
+  fi
+
+  ensure_cmake
+  bash scripts/build_llama_ios.sh "${LLAMA_CPP_DIR:-$HOME/Desktop/llama.cpp}"
 }
 
 if [[ "$(uname -s)" != "Darwin" ]]; then
@@ -151,6 +188,9 @@ if [[ "$missing_models" == "1" ]]; then
     fail "CoreML artifacts are missing. Run ICAN_DOWNLOAD_COREML=1 ./scripts/macos_setup.sh once on the Mac."
   fi
 fi
+
+log "llama.xcframework"
+ensure_llama_framework
 
 if [[ "${ICAN_SKIP_SIGNING_CHECK:-0}" == "1" ]]; then
   log "Signing identity"

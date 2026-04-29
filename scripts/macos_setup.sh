@@ -104,7 +104,15 @@ ensure_cmake() {
   local brew_bin=""
   brew_bin="$(find_brew || true)"
   if [[ "${ICAN_ALLOW_BOOTSTRAP:-0}" == "1" && -n "$brew_bin" ]]; then
-    "$brew_bin" install cmake
+    "$brew_bin" install cmake || true
+  fi
+
+  if ! command -v cmake >/dev/null 2>&1 && [[ "${ICAN_ALLOW_BOOTSTRAP:-0}" == "1" ]]; then
+    ensure_command python3
+    python3 -m pip install --user cmake
+    local python_user_base
+    python_user_base="$(python3 -m site --user-base)"
+    export PATH="$python_user_base/bin:$PATH"
   fi
 
   ensure_command cmake

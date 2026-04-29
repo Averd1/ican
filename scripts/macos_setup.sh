@@ -55,7 +55,10 @@ configure_ruby() {
   ruby -e 'exit Gem::Version.new(RUBY_VERSION) >= Gem::Version.new("3.0") ? 0 : 1' >/dev/null 2>&1 ||
     fail "Ruby 3.0 or newer is required for Fastlane/CocoaPods gems"
 
-  export PATH="$(ruby -e 'require "rubygems"; print Gem.bindir'):$PATH"
+  local gem_user_dir
+  gem_user_dir="$(ruby -e 'require "rubygems"; print Gem.user_dir')"
+  export GEM_HOME="$gem_user_dir"
+  export PATH="$gem_user_dir/bin:$(ruby -e 'require "rubygems"; print Gem.bindir'):$PATH"
 }
 
 find_flutter() {

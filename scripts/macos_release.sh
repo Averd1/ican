@@ -71,7 +71,10 @@ configure_ruby() {
     exit 1
   }
 
-  export PATH="$(ruby -e 'require "rubygems"; print Gem.bindir'):$PATH"
+  local gem_user_dir
+  gem_user_dir="$(ruby -e 'require "rubygems"; print Gem.user_dir')"
+  export GEM_HOME="$gem_user_dir"
+  export PATH="$gem_user_dir/bin:$(ruby -e 'require "rubygems"; print Gem.bindir'):$PATH"
 }
 
 find_flutter() {

@@ -3,6 +3,9 @@
 
 set -euo pipefail
 
+export LANG="${LANG:-en_US.UTF-8}"
+export LC_ALL="${LC_ALL:-en_US.UTF-8}"
+
 CI_MODE=0
 if [[ "${1:-}" == "--ci" ]]; then
   CI_MODE=1
@@ -160,7 +163,7 @@ else
 fi
 
 log "Fastlane syntax"
-(cd ios && bundle exec fastlane ios lanes >/dev/null)
+(cd ios && bundle exec fastlane lanes >/dev/null)
 
 if [[ "$CI_MODE" == "1" ]]; then
   log "CI runner check complete"

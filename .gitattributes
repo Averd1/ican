@@ -1,2 +1,6 @@
 # Auto-normalize line endings to LF on commit
 * text=auto
+.gitattributes text eol=lf
+*.sh text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf

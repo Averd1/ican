@@ -25,6 +25,39 @@ ensure_command() {
   command -v "$cmd" >/dev/null 2>&1 || fail "$cmd is required on the Mac runner"
 }
 
+configure_ruby() {
+  local brew_bin=""
+  if command -v brew >/dev/null 2>&1; then
+    brew_bin="$(command -v brew)"
+  elif [[ -x "/opt/homebrew/bin/brew" ]]; then
+    brew_bin="/opt/homebrew/bin/brew"
+  elif [[ -x "/usr/local/bin/brew" ]]; then
+    brew_bin="/usr/local/bin/brew"
+  fi
+
+  if [[ -x "/opt/homebrew/opt/ruby/bin/ruby" ]]; then
+    export PATH="/opt/homebrew/opt/ruby/bin:$PATH"
+  elif [[ -x "/usr/local/opt/ruby/bin/ruby" ]]; then
+    export PATH="/usr/local/opt/ruby/bin:$PATH"
+  fi
+
+  if ! ruby -e 'exit Gem::Version.new(RUBY_VERSION) >= Gem::Version.new("3.0") ? 0 : 1' >/dev/null 2>&1; then
+    if [[ "${ICAN_ALLOW_BOOTSTRAP:-0}" == "1" && -n "$brew_bin" ]]; then
+      "$brew_bin" install ruby
+      if [[ -x "/opt/homebrew/opt/ruby/bin/ruby" ]]; then
+        export PATH="/opt/homebrew/opt/ruby/bin:$PATH"
+      elif [[ -x "/usr/local/opt/ruby/bin/ruby" ]]; then
+        export PATH="/usr/local/opt/ruby/bin:$PATH"
+      fi
+    fi
+  fi
+
+  ruby -e 'exit Gem::Version.new(RUBY_VERSION) >= Gem::Version.new("3.0") ? 0 : 1' >/dev/null 2>&1 ||
+    fail "Ruby 3.0 or newer is required for Fastlane/CocoaPods gems"
+
+  export PATH="$(ruby -e 'require "rubygems"; print Gem.bindir'):$PATH"
+}
+
 find_flutter() {
   if [[ -n "${FLUTTER_BIN:-}" ]]; then
     [[ -x "$FLUTTER_BIN" ]] || fail "FLUTTER_BIN is set but not executable"
@@ -64,13 +97,22 @@ xcodebuild -version
 xcrun --sdk iphoneos --show-sdk-path >/dev/null
 
 log "Ruby and Bundler"
+configure_ruby
 ensure_command ruby
 ensure_command gem
+ruby -v
 if ! command -v bundle >/dev/null 2>&1; then
   if [[ "${ICAN_ALLOW_BOOTSTRAP:-0}" == "1" ]]; then
     gem install bundler --no-document
   else
     fail "Bundler is missing. Install it or set ICAN_ALLOW_BOOTSTRAP=1."
+  fi
+fi
+if ! command -v pod >/dev/null 2>&1; then
+  if [[ "${ICAN_ALLOW_BOOTSTRAP:-0}" == "1" ]]; then
+    gem install cocoapods --no-document
+  else
+    fail "CocoaPods is missing. Install it or set ICAN_ALLOW_BOOTSTRAP=1."
   fi
 fi
 

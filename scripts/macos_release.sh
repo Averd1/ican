@@ -39,6 +39,41 @@ if [[ -z "${IOS_BUNDLE_IDENTIFIER:-}" ]]; then
   export IOS_BUNDLE_IDENTIFIER="com.icannavigation.app"
 fi
 
+configure_ruby() {
+  local brew_bin=""
+  if command -v brew >/dev/null 2>&1; then
+    brew_bin="$(command -v brew)"
+  elif [[ -x "/opt/homebrew/bin/brew" ]]; then
+    brew_bin="/opt/homebrew/bin/brew"
+  elif [[ -x "/usr/local/bin/brew" ]]; then
+    brew_bin="/usr/local/bin/brew"
+  fi
+
+  if [[ -x "/opt/homebrew/opt/ruby/bin/ruby" ]]; then
+    export PATH="/opt/homebrew/opt/ruby/bin:$PATH"
+  elif [[ -x "/usr/local/opt/ruby/bin/ruby" ]]; then
+    export PATH="/usr/local/opt/ruby/bin:$PATH"
+  fi
+
+  if ! ruby -e 'exit Gem::Version.new(RUBY_VERSION) >= Gem::Version.new("3.0") ? 0 : 1' >/dev/null 2>&1; then
+    if [[ "${ICAN_ALLOW_BOOTSTRAP:-0}" == "1" && -n "$brew_bin" ]]; then
+      "$brew_bin" install ruby
+      if [[ -x "/opt/homebrew/opt/ruby/bin/ruby" ]]; then
+        export PATH="/opt/homebrew/opt/ruby/bin:$PATH"
+      elif [[ -x "/usr/local/opt/ruby/bin/ruby" ]]; then
+        export PATH="/usr/local/opt/ruby/bin:$PATH"
+      fi
+    fi
+  fi
+
+  ruby -e 'exit Gem::Version.new(RUBY_VERSION) >= Gem::Version.new("3.0") ? 0 : 1' >/dev/null 2>&1 || {
+    printf 'ERROR: Ruby 3.0 or newer is required for Fastlane/CocoaPods gems\n' >&2
+    exit 1
+  }
+
+  export PATH="$(ruby -e 'require "rubygems"; print Gem.bindir'):$PATH"
+}
+
 find_flutter() {
   if [[ -n "${FLUTTER_BIN:-}" ]]; then
     [[ -x "$FLUTTER_BIN" ]] || {
@@ -72,6 +107,7 @@ find_flutter() {
 }
 
 find_flutter
+configure_ruby
 
 printf '==> Scanning tracked files for credential material\n'
 set +e

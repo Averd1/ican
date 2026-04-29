@@ -36,7 +36,7 @@ Swift/native iOS compile gate:
 
 1. Run the `iOS Compile Check` GitHub Actions workflow, or open a pull request that touches iOS, Flutter app, tests, or release scripts.
 2. The job runs on the same self-hosted Mac labels: `macOS` and `ican-ios`.
-3. The Mac runs `scripts/macos_ios_compile_check.sh`.
+3. The Mac runs `scripts/macos_setup.sh --ci` with signing checks skipped, then `scripts/macos_ios_compile_check.sh`.
 4. The script runs Flutter dependency install, format, analyzer, tests, and `flutter build ios --release --no-codesign` with a dummy compile-time Gemini value.
 5. This proves Swift/Xcode compilation without uploading to TestFlight and without exposing production API secrets.
 
@@ -51,6 +51,7 @@ Agent connection model:
 - Direct SSH is only for runner recovery or diagnosis. Use the local SSH alias `ican-mac` when available; do not put Mac passwords or private host details in commits.
 - The runner must stay registered to this repo with labels `macOS` and `ican-ios`, because both iOS workflows target those labels.
 - If the runner is offline, check it with `ssh ican-mac 'cd ~/actions-runner-ican && tail -20 runner.log'`, then restart it from the Mac runner directory.
+- The setup script discovers Flutter from `PATH`, `FLUTTER_BIN`, or common installs such as `~/flutter/bin/flutter`, because GitHub Actions uses a non-login shell on the Mac.
 
 ## Required Secrets
 

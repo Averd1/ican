@@ -25,6 +25,34 @@ ensure_command() {
   command -v "$cmd" >/dev/null 2>&1 || fail "$cmd is required on the Mac runner"
 }
 
+find_flutter() {
+  if [[ -n "${FLUTTER_BIN:-}" ]]; then
+    [[ -x "$FLUTTER_BIN" ]] || fail "FLUTTER_BIN is set but not executable"
+    return
+  fi
+
+  if command -v flutter >/dev/null 2>&1; then
+    FLUTTER_BIN="$(command -v flutter)"
+    return
+  fi
+
+  local candidate
+  for candidate in \
+    "$HOME/flutter/bin/flutter" \
+    "$HOME/development/flutter/bin/flutter" \
+    "$HOME/tools/flutter/bin/flutter" \
+    "/opt/homebrew/bin/flutter" \
+    "/usr/local/bin/flutter"; do
+    if [[ -x "$candidate" ]]; then
+      FLUTTER_BIN="$candidate"
+      export PATH="$(dirname "$candidate"):$PATH"
+      return
+    fi
+  done
+
+  fail "flutter is required on the Mac runner. Set FLUTTER_BIN or install Flutter at ~/flutter/bin/flutter."
+}
+
 if [[ "$(uname -s)" != "Darwin" ]]; then
   fail "This script must run on macOS"
 fi
@@ -47,12 +75,7 @@ if ! command -v bundle >/dev/null 2>&1; then
 fi
 
 log "Flutter"
-if [[ -n "${FLUTTER_BIN:-}" ]]; then
-  [[ -x "$FLUTTER_BIN" ]] || fail "FLUTTER_BIN is set but not executable"
-else
-  ensure_command flutter
-  FLUTTER_BIN="$(command -v flutter)"
-fi
+find_flutter
 "$FLUTTER_BIN" --version
 "$FLUTTER_BIN" doctor -v
 
@@ -81,9 +104,14 @@ if [[ "$missing_models" == "1" ]]; then
   fi
 fi
 
-log "Signing identity"
-if ! security find-identity -v -p codesigning | grep -Eq "(Apple|iPhone) Distribution"; then
-  fail "No Apple/iPhone Distribution signing identity is visible to this user/keychain"
+if [[ "${ICAN_SKIP_SIGNING_CHECK:-0}" == "1" ]]; then
+  log "Signing identity"
+  printf 'Skipping signing identity check for non-upload compile validation\n'
+else
+  log "Signing identity"
+  if ! security find-identity -v -p codesigning | grep -Eq "(Apple|iPhone) Distribution"; then
+    fail "No Apple/iPhone Distribution signing identity is visible to this user/keychain"
+  fi
 fi
 
 log "Fastlane syntax"

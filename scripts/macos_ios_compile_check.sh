@@ -6,17 +6,39 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$REPO_ROOT"
 
-if [[ -n "${FLUTTER_BIN:-}" ]]; then
-  [[ -x "$FLUTTER_BIN" ]] || {
-    printf 'ERROR: FLUTTER_BIN is set but not executable\n' >&2
-    exit 1
-  }
-elif command -v flutter >/dev/null 2>&1; then
-  export FLUTTER_BIN="$(command -v flutter)"
-else
+find_flutter() {
+  if [[ -n "${FLUTTER_BIN:-}" ]]; then
+    [[ -x "$FLUTTER_BIN" ]] || {
+      printf 'ERROR: FLUTTER_BIN is set but not executable\n' >&2
+      exit 1
+    }
+    return
+  fi
+
+  if command -v flutter >/dev/null 2>&1; then
+    export FLUTTER_BIN="$(command -v flutter)"
+    return
+  fi
+
+  local candidate
+  for candidate in \
+    "$HOME/flutter/bin/flutter" \
+    "$HOME/development/flutter/bin/flutter" \
+    "$HOME/tools/flutter/bin/flutter" \
+    "/opt/homebrew/bin/flutter" \
+    "/usr/local/bin/flutter"; do
+    if [[ -x "$candidate" ]]; then
+      export FLUTTER_BIN="$candidate"
+      export PATH="$(dirname "$candidate"):$PATH"
+      return
+    fi
+  done
+
   printf 'ERROR: flutter is not on PATH and FLUTTER_BIN is not set\n' >&2
   exit 1
-fi
+}
+
+find_flutter
 
 IOS_BUNDLE_IDENTIFIER="${IOS_BUNDLE_IDENTIFIER:-com.icannavigation.app}"
 

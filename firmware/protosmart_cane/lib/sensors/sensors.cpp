@@ -13,9 +13,7 @@ void sensorsInit() {
     imuInit();
     ultrasonicInit();
     matrixSensorInit();
-#if !ISOLATED_SENSOR_TEST_MODE
     pulseInit();
-#endif
 }
 
 void updateIMU() {
@@ -31,7 +29,5 @@ void updateMatrixSensor() {
 }
 
 void updatePulse() {
-#if !ISOLATED_SENSOR_TEST_MODE
     pulseUpdate();
-#endif
 }

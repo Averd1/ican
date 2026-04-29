@@ -41,7 +41,23 @@ find_flutter() {
   exit 1
 }
 
+configure_ruby() {
+  if [[ -x "/opt/homebrew/opt/ruby/bin/ruby" ]]; then
+    export PATH="/opt/homebrew/opt/ruby/bin:$PATH"
+  elif [[ -x "/usr/local/opt/ruby/bin/ruby" ]]; then
+    export PATH="/usr/local/opt/ruby/bin:$PATH"
+  fi
+
+  if ruby -e 'exit Gem::Version.new(RUBY_VERSION) >= Gem::Version.new("3.0") ? 0 : 1' >/dev/null 2>&1; then
+    local gem_user_dir
+    gem_user_dir="$(ruby -e 'require "rubygems"; print Gem.user_dir')"
+    export GEM_HOME="$gem_user_dir"
+    export PATH="$gem_user_dir/bin:$(ruby -e 'require "rubygems"; print Gem.bindir'):$PATH"
+  fi
+}
+
 find_flutter
+configure_ruby
 
 IOS_BUNDLE_IDENTIFIER="${IOS_BUNDLE_IDENTIFIER:-com.icannavigation.app}"
 

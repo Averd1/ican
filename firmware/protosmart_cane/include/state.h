@@ -82,24 +82,17 @@ struct FaultState {
     unsigned long lastRecoveryAttempt;
 };
 
-// === BLE TELEMETRY PACKET (v3: offline testing + richer telemetry) ===
-// Includes IMU acceleration and distance channels for laptop-side analysis.
+// === BLE TELEMETRY PACKET ===
+// App-compatible 6-byte cane telemetry packet. The mobile app expects the
+// flags byte first, with bit0 indicating fall detected.
 struct __attribute__((packed)) TelemetryPacket {
-    uint8_t version;           // Protocol version = 3
-    uint8_t batteryPercent;    // Battery level (0-100)
-    uint8_t currentMode;       // NORMAL=0, LOW_POWER=1, HIGH_STRESS=2, EMERGENCY=3
+    uint8_t flags;             // bit0=fall, bit1=pulse_valid
     uint8_t heartBPM;          // Heart rate (0-255)
-    uint8_t flags;             // bit0=fall, bit1=high_stress, bit2=obstacle_near, bit3=obstacle_imminent, bit4-6=haptic init, bit7=orientation_ok
-    int16_t imuAxCms2;         // IMU accel X scaled by 100 (m/s^2 -> centi-m/s^2)
-    int16_t imuAyCms2;         // IMU accel Y scaled by 100
-    int16_t imuAzCms2;         // IMU accel Z scaled by 100
-    uint16_t ultrasonicLeftMm; // Left ultrasonic distance (mm)
-    uint16_t ultrasonicRightMm;// Right ultrasonic distance (mm)
-    uint16_t matrixHeadMm;     // 8x8 head-zone distance (mm), 0xFFFF when unavailable
-    uint16_t matrixWaistMm;    // 8x8 waist-zone distance (mm), 0xFFFF when unavailable
-    uint16_t healthFlags;      // HEALTH_* bits from config.h; 1=healthy/usable
+    uint8_t batteryPercent;    // Battery level (0-100)
+    int16_t yawAngleTenths;    // degrees * 10; reserved as 0 until yaw is supported
+    uint8_t reserved;          // reserved for app protocol compatibility
 };
-// Total: 21 bytes
+// Total: 6 bytes
 
 // === LIGHT SENSOR STATUS (NEW) ===
 struct LightStatus {

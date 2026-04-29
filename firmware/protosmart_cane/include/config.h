@@ -172,9 +172,9 @@
 
 // === BLE CONFIGURATION ===
 #define BLE_DEVICE_NAME "ProtoSmartCane"
-#define BLE_SERVICE_UUID "12345678-1234-1234-1234-123456789abc"
-#define BLE_CHARACTERISTIC_UUID "abcd1234-5678-5678-5678-abcd12345678"
-#define BLE_TELEMETRY_VERSION 0x03    // v3: Sensor telemetry + health flags
+#define BLE_SERVICE_UUID "10000001-1000-1000-1000-100000000000"
+#define BLE_CHARACTERISTIC_UUID "10000004-1000-1000-1000-100000000000"
+#define BLE_TELEMETRY_VERSION 0x03    // legacy constant; app-compatible packet has no version byte
 
 // === BLE TELEMETRY OPTIMIZATION ===
 // The cane sends minimal data; the app calculates battery lifetime using this power profile:

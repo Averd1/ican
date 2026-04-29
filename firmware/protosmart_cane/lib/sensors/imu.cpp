@@ -82,14 +82,13 @@ void imuUpdate() {
             if (now - freeFallStartTime <= FALL_IMPACT_WINDOW) {
                 if (accelMagG > FALL_IMPACT_THRESHOLD_G &&
                     gyroMagDps > FALL_GYRO_THRESHOLD_DPS) {
-                    if (DEBUG_MODE) {
-                        Serial.println("========== FALL DETECTED ==========");
-                        Serial.print("Impact Accel: ");
-                        Serial.print(accelMagG);
-                        Serial.print(" g | Gyro: ");
-                        Serial.print(gyroMagDps);
-                        Serial.println(" deg/s");
-                    }
+                    Serial.println("========== FALL DETECTED ==========");
+                    Serial.print("Impact Accel: ");
+                    Serial.print(accelMagG);
+                    Serial.print(" g | Gyro: ");
+                    Serial.print(gyroMagDps);
+                    Serial.println(" deg/s");
+                    Serial.println("fallDetectedGlobal = TRUE");
 
                     currentSituation = FALL_DETECTED;
                     currentEmergencyType = EMERGENCY_FALL;

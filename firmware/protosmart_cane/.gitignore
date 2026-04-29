@@ -3,3 +3,5 @@
 .vscode/c_cpp_properties.json
 .vscode/launch.json
 .vscode/ipch
+src/SmartCane.ino 2.cpp
+src/SmartCane.ino *.cpp

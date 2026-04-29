@@ -32,10 +32,25 @@ Primary release path:
 5. The Mac runs `scripts/macos_release.sh <build_number>`.
 6. Fastlane validates, builds `build/ios/ipa/iCan.ipa`, and uploads to TestFlight with App Store Connect API-key auth.
 
+Swift/native iOS compile gate:
+
+1. Run the `iOS Compile Check` GitHub Actions workflow, or open a pull request that touches iOS, Flutter app, tests, or release scripts.
+2. The job runs on the same self-hosted Mac labels: `macOS` and `ican-ios`.
+3. The Mac runs `scripts/macos_ios_compile_check.sh`.
+4. The script runs Flutter dependency install, format, analyzer, tests, and `flutter build ios --release --no-codesign` with a dummy compile-time Gemini value.
+5. This proves Swift/Xcode compilation without uploading to TestFlight and without exposing production API secrets.
+
 The upload path deliberately uses App Store Connect API keys, not an Apple ID
 password. The first automated version uses the existing signing material already
 proven on the Mac. Fastlane Match can be added later if signing needs to move to
 new Macs frequently.
+
+Agent connection model:
+
+- Future agents should prefer GitHub Actions for Mac work. They should not need to SSH into the Mac for normal compile checks or TestFlight releases.
+- Direct SSH is only for runner recovery or diagnosis. Use the local SSH alias `ican-mac` when available; do not put Mac passwords or private host details in commits.
+- The runner must stay registered to this repo with labels `macOS` and `ican-ios`, because both iOS workflows target those labels.
+- If the runner is offline, check it with `ssh ican-mac 'cd ~/actions-runner-ican && tail -20 runner.log'`, then restart it from the Mac runner directory.
 
 ## Required Secrets
 
@@ -137,8 +152,17 @@ flutter test --no-pub
 ```
 
 Before TestFlight upload, the Mac release lane repeats format, analyze, tests,
-and the release build. Hardware validation still requires the real iPhone plus
-iCan Eye smoke in `docs/regression_matrix.md`.
+and the signed release archive. The signed archive is the final Swift/Xcode gate:
+if any Swift file fails to compile, `flutter build ipa` fails before upload.
+Hardware validation still requires the real iPhone plus iCan Eye smoke in
+`docs/regression_matrix.md`.
+
+To check Swift/native iOS compilation without uploading a build:
+
+```powershell
+gh workflow run "iOS Compile Check" --repo saberrg/ican --ref main
+gh run watch --repo saberrg/ican
+```
 
 ## Future Codex Operating Prompt
 

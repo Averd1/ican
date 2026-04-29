@@ -1,0 +1,47 @@
+name: iOS Compile Check
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - ".github/workflows/ios_compile_check.yml"
+      - "ios/**"
+      - "lib/**"
+      - "test/**"
+      - "pubspec.yaml"
+      - "pubspec.lock"
+      - "scripts/macos_ios_compile_check.sh"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ios-compile-check-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  compile-ios:
+    name: Compile iOS target
+    runs-on: [self-hosted, macOS, ican-ios]
+    timeout-minutes: 60
+    env:
+      IOS_BUNDLE_IDENTIFIER: com.icannavigation.app
+      ICAN_ALLOW_BOOTSTRAP: "1"
+      ICAN_DOWNLOAD_COREML: "1"
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          clean: false
+
+      - name: Prepare scripts
+        shell: bash
+        run: chmod +x scripts/macos_setup.sh scripts/macos_ios_compile_check.sh
+
+      - name: Verify Mac runner
+        shell: bash
+        run: ./scripts/macos_setup.sh --ci
+
+      - name: Compile iOS without signing
+        shell: bash
+        run: ./scripts/macos_ios_compile_check.sh

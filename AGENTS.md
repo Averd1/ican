@@ -32,5 +32,13 @@ flutter test --no-pub
 
 Before TestFlight upload also run firmware and iOS gates listed in `docs/regression_matrix.md`.
 
+## Release Automation
+- Use `docs/release_pipeline.md` as the source of truth for iOS compile checks and TestFlight releases.
+- The Mac release path is GitHub Actions first: push code, then trigger `iOS Compile Check` for Swift/Xcode validation or push an `ios-v<version>-<build>` tag with `.\scripts\release_testflight.ps1 -BuildNumber <build> -Watch` for TestFlight.
+- The self-hosted Mac runner must have labels `macOS` and `ican-ios`; do not bypass the runner by committing Mac credentials.
+- Secrets belong only in GitHub Actions environment/repository secrets or local untracked shell state. Never print or commit Gemini keys, App Store Connect key material, Apple signing files, SSH keys, passwords, or `.env` files.
+- For TestFlight, rely on App Store Connect API key auth through Fastlane. Do not automate raw Apple ID password flows.
+- For native iOS/Swift confidence before upload, run `gh workflow run "iOS Compile Check" --repo saberrg/ican --ref main` and watch it with `gh run watch --repo saberrg/ican`.
+
 ## Crash Collection
 Keep symbolicated crash logs and Apple account output private/local. Store handoff notes without secrets, API keys, Apple IDs, or user data.

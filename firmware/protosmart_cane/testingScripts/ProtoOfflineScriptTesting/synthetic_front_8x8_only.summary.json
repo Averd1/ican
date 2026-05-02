@@ -1,0 +1,26 @@
+{
+  "scenario": "front obstacle detected by 8x8 matrix waist zone only",
+  "heart_profile": "post_exercise_recovery",
+  "packet_count": 121,
+  "duration_s": 24.0,
+  "packet_rate_hz": 5.0,
+  "mode_name": "NORMAL",
+  "heart_bpm_min": 87,
+  "heart_bpm_max": 110,
+  "heart_abnormal_samples": 0,
+  "min_matrix_waist_mm": 165,
+  "max_matrix_waist_mm": 780,
+  "near_samples": 36,
+  "imminent_samples": 11,
+  "high_stress_samples": 0,
+  "fall_samples": 0,
+  "ultrasonic_detection_samples": 0,
+  "expected_behavior": {
+    "head_haptic": "off throughout",
+    "left_haptic": "mirrors right haptic because obstacle is directly ahead",
+    "right_haptic": "mirrors left haptic because obstacle is directly ahead",
+    "center_disk": "activates only during imminent segment",
+    "mode": "stays NORMAL because heart rate stays below abnormal threshold and no fall is present"
+  },
+  "note": "This fixture is enriched for offline analysis. The current firmware BLE packet does not expose obstacle-source bits directly."
+}
